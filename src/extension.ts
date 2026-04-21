@@ -1,5 +1,12 @@
 import * as vscode from "vscode";
-import { collapseCommand, toggleMethodsInClassesCommand } from "./commands/collapse";
+import {
+	collapseCommand,
+	toggleClassMembersCommand,
+	toggleFunctionsInVariablesCommand,
+	toggleMethodsInClassesCommand,
+	toggleTypesCommand,
+	toggleVariablesCommand,
+} from "./commands/collapse";
 import { expandCommand } from "./commands/expand";
 import { toggleCommand } from "./commands/toggle";
 
@@ -11,6 +18,22 @@ export function activate(context: vscode.ExtensionContext): void {
 		vscode.commands.registerCommand(
 			"semanticFold.toggleMethodsInClasses",
 			toggleMethodsInClassesCommand
+		),
+		vscode.commands.registerCommand(
+			"semanticFold.toggleClassMembers",
+			toggleClassMembersCommand
+		),
+		vscode.commands.registerCommand(
+			"semanticFold.toggleTypes",
+			toggleTypesCommand
+		),
+		vscode.commands.registerCommand(
+			"semanticFold.toggleVariables",
+			toggleVariablesCommand
+		),
+		vscode.commands.registerCommand(
+			"semanticFold.toggleFunctionsInVariables",
+			toggleFunctionsInVariablesCommand
 		)
 	);
 }

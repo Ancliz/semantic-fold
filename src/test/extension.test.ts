@@ -24,6 +24,10 @@ suite("Semantic Fold Foundation", () => {
 		assert.ok(commands.includes("semanticFold.expand"));
 		assert.ok(commands.includes("semanticFold.toggle"));
 		assert.ok(commands.includes("semanticFold.toggleMethodsInClasses"));
+		assert.ok(commands.includes("semanticFold.toggleClassMembers"));
+		assert.ok(commands.includes("semanticFold.toggleTypes"));
+		assert.ok(commands.includes("semanticFold.toggleVariables"));
+		assert.ok(commands.includes("semanticFold.toggleFunctionsInVariables"));
 	});
 });
 
@@ -149,11 +153,13 @@ suite("Document Symbol Normalisation", () => {
 
 suite("Symbol Kind Mapping", () => {
 	test("keeps callable and member symbol kinds distinct", () => {
+		assert.strictEqual(mapSymbolKind(vscode.SymbolKind.Struct), "struct");
 		assert.strictEqual(mapSymbolKind(vscode.SymbolKind.Function), "function");
 		assert.strictEqual(mapSymbolKind(vscode.SymbolKind.Method), "method");
 		assert.strictEqual(mapSymbolKind(vscode.SymbolKind.Constructor), "constructor");
 		assert.strictEqual(mapSymbolKind(vscode.SymbolKind.Field), "field");
 		assert.strictEqual(mapSymbolKind(vscode.SymbolKind.Property), "property");
+		assert.strictEqual(mapSymbolKind(vscode.SymbolKind.Object), "object");
 	});
 
 	test("preserves provider-exposed callable and member categories during normalisation", () => {
@@ -623,6 +629,71 @@ suite("Region Filtering", () => {
 		);
 	});
 
+	test("matches convenience command filters for common structural workflows", () => {
+		const regions = createConvenienceCommandFixture();
+
+		assert.deepStrictEqual(
+			collectSelectionLines(selectFoldableRegions({
+				filter: {
+					kinds: ["method"],
+					parentKinds: ["class"],
+				},
+			}, regions)),
+			[5, 21]
+		);
+		assert.deepStrictEqual(
+			collectSelectionLines(selectFoldableRegions({
+				filter: {
+					kinds: ["constructor", "method", "property", "field"],
+					parentKinds: ["class"],
+				},
+			}, regions)),
+			[1, 5, 21]
+		);
+		assert.deepStrictEqual(
+			collectSelectionLines(selectFoldableRegions({
+				filter: {
+					kinds: ["function"],
+					ancestorKinds: ["class"],
+				},
+			}, regions)),
+			[7]
+		);
+		assert.deepStrictEqual(
+			collectSelectionLines(selectFoldableRegions({
+				filter: {
+					kinds: ["struct"],
+				},
+			}, regions)),
+			[40]
+		);
+		assert.deepStrictEqual(
+			collectSelectionLines(selectFoldableRegions({
+				filter: {
+					kinds: ["class", "struct", "interface", "enum"],
+				},
+			}, regions)),
+			[0, 18, 40, 50, 60]
+		);
+		assert.deepStrictEqual(
+			collectSelectionLines(selectFoldableRegions({
+				filter: {
+					kinds: ["variable", "object"],
+				},
+			}, regions)),
+			[70, 86]
+		);
+		assert.deepStrictEqual(
+			collectSelectionLines(selectFoldableRegions({
+				filter: {
+					kinds: ["function", "method"],
+					ancestorKinds: ["variable", "object"],
+				},
+			}, regions)),
+			[72, 78, 88]
+		);
+	});
+
 	test("walks ancestor chains safely when a malformed tree has a parent cycle", () => {
 		const regions = createPhaseOneFixture();
 		const controllerRegion = regions[0];
@@ -993,6 +1064,40 @@ function createPhaseOneFixture(): ReturnType<typeof normalizeSymbols> {
 	controllerSymbol.children.push(constructorSymbol, handleSymbol, viewModelSymbol);
 
 	return normalizeSymbols([controllerSymbol, bootstrapSymbol]);
+}
+
+function createConvenienceCommandFixture(): ReturnType<typeof normalizeSymbols> {
+	const controllerSymbol = createSymbol("Controller", vscode.SymbolKind.Class, 0, 28);
+	const constructorSymbol = createSymbol("constructor", vscode.SymbolKind.Constructor, 1, 3);
+	const handleSymbol = createSymbol("handle", vscode.SymbolKind.Method, 5, 16);
+	const formatPayloadSymbol = createSymbol("formatPayload", vscode.SymbolKind.Function, 7, 10);
+	const viewModelSymbol = createSymbol("ViewModel", vscode.SymbolKind.Class, 18, 25);
+	const renderSymbol = createSymbol("render", vscode.SymbolKind.Method, 21, 24);
+	const bootstrapSymbol = createSymbol("bootstrap", vscode.SymbolKind.Function, 32, 36);
+	const dataStructSymbol = createSymbol("DataRecord", vscode.SymbolKind.Struct, 40, 48);
+	const apiInterfaceSymbol = createSymbol("ApiClient", vscode.SymbolKind.Interface, 50, 58);
+	const statusEnumSymbol = createSymbol("Status", vscode.SymbolKind.Enum, 60, 68);
+	const dbVariableSymbol = createSymbol("db", vscode.SymbolKind.Variable, 70, 84);
+	const connectSymbol = createSymbol("connect", vscode.SymbolKind.Method, 72, 76);
+	const buildQuerySymbol = createSymbol("buildQuery", vscode.SymbolKind.Function, 78, 82);
+	const cacheObjectSymbol = createSymbol("cache", vscode.SymbolKind.Object, 86, 96);
+	const hydrateSymbol = createSymbol("hydrate", vscode.SymbolKind.Method, 88, 92);
+
+	handleSymbol.children.push(formatPayloadSymbol);
+	viewModelSymbol.children.push(renderSymbol);
+	controllerSymbol.children.push(constructorSymbol, handleSymbol, viewModelSymbol);
+	dbVariableSymbol.children.push(connectSymbol, buildQuerySymbol);
+	cacheObjectSymbol.children.push(hydrateSymbol);
+
+	return normalizeSymbols([
+		controllerSymbol,
+		bootstrapSymbol,
+		dataStructSymbol,
+		apiInterfaceSymbol,
+		statusEnumSymbol,
+		dbVariableSymbol,
+		cacheObjectSymbol,
+	]);
 }
 
 function createDepthFilterFixture(): ReturnType<typeof normalizeSymbols> {

@@ -1,5 +1,6 @@
 export const REGION_KINDS = [
 	"class",
+	"struct",
 	"interface",
 	"enum",
 	"namespace",
@@ -9,6 +10,7 @@ export const REGION_KINDS = [
 	"property",
 	"field",
 	"variable",
+	"object",
 	"import",
 	"comment",
 	"region",

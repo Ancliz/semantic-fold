@@ -70,6 +70,7 @@ This should fold each method directly, rather than recursively folding everythin
 The normalised semantic category of a region, such as:
 
 - `class`
+- `struct`
 - `interface`
 - `enum`
 - `function`
@@ -78,11 +79,12 @@ The normalised semantic category of a region, such as:
 - `namespace`
 - `property`
 - `field`
+- `object`
 - `import`
 - `comment`
 - `region`
 
-Semantic Fold preserves distinctions such as `function`, `method`, `constructor`, `property`, and `field` when the active language extension exposes them through VS Code's document-symbol provider. Provider quality varies by language and extension, so weak providers may report less precise kinds or fall back to unknown categories.
+Semantic Fold preserves distinctions such as `struct`, `function`, `method`, `constructor`, `property`, `field`, `variable`, and `object` when the active language extension exposes them through VS Code's document-symbol provider. Provider quality varies by language and extension, so weak providers may report less precise kinds or fall back to unknown categories.
 
 ### Symbol depth
 
@@ -136,6 +138,18 @@ Payloads passed to `semanticFold.collapse` default to toggle mode for keybinding
 The `preserveCursorContext` field is accepted for payload compatibility, but Phase 1 folding does not protect the focused region from being folded. If the cursor is inside a folded target, VS Code moves the selection to visible fold context instead of reopening that method.
 
 Toggle state is tracked for folds created through Semantic Fold commands. Manual folding, unfolding, or other extensions can make the tracked state incomplete, but the next semantic toggle collapses a mixed target set back into a consistent state before later toggles expand it as a group.
+
+## Convenience commands
+
+These commands are available from the Command Palette and use the same filter pipeline as the generic commands:
+
+| Command | Intended behaviour |
+| --- | --- |
+| `semanticFold.toggleMethodsInClasses` | Toggle methods whose immediate parent is a class. |
+| `semanticFold.toggleClassMembers` | Toggle constructors, methods, properties, and fields whose immediate parent is a class. |
+| `semanticFold.toggleTypes` | Toggle provider-exposed class, struct, interface, and enum regions. Type aliases are included only if the language provider reports them as one of those symbol kinds. |
+| `semanticFold.toggleVariables` | Toggle variable, constant, and object regions that have foldable symbol ranges. |
+| `semanticFold.toggleFunctionsInVariables` | Toggle function and method regions anywhere inside a variable or object ancestor context, such as functions inside an object literal assigned to a variable. |
 
 Toggle methods whose immediate parent is a class:
 
@@ -246,6 +260,12 @@ Use a file with a top-level class, methods inside that class, a nested function 
 - Bind `semanticFold.collapse` with `filter.kinds: ["method"]` and `filter.parentKinds: ["class"]`; confirm class methods toggle while top-level helper functions stay visible.
 - Bind `semanticFold.collapse` with `filter.kinds: ["function"]` and `filter.ancestorKinds: ["class"]`; confirm nested helper functions inside a class context toggle while top-level helper functions stay visible.
 - Run `semanticFold.toggleMethodsInClasses`; confirm it behaves like the `method` plus `class` parent filter.
+- Run `semanticFold.toggleClassMembers`; confirm it toggles direct class members such as constructors, methods, properties, and fields.
+- Run `semanticFold.toggleFunctionsInClasses`; confirm it toggles nested helper functions inside class context while top-level helper functions stay visible.
+- Run `semanticFold.toggleStructs`; confirm provider-exposed struct regions toggle if the active language reports structs separately from classes.
+- Run `semanticFold.toggleTypes`; confirm class, struct, interface, and enum regions toggle.
+- Run `semanticFold.toggleVariables`; confirm foldable variable, constant, and object regions toggle.
+- Run `semanticFold.toggleFunctionsInVariables`; confirm function and method regions inside variable or object contexts toggle when the provider exposes that hierarchy.
 - Add `"mode": "collapse"` to the same keybinding; confirm repeated use stays a one-way collapse request.
 - Run `semanticFold.expand` with the same filter; confirm only the matching methods expand.
 - Run `semanticFold.toggle` with the same filter; confirm it targets the same methods as collapse and expand.
