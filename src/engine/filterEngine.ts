@@ -8,6 +8,7 @@ export function filterRegions(rootNodes: readonly RegionNode[], filter: Collapse
 		return matchesIncludedKind(region, filter)
 			&& !matchesExcludedKind(region, filter)
 			&& matchesParentKind(region, filter)
+			&& matchesAncestorKind(region, filter)
 			&& matchesSymbolDepth(region, filter);
 	});
 }
@@ -52,6 +53,28 @@ function matchesParentKind(region: RegionNode, filter: CollapseFilter): boolean 
 	}
 
 	return region.parent !== undefined && filter.parentKinds.includes(region.parent.kind);
+}
+
+function matchesAncestorKind(region: RegionNode, filter: CollapseFilter): boolean {
+	if(!filter.ancestorKinds || filter.ancestorKinds.length === 0) {
+		return true;
+	}
+
+	return getAncestors(region).some((ancestor) => filter.ancestorKinds?.includes(ancestor.kind));
+}
+
+export function getAncestors(region: RegionNode): RegionNode[] {
+	const ancestors: RegionNode[] = [];
+	const visitedNodes = new Set<RegionNode>();
+	let ancestor = region.parent;
+
+	while(ancestor !== undefined && !visitedNodes.has(ancestor)) {
+		visitedNodes.add(ancestor);
+		ancestors.push(ancestor);
+		ancestor = ancestor.parent;
+	}
+
+	return ancestors;
 }
 
 function matchesSymbolDepth(region: RegionNode, filter: CollapseFilter): boolean {

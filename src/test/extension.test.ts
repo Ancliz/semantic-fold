@@ -1,7 +1,7 @@
 import * as assert from "assert";
 import * as vscode from "vscode";
 import { getDefaultCollapseMode } from "../commands/collapse";
-import { filterRegions, flattenRegions } from "../engine/filterEngine";
+import { filterRegions, flattenRegions, getAncestors } from "../engine/filterEngine";
 import {
 	collectFoldableRegions,
 	collectSelectionLines,
@@ -189,6 +189,7 @@ suite("Command Argument Normalisation", () => {
 					excludeKinds: ["unknown"],
 					exactSymbolDepth: 2,
 					minSymbolDepth: 1,
+					ancestorKinds: ["class"],
 					parentKinds: ["class"],
 					nameRegex: "^handle",
 				},
@@ -200,6 +201,7 @@ suite("Command Argument Normalisation", () => {
 					excludeKinds: ["unknown"],
 					exactSymbolDepth: 2,
 					minSymbolDepth: 1,
+					ancestorKinds: ["class"],
 					parentKinds: ["class"],
 					nameRegex: "^handle",
 				},
@@ -557,6 +559,65 @@ suite("Region Filtering", () => {
 				exactSymbolDepth: 3,
 			}).map((region) => region.name),
 			["render"]
+		);
+	});
+
+	test("returns regions whose broader ancestor context matches requested kinds", () => {
+		const regions = createPhaseOneFixture();
+
+		assert.deepStrictEqual(
+			filterRegions(regions, { ancestorKinds: ["class"] }).map((region) => region.name),
+			["constructor", "handle", "formatPayload", "ViewModel", "render"]
+		);
+		assert.deepStrictEqual(
+			filterRegions(regions, {
+				kinds: ["function"],
+				ancestorKinds: ["class"],
+			}).map((region) => region.name),
+			["formatPayload"]
+		);
+	});
+
+	test("combines ancestor filters with kind, depth, and parent filters", () => {
+		const regions = createPhaseOneFixture();
+
+		assert.deepStrictEqual(
+			filterRegions(regions, {
+				kinds: ["method"],
+				parentKinds: ["class"],
+				ancestorKinds: ["class"],
+				exactSymbolDepth: 3,
+			}).map((region) => region.name),
+			["render"]
+		);
+		assert.deepStrictEqual(
+			filterRegions(regions, {
+				kinds: ["function"],
+				parentKinds: ["method"],
+				ancestorKinds: ["class"],
+				exactSymbolDepth: 3,
+			}).map((region) => region.name),
+			["formatPayload"]
+		);
+	});
+
+	test("walks ancestor chains safely when a malformed tree has a parent cycle", () => {
+		const regions = createPhaseOneFixture();
+		const controllerRegion = regions[0];
+		const handleRegion = controllerRegion.children[1];
+
+		controllerRegion.parent = handleRegion;
+
+		assert.deepStrictEqual(
+			getAncestors(handleRegion).map((region) => region.name),
+			["Controller", "handle"]
+		);
+		assert.deepStrictEqual(
+			filterRegions(regions, {
+				kinds: ["function"],
+				ancestorKinds: ["class"],
+			}).map((region) => region.name),
+			["formatPayload"]
 		);
 	});
 });

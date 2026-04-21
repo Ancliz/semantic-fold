@@ -123,7 +123,8 @@ The generic `semanticFold.collapse` command accepts one optional `args` object:
     "exactSymbolDepth": 2,
     "minSymbolDepth": 1,
     "maxSymbolDepth": 3,
-    "parentKinds": ["class"]
+    "parentKinds": ["class"],
+    "ancestorKinds": ["class"]
   }
 }
 ```
@@ -171,6 +172,21 @@ Add `exactSymbolDepth` when you only want methods at one level of the symbol tre
       "kinds": ["method"],
       "parentKinds": ["class"],
       "exactSymbolDepth": 2
+    }
+  }
+}
+```
+
+Toggle nested helper functions anywhere inside a class context:
+
+```json
+{
+  "key": "ctrl+alt+h",
+  "command": "semanticFold.collapse",
+  "args": {
+    "filter": {
+      "kinds": ["function"],
+      "ancestorKinds": ["class"]
     }
   }
 }
@@ -228,6 +244,7 @@ Use a file with a top-level class, methods inside that class, a nested function 
 - Run `semanticFold.collapse` with no args and confirm foldable symbol regions collapse.
 - Bind `semanticFold.collapse` with `filter.kinds: ["method"]` and `filter.exactSymbolDepth: 2`; confirm second-level methods toggle without folding their parent class.
 - Bind `semanticFold.collapse` with `filter.kinds: ["method"]` and `filter.parentKinds: ["class"]`; confirm class methods toggle while top-level helper functions stay visible.
+- Bind `semanticFold.collapse` with `filter.kinds: ["function"]` and `filter.ancestorKinds: ["class"]`; confirm nested helper functions inside a class context toggle while top-level helper functions stay visible.
 - Run `semanticFold.toggleMethodsInClasses`; confirm it behaves like the `method` plus `class` parent filter.
 - Add `"mode": "collapse"` to the same keybinding; confirm repeated use stays a one-way collapse request.
 - Run `semanticFold.expand` with the same filter; confirm only the matching methods expand.
