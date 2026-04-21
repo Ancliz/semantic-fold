@@ -82,6 +82,8 @@ The normalized semantic category of a region, such as:
 - `comment`
 - `region`
 
+Semantic Fold preserves distinctions such as `function`, `method`, `constructor`, `property`, and `field` when the active language extension exposes them through VS Code's document-symbol provider. Provider quality varies by language and extension, so weak providers may report less precise kinds or fall back to unknown categories.
+
 ### Symbol depth
 
 Depth in the **document symbol tree**.
@@ -279,4 +281,3 @@ Semantic Fold is built around one core idea:
 The first-class workflow is **symbol kind + symbol depth + parent relationship**, with targeted folding so expanded methods reveal their full contents.
 
 That makes it much better suited than recursive depth-only folding for tasks like folding all methods in a class.
-
