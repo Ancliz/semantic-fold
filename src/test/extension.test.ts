@@ -22,6 +22,7 @@ suite("Semantic Fold Foundation", () => {
 
 		assert.ok(commands.includes("semanticFold.collapse"));
 		assert.ok(commands.includes("semanticFold.expand"));
+		assert.ok(commands.includes("semanticFold.toggleMethodsInClasses"));
 	});
 });
 
@@ -188,6 +189,7 @@ suite("Command Argument Normalisation", () => {
 					excludeKinds: ["unknown"],
 					exactSymbolDepth: 2,
 					minSymbolDepth: 1,
+					parentKinds: ["class"],
 					nameRegex: "^handle",
 				},
 				preserveCursorContext: true,
@@ -198,6 +200,7 @@ suite("Command Argument Normalisation", () => {
 					excludeKinds: ["unknown"],
 					exactSymbolDepth: 2,
 					minSymbolDepth: 1,
+					parentKinds: ["class"],
 					nameRegex: "^handle",
 				},
 				mode: "collapse",
@@ -498,6 +501,62 @@ suite("Region Filtering", () => {
 		assert.deepStrictEqual(
 			filterRegions(regions, { exactSymbolDepth: 2 }).map((region) => region.name),
 			[]
+		);
+	});
+
+	test("returns regions whose immediate parent kind matches the requested parent kinds", () => {
+		const regions = createPhaseOneFixture();
+
+		assert.deepStrictEqual(
+			filterRegions(regions, { parentKinds: ["class"] }).map((region) => region.name),
+			["constructor", "handle", "ViewModel", "render"]
+		);
+		assert.deepStrictEqual(
+			filterRegions(regions, {
+				kinds: ["method"],
+				parentKinds: ["class"],
+			}).map((region) => region.name),
+			["handle", "render"]
+		);
+	});
+
+	test("keeps top-level helpers visible when filtering methods inside classes", () => {
+		const regions = createPhaseOneFixture();
+
+		assert.deepStrictEqual(
+			filterRegions(regions, {
+				kinds: ["method"],
+				parentKinds: ["class"],
+			}).map((region) => region.name),
+			["handle", "render"]
+		);
+		assert.deepStrictEqual(
+			filterRegions(regions, {
+				kinds: ["function"],
+				parentKinds: ["class"],
+			}).map((region) => region.name),
+			[]
+		);
+	});
+
+	test("combines parent-kind filters with kind and symbol-depth filters", () => {
+		const regions = createPhaseOneFixture();
+
+		assert.deepStrictEqual(
+			filterRegions(regions, {
+				kinds: ["method"],
+				parentKinds: ["class"],
+				exactSymbolDepth: 2,
+			}).map((region) => region.name),
+			["handle"]
+		);
+		assert.deepStrictEqual(
+			filterRegions(regions, {
+				kinds: ["method"],
+				parentKinds: ["class"],
+				exactSymbolDepth: 3,
+			}).map((region) => region.name),
+			["render"]
 		);
 	});
 });

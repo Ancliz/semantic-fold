@@ -122,7 +122,8 @@ The generic `semanticFold.collapse` command accepts one optional `args` object:
     "excludeKinds": ["unknown"],
     "exactSymbolDepth": 2,
     "minSymbolDepth": 1,
-    "maxSymbolDepth": 3
+    "maxSymbolDepth": 3,
+    "parentKinds": ["class"]
   }
 }
 ```
@@ -135,7 +136,16 @@ The `preserveCursorContext` field is accepted for payload compatibility, but Pha
 
 Toggle state is tracked for folds created through Semantic Fold commands. Manual folding, unfolding, or other extensions can make the tracked state incomplete, but the next semantic toggle collapses a mixed target set back into a consistent state before later toggles expand it as a group.
 
-Toggle second-level methods:
+Toggle methods whose immediate parent is a class:
+
+```json
+{
+  "key": "ctrl+alt+m",
+  "command": "semanticFold.toggleMethodsInClasses"
+}
+```
+
+The generic command equivalent is:
 
 ```json
 {
@@ -144,6 +154,22 @@ Toggle second-level methods:
   "args": {
     "filter": {
       "kinds": ["method"],
+      "parentKinds": ["class"]
+    }
+  }
+}
+```
+
+Add `exactSymbolDepth` when you only want methods at one level of the symbol tree:
+
+```json
+{
+  "key": "ctrl+alt+shift+m",
+  "command": "semanticFold.collapse",
+  "args": {
+    "filter": {
+      "kinds": ["method"],
+      "parentKinds": ["class"],
       "exactSymbolDepth": 2
     }
   }
@@ -201,6 +227,8 @@ Use a file with a top-level class, methods inside that class, a nested function 
 
 - Run `semanticFold.collapse` with no args and confirm foldable symbol regions collapse.
 - Bind `semanticFold.collapse` with `filter.kinds: ["method"]` and `filter.exactSymbolDepth: 2`; confirm second-level methods toggle without folding their parent class.
+- Bind `semanticFold.collapse` with `filter.kinds: ["method"]` and `filter.parentKinds: ["class"]`; confirm class methods toggle while top-level helper functions stay visible.
+- Run `semanticFold.toggleMethodsInClasses`; confirm it behaves like the `method` plus `class` parent filter.
 - Add `"mode": "collapse"` to the same keybinding; confirm repeated use stays a one-way collapse request.
 - Run `semanticFold.expand` with the same filter; confirm only the matching methods expand.
 - Use a filter with no matches; confirm the command leaves the editor unchanged.

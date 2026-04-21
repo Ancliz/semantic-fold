@@ -7,6 +7,7 @@ export function filterRegions(rootNodes: readonly RegionNode[], filter: Collapse
 	return regions.filter((region) => {
 		return matchesIncludedKind(region, filter)
 			&& !matchesExcludedKind(region, filter)
+			&& matchesParentKind(region, filter)
 			&& matchesSymbolDepth(region, filter);
 	});
 }
@@ -43,6 +44,14 @@ function matchesExcludedKind(region: RegionNode, filter: CollapseFilter): boolea
 	}
 
 	return filter.excludeKinds.includes(region.kind);
+}
+
+function matchesParentKind(region: RegionNode, filter: CollapseFilter): boolean {
+	if(!filter.parentKinds || filter.parentKinds.length === 0) {
+		return true;
+	}
+
+	return region.parent !== undefined && filter.parentKinds.includes(region.parent.kind);
 }
 
 function matchesSymbolDepth(region: RegionNode, filter: CollapseFilter): boolean {
