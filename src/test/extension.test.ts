@@ -9,6 +9,7 @@ import {
 } from "../engine/foldExecutor";
 import { getRegions } from "../engine/regionCollector";
 import { normalizeSymbols } from "../engine/symbolNormaliser";
+import { normaliseArgs, normaliseCollapseFilter } from "../model/filters";
 import { mapSymbolKind } from "../util/symbolKindMap";
 
 suite("Semantic Fold Foundation", () => {
@@ -114,7 +115,7 @@ suite("Document Symbol Normalisation", () => {
 		);
 	});
 
-	test("normalizes flat symbol information into top-level fallback nodes", () => {
+	test("normalises flat symbol information into top-level fallback nodes", () => {
 		const uri = vscode.Uri.parse("file:///workspace/example.ts");
 		const symbols = [
 			createSymbolInformation("Example", vscode.SymbolKind.Class, uri, 0, 10),
@@ -173,6 +174,90 @@ suite("Symbol Kind Mapping", () => {
 
 	test("falls back safely for unmapped symbol kinds", () => {
 		assert.strictEqual(mapSymbolKind(999 as vscode.SymbolKind), "unknown");
+	});
+});
+
+suite("Command Argument Normalisation", () => {
+	test("accepts structured keybinding payload filters", () => {
+		assert.deepStrictEqual(
+			normaliseArgs({
+				filter: {
+					kinds: ["method", "function"],
+					excludeKinds: ["unknown"],
+					exactSymbolDepth: 2,
+					minSymbolDepth: 1,
+					nameRegex: "^handle",
+				},
+				preserveCursorContext: true,
+			}, "collapse"),
+			{
+				filter: {
+					kinds: ["method", "function"],
+					excludeKinds: ["unknown"],
+					exactSymbolDepth: 2,
+					minSymbolDepth: 1,
+					nameRegex: "^handle",
+				},
+				mode: "collapse",
+				preserveCursorContext: true,
+			}
+		);
+	});
+
+	test("deduplicates valid region kinds and ignores invalid kind values", () => {
+		assert.deepStrictEqual(
+			normaliseCollapseFilter({
+				kinds: ["method", "method", "not-a-kind", 42],
+				excludeKinds: ["property", "also-bad"],
+			}),
+			{
+				kinds: ["method"],
+				excludeKinds: ["property"],
+			}
+		);
+	});
+
+	test("ignores invalid or incomplete payload fields without throwing", () => {
+		assert.deepStrictEqual(normaliseArgs(undefined, "collapse"), {
+			mode: "collapse",
+		});
+		assert.deepStrictEqual(normaliseArgs("bad", "collapse"), {
+			mode: "collapse",
+		});
+		assert.deepStrictEqual(
+			normaliseArgs({
+				filter: {
+					kinds: "method",
+					exactSymbolDepth: 0,
+					minSymbolDepth: 2.5,
+					maxSymbolDepth: "3",
+					nameRegex: "[",
+				},
+			}, "collapse"),
+			{
+				mode: "collapse",
+			}
+		);
+	});
+
+	test("uses the command mode requested by the command implementation", () => {
+		assert.deepStrictEqual(
+			normaliseArgs({
+				mode: "expand",
+				filter: {
+					kinds: ["method"],
+				},
+			}, "collapse"),
+			{
+				filter: {
+					kinds: ["method"],
+				},
+				mode: "collapse",
+			}
+		);
+		assert.deepStrictEqual(normaliseArgs({}, "expand"), {
+			mode: "expand",
+		});
 	});
 });
 

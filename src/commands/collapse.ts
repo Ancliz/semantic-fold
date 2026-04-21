@@ -1,9 +1,9 @@
 import * as vscode from "vscode";
 import { getRegions } from "../engine/regionCollector";
 import { runFoldCommand } from "../engine/foldExecutor";
-import type { CollapseArgs } from "../model/filters";
+import { normaliseArgs } from "../model/filters";
 
-export async function collapseCommand(args: CollapseArgs = {}): Promise<void> {
+export async function collapseCommand(args?: unknown): Promise<void> {
 	const editor = vscode.window.activeTextEditor;
 
 	if(!editor) {
@@ -12,5 +12,5 @@ export async function collapseCommand(args: CollapseArgs = {}): Promise<void> {
 
 	const regions = await getRegions(editor.document);
 
-	await runFoldCommand({ ...args, mode: "collapse" }, regions);
+	await runFoldCommand(normaliseArgs(args, "collapse"), regions);
 }
