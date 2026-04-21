@@ -1,7 +1,12 @@
 import * as assert from "assert";
 import * as vscode from "vscode";
 import { filterRegions, flattenRegions } from "../engine/filterEngine";
-import { collectFoldableRegions, selectFoldableRegions } from "../engine/foldExecutor";
+import {
+	collectFoldableRegions,
+	collectSelectionLines,
+	runFoldCommand,
+	selectFoldableRegions,
+} from "../engine/foldExecutor";
 import { getRegions } from "../engine/regionCollector";
 import { normalizeSymbols } from "../engine/symbolNormaliser";
 import { mapSymbolKind } from "../util/symbolKindMap";
@@ -292,6 +297,58 @@ suite("Fold Execution Guards", () => {
 			["run", "stop"]
 		);
 	});
+
+	test("collects deduplicated sorted selection lines from filtered nodes", () => {
+		const regions = createDuplicateSelectionFixture();
+
+		assert.deepStrictEqual(
+			collectSelectionLines(selectFoldableRegions({}, regions)),
+			[2, 6, 12]
+		);
+	});
+
+	test("executes exact non-recursive fold selection lines", async () => {
+		const regions = createDuplicateSelectionFixture();
+		const executedCommands: ExecutedCommand[] = [];
+
+		await runFoldCommand({}, regions, async (command, args) => {
+			executedCommands.push({ command, selectionLines: args.selectionLines });
+		});
+
+		assert.deepStrictEqual(executedCommands, [{
+			command: "editor.fold",
+			selectionLines: [2, 6, 12],
+		}]);
+	});
+
+	test("does not execute a fold command when no filtered nodes are foldable", async () => {
+		const regions = createDuplicateSelectionFixture();
+		const executedCommands: ExecutedCommand[] = [];
+
+		await runFoldCommand({
+			filter: {
+				kinds: ["property"],
+			},
+		}, regions, async (command, args) => {
+			executedCommands.push({ command, selectionLines: args.selectionLines });
+		});
+
+		assert.deepStrictEqual(executedCommands, []);
+	});
+
+	test("executes exact unfold selection lines for expand mode", async () => {
+		const regions = createDuplicateSelectionFixture();
+		const executedCommands: ExecutedCommand[] = [];
+
+		await runFoldCommand({ mode: "expand" }, regions, async (command, args) => {
+			executedCommands.push({ command, selectionLines: args.selectionLines });
+		});
+
+		assert.deepStrictEqual(executedCommands, [{
+			command: "editor.unfold",
+			selectionLines: [2, 6, 12],
+		}]);
+	});
 });
 
 function createSymbol(
@@ -334,6 +391,27 @@ function createDepthFilterFixture(): ReturnType<typeof normalizeSymbols> {
 	classSymbol.children.push(methodSymbol, siblingMethodSymbol);
 
 	return normalizeSymbols([classSymbol, functionSymbol]);
+}
+
+function createDuplicateSelectionFixture(): ReturnType<typeof normalizeSymbols> {
+	const firstMethodSymbol = createSymbol("first", vscode.SymbolKind.Method, 6, 10);
+	const duplicateLineMethodSymbol = createSymbol("second", vscode.SymbolKind.Method, 6, 9);
+	const earlierMethodSymbol = createSymbol("earlier", vscode.SymbolKind.Method, 2, 4);
+	const laterMethodSymbol = createSymbol("later", vscode.SymbolKind.Method, 12, 16);
+	const propertySymbol = createSymbol("name", vscode.SymbolKind.Property, 18, 18);
+
+	return normalizeSymbols([
+		firstMethodSymbol,
+		duplicateLineMethodSymbol,
+		earlierMethodSymbol,
+		laterMethodSymbol,
+		propertySymbol,
+	]);
+}
+
+interface ExecutedCommand {
+	command: "editor.fold" | "editor.unfold";
+	selectionLines: number[];
 }
 
 async function activateExtension(): Promise<void> {

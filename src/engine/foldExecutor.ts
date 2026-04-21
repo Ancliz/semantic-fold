@@ -1,6 +1,14 @@
+import * as vscode from "vscode";
 import type { CollapseArgs } from "../model/filters";
 import type { RegionNode } from "../model/region";
 import { filterRegions } from "./filterEngine";
+
+type FoldCommand = "editor.fold" | "editor.unfold";
+
+export type FoldCommandExecutor = (
+	command: FoldCommand,
+	args: { selectionLines: number[] }
+) => Thenable<unknown>;
 
 export function isFoldableRegion(region: RegionNode): boolean {
 	return Number.isInteger(region.rangeStartLine)
@@ -25,11 +33,23 @@ export function selectFoldableRegions(
 	return filterRegions(rootNodes, args.filter).filter(isFoldableRegion);
 }
 
+export function collectSelectionLines(regions: readonly RegionNode[]): number[] {
+	return [...new Set(regions.map((region) => region.selectionLine))]
+		.sort((left, right) => left - right);
+}
+
 export async function runFoldCommand(
 	args: CollapseArgs,
-	rootNodes: readonly RegionNode[] = []
+	rootNodes: readonly RegionNode[] = [],
+	executeCommand: FoldCommandExecutor = defaultFoldCommandExecutor
 ): Promise<void> {
-	selectFoldableRegions(args, rootNodes);
+	const selectionLines = collectSelectionLines(selectFoldableRegions(args, rootNodes));
+
+	if(selectionLines.length === 0) {
+		return;
+	}
+
+	await executeCommand(getFoldCommand(args), { selectionLines });
 }
 
 function collectFoldableRegion(region: RegionNode, foldableRegions: RegionNode[]): void {
@@ -40,4 +60,19 @@ function collectFoldableRegion(region: RegionNode, foldableRegions: RegionNode[]
 	for(const child of region.children) {
 		collectFoldableRegion(child, foldableRegions);
 	}
+}
+
+function getFoldCommand(args: CollapseArgs): FoldCommand {
+	if(args.mode === "expand") {
+		return "editor.unfold";
+	}
+
+	return "editor.fold";
+}
+
+function defaultFoldCommandExecutor(
+	command: FoldCommand,
+	args: { selectionLines: number[] }
+): Thenable<unknown> {
+	return vscode.commands.executeCommand(command, args);
 }
