@@ -1,5 +1,6 @@
 import * as assert from "assert";
 import * as vscode from "vscode";
+import { filterRegions, flattenRegions } from "../engine/filterEngine";
 import { collectFoldableRegions } from "../engine/foldExecutor";
 import { getRegions } from "../engine/regionCollector";
 import { normalizeSymbols } from "../engine/symbolNormaliser";
@@ -121,6 +122,72 @@ suite("Symbol Kind Mapping", () => {
 	});
 });
 
+suite("Region Filtering", () => {
+	test("flattens normalized region trees in document order", () => {
+		const regions = createFilterFixture();
+
+		assert.deepStrictEqual(
+			flattenRegions(regions).map((region) => region.name),
+			["Example", "constructor", "value", "name", "run", "helper", "mystery"]
+		);
+	});
+
+	test("returns only regions whose kinds match the requested kinds", () => {
+		const regions = createFilterFixture();
+
+		assert.deepStrictEqual(
+			filterRegions(regions, { kinds: ["method"] }).map((region) => region.name),
+			["run"]
+		);
+		assert.deepStrictEqual(
+			filterRegions(regions, { kinds: ["class", "function"] }).map((region) => region.name),
+			["Example", "helper"]
+		);
+	});
+
+	test("applies exclusions without mutating the underlying region tree", () => {
+		const regions = createFilterFixture();
+		const classRegion = regions[0];
+		const originalChildren = classRegion.children.map((region) => region.name);
+
+		const filteredRegions = filterRegions(regions, { excludeKinds: ["method", "property"] });
+
+		assert.deepStrictEqual(
+			filteredRegions.map((region) => region.name),
+			["Example", "constructor", "value", "helper", "mystery"]
+		);
+		assert.deepStrictEqual(
+			classRegion.children.map((region) => region.name),
+			originalChildren
+		);
+	});
+
+	test("combines included and excluded kinds", () => {
+		const regions = createFilterFixture();
+
+		assert.deepStrictEqual(
+			filterRegions(regions, {
+				kinds: ["method", "property", "field"],
+				excludeKinds: ["property"],
+			}).map((region) => region.name),
+			["value", "run"]
+		);
+	});
+
+	test("ignores unknown regions unless they are explicitly requested", () => {
+		const regions = createFilterFixture();
+
+		assert.deepStrictEqual(
+			filterRegions(regions, { kinds: ["method"] }).map((region) => region.name),
+			["run"]
+		);
+		assert.deepStrictEqual(
+			filterRegions(regions, { kinds: ["unknown"] }).map((region) => region.name),
+			["mystery"]
+		);
+	});
+});
+
 suite("Fold Execution Guards", () => {
 	test("excludes zero-span and one-line regions from fold execution candidates", () => {
 		const classSymbol = createSymbol("Example", vscode.SymbolKind.Class, 0, 8);
@@ -151,6 +218,20 @@ function createSymbol(
 		new vscode.Range(startLine, 0, endLine, 1),
 		new vscode.Range(startLine, 0, startLine, 1)
 	);
+}
+
+function createFilterFixture(): ReturnType<typeof normalizeSymbols> {
+	const classSymbol = createSymbol("Example", vscode.SymbolKind.Class, 0, 12);
+	const constructorSymbol = createSymbol("constructor", vscode.SymbolKind.Constructor, 1, 3);
+	const fieldSymbol = createSymbol("value", vscode.SymbolKind.Field, 4, 4);
+	const propertySymbol = createSymbol("name", vscode.SymbolKind.Property, 5, 7);
+	const methodSymbol = createSymbol("run", vscode.SymbolKind.Method, 8, 11);
+	const functionSymbol = createSymbol("helper", vscode.SymbolKind.Function, 14, 16);
+	const unknownSymbol = createSymbol("mystery", 999 as vscode.SymbolKind, 18, 20);
+
+	classSymbol.children.push(constructorSymbol, fieldSymbol, propertySymbol, methodSymbol);
+
+	return normalizeSymbols([classSymbol, functionSymbol, unknownSymbol]);
 }
 
 async function activateExtension(): Promise<void> {
