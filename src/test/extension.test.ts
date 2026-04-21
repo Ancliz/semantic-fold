@@ -1,7 +1,7 @@
 import * as assert from "assert";
 import * as vscode from "vscode";
 import { getDefaultCollapseMode } from "../commands/collapse";
-import { filterRegions, flattenRegions } from "../engine/filterEngine";
+import { filterRegions, flattenRegions, getAncestors, hasHierarchy } from "../engine/filterEngine";
 import {
 	collectFoldableRegions,
 	collectSelectionLines,
@@ -22,6 +22,7 @@ suite("Semantic Fold Foundation", () => {
 
 		assert.ok(commands.includes("semanticFold.collapse"));
 		assert.ok(commands.includes("semanticFold.expand"));
+		assert.ok(commands.includes("semanticFold.toggleMethodsInClasses"));
 	});
 });
 
@@ -188,6 +189,8 @@ suite("Command Argument Normalisation", () => {
 					excludeKinds: ["unknown"],
 					exactSymbolDepth: 2,
 					minSymbolDepth: 1,
+					ancestorKinds: ["class"],
+					parentKinds: ["class"],
 					nameRegex: "^handle",
 				},
 				preserveCursorContext: true,
@@ -198,6 +201,8 @@ suite("Command Argument Normalisation", () => {
 					excludeKinds: ["unknown"],
 					exactSymbolDepth: 2,
 					minSymbolDepth: 1,
+					ancestorKinds: ["class"],
+					parentKinds: ["class"],
 					nameRegex: "^handle",
 				},
 				mode: "collapse",
@@ -500,6 +505,160 @@ suite("Region Filtering", () => {
 			[]
 		);
 	});
+
+	test("does not fabricate parent or ancestor matches for flat fallback symbols", () => {
+		const regions = createFlatFallbackFixture();
+		const flatRegions = flattenRegions(regions);
+
+		assert.ok(flatRegions.every((region) => !hasHierarchy(region)));
+		assert.deepStrictEqual(
+			filterRegions(regions, {
+				kinds: ["method"],
+				parentKinds: ["class"],
+			}).map((region) => region.name),
+			[]
+		);
+		assert.deepStrictEqual(
+			filterRegions(regions, {
+				kinds: ["method"],
+				ancestorKinds: ["class"],
+			}).map((region) => region.name),
+			[]
+		);
+	});
+
+	test("returns regions whose immediate parent kind matches the requested parent kinds", () => {
+		const regions = createPhaseOneFixture();
+
+		assert.deepStrictEqual(
+			filterRegions(regions, { parentKinds: ["class"] }).map((region) => region.name),
+			["constructor", "handle", "ViewModel", "render"]
+		);
+		assert.deepStrictEqual(
+			filterRegions(regions, {
+				kinds: ["method"],
+				parentKinds: ["class"],
+			}).map((region) => region.name),
+			["handle", "render"]
+		);
+	});
+
+	test("keeps top-level helpers visible when filtering methods inside classes", () => {
+		const regions = createPhaseOneFixture();
+
+		assert.deepStrictEqual(
+			filterRegions(regions, {
+				kinds: ["method"],
+				parentKinds: ["class"],
+			}).map((region) => region.name),
+			["handle", "render"]
+		);
+		assert.deepStrictEqual(
+			filterRegions(regions, {
+				kinds: ["function"],
+				parentKinds: ["class"],
+			}).map((region) => region.name),
+			[]
+		);
+	});
+
+	test("combines parent-kind filters with kind and symbol-depth filters", () => {
+		const regions = createPhaseOneFixture();
+
+		assert.deepStrictEqual(
+			filterRegions(regions, {
+				kinds: ["method"],
+				parentKinds: ["class"],
+				exactSymbolDepth: 2,
+			}).map((region) => region.name),
+			["handle"]
+		);
+		assert.deepStrictEqual(
+			filterRegions(regions, {
+				kinds: ["method"],
+				parentKinds: ["class"],
+				exactSymbolDepth: 3,
+			}).map((region) => region.name),
+			["render"]
+		);
+	});
+
+	test("returns regions whose broader ancestor context matches requested kinds", () => {
+		const regions = createPhaseOneFixture();
+
+		assert.deepStrictEqual(
+			filterRegions(regions, { ancestorKinds: ["class"] }).map((region) => region.name),
+			["constructor", "handle", "formatPayload", "ViewModel", "render"]
+		);
+		assert.deepStrictEqual(
+			filterRegions(regions, {
+				kinds: ["function"],
+				ancestorKinds: ["class"],
+			}).map((region) => region.name),
+			["formatPayload"]
+		);
+	});
+
+	test("combines ancestor filters with kind, depth, and parent filters", () => {
+		const regions = createPhaseOneFixture();
+
+		assert.deepStrictEqual(
+			filterRegions(regions, {
+				kinds: ["method"],
+				parentKinds: ["class"],
+				ancestorKinds: ["class"],
+				exactSymbolDepth: 3,
+			}).map((region) => region.name),
+			["render"]
+		);
+		assert.deepStrictEqual(
+			filterRegions(regions, {
+				kinds: ["function"],
+				parentKinds: ["method"],
+				ancestorKinds: ["class"],
+				exactSymbolDepth: 3,
+			}).map((region) => region.name),
+			["formatPayload"]
+		);
+	});
+
+	test("walks ancestor chains safely when a malformed tree has a parent cycle", () => {
+		const regions = createPhaseOneFixture();
+		const controllerRegion = regions[0];
+		const handleRegion = controllerRegion.children[1];
+
+		controllerRegion.parent = handleRegion;
+
+		assert.deepStrictEqual(
+			getAncestors(handleRegion).map((region) => region.name),
+			["Controller", "handle"]
+		);
+		assert.deepStrictEqual(
+			filterRegions(regions, {
+				kinds: ["function"],
+				ancestorKinds: ["class"],
+			}).map((region) => region.name),
+			["formatPayload"]
+		);
+	});
+
+	test("ignores self-parent links instead of treating them as valid hierarchy", () => {
+		const regions = createFlatFallbackFixture();
+		const runRegion = regions[1];
+
+		runRegion.parent = runRegion;
+
+		assert.strictEqual(hasHierarchy(runRegion), false);
+		assert.deepStrictEqual(getAncestors(runRegion), []);
+		assert.deepStrictEqual(
+			filterRegions(regions, {
+				kinds: ["method"],
+				parentKinds: ["method"],
+				ancestorKinds: ["method"],
+			}).map((region) => region.name),
+			[]
+		);
+	});
 });
 
 suite("Fold Execution Guards", () => {
@@ -643,6 +802,27 @@ suite("Fold Execution Guards", () => {
 				selectionLines: args.selectionLines,
 			});
 		}, foldState, "test://empty");
+
+		assert.deepStrictEqual(executedCommands, []);
+	});
+
+	test("does not execute any command when relationship filters cannot match flat fallback symbols", async () => {
+		const regions = createFlatFallbackFixture();
+		const executedCommands: ExecutedCommand[] = [];
+		const foldState = new TrackedFoldState();
+
+		await runFoldCommand({
+			filter: {
+				kinds: ["method"],
+				parentKinds: ["class"],
+			},
+		}, regions, async (command, args) => {
+			executedCommands.push({
+				command,
+				levels: args.levels,
+				selectionLines: args.selectionLines,
+			});
+		}, foldState, "test://flat-relationship");
 
 		assert.deepStrictEqual(executedCommands, []);
 	});

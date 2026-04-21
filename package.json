@@ -19,6 +19,10 @@
       {
         "command": "semanticFold.expand",
         "title": "Semantic Fold: Expand"
+      },
+      {
+        "command": "semanticFold.toggleMethodsInClasses",
+        "title": "Semantic Fold: Toggle Methods in Classes"
       }
     ]
   },

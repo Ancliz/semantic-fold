@@ -7,6 +7,8 @@ export function filterRegions(rootNodes: readonly RegionNode[], filter: Collapse
 	return regions.filter((region) => {
 		return matchesIncludedKind(region, filter)
 			&& !matchesExcludedKind(region, filter)
+			&& matchesParentKind(region, filter)
+			&& matchesAncestorKind(region, filter)
 			&& matchesSymbolDepth(region, filter);
 	});
 }
@@ -43,6 +45,50 @@ function matchesExcludedKind(region: RegionNode, filter: CollapseFilter): boolea
 	}
 
 	return filter.excludeKinds.includes(region.kind);
+}
+
+function matchesParentKind(region: RegionNode, filter: CollapseFilter): boolean {
+	if(!filter.parentKinds || filter.parentKinds.length === 0) {
+		return true;
+	}
+
+	const parent = getParent(region);
+
+	return parent !== undefined && filter.parentKinds.includes(parent.kind);
+}
+
+function matchesAncestorKind(region: RegionNode, filter: CollapseFilter): boolean {
+	if(!filter.ancestorKinds || filter.ancestorKinds.length === 0) {
+		return true;
+	}
+
+	return getAncestors(region).some((ancestor) => filter.ancestorKinds?.includes(ancestor.kind));
+}
+
+export function hasHierarchy(region: RegionNode): boolean {
+	return getParent(region) !== undefined || region.children.length > 0;
+}
+
+function getParent(region: RegionNode): RegionNode | undefined {
+	if(region.parent === region) {
+		return undefined;
+	}
+
+	return region.parent;
+}
+
+export function getAncestors(region: RegionNode): RegionNode[] {
+	const ancestors: RegionNode[] = [];
+	const visitedNodes = new Set<RegionNode>();
+	let ancestor = getParent(region);
+
+	while(ancestor !== undefined && !visitedNodes.has(ancestor)) {
+		visitedNodes.add(ancestor);
+		ancestors.push(ancestor);
+		ancestor = getParent(ancestor);
+	}
+
+	return ancestors;
 }
 
 function matchesSymbolDepth(region: RegionNode, filter: CollapseFilter): boolean {
