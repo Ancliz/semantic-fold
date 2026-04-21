@@ -227,6 +227,12 @@ That means:
 - semantic token coverage may vary
 - comment/import folding may depend on folding providers
 
+### Flat symbol fallback
+
+Some language providers return flat `SymbolInformation` results instead of hierarchical `DocumentSymbol` trees. Semantic Fold treats those symbols as top-level regions so basic kind filtering, depth `1` filtering, and exact selection-line folding can still work.
+
+Flat fallback mode does not infer parent/child relationships. Parent, ancestor, and deeper symbol-depth filters require hierarchical provider data and may return no matches when only flat symbols are available.
+
 ## Design decisions
 
 ### Why not semantic tokens first?

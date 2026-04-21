@@ -10,11 +10,21 @@ export function normalizeSymbols(
 	}
 
 	return symbols
-		.filter(isDocumentSymbol)
-		.map((symbol, index) => createRegionNode(symbol, undefined, 1, `${index}`));
+		.map((symbol, index) => {
+			if(isDocumentSymbol(symbol)) {
+				return symbolRegionNode(symbol, undefined, 1, `${index}`);
+			}
+
+			if(isSymbolInformation(symbol)) {
+				return symbolInformationRegionNode(symbol, index);
+			}
+
+			return undefined;
+		})
+		.filter((region): region is RegionNode => region !== undefined);
 }
 
-function createRegionNode(
+function symbolRegionNode(
 	symbol: vscode.DocumentSymbol,
 	parent: RegionNode | undefined,
 	symbolDepth: number,
@@ -36,9 +46,27 @@ function createRegionNode(
 
 	node.children = symbol.children
 		.filter(isDocumentSymbol)
-		.map((child, index) => createRegionNode(child, node, symbolDepth + 1, `${path}.${index}`));
+		.map((child, index) => symbolRegionNode(child, node, symbolDepth + 1, `${path}.${index}`));
 
 	return node;
+}
+
+function symbolInformationRegionNode(
+	symbol: vscode.SymbolInformation,
+	index: number
+): RegionNode {
+	return {
+		id: symbolInformationNodeId(symbol, `${index}`),
+		name: symbol.name,
+		kind: mapSymbolKind(symbol.kind),
+		rangeStartLine: symbol.location.range.start.line,
+		rangeEndLine: symbol.location.range.end.line,
+		selectionLine: symbol.location.range.start.line,
+		symbolDepth: 1,
+		children: [],
+		source: "symbolInformation",
+		symbolKind: symbol.kind,
+	};
 }
 
 function createNodeId(symbol: vscode.DocumentSymbol, path: string): string {
@@ -48,6 +76,18 @@ function createNodeId(symbol: vscode.DocumentSymbol, path: string): string {
 		symbol.range.start.line,
 		symbol.range.end.line,
 		symbol.selectionRange.start.line,
+		symbol.kind,
+		symbol.name,
+	].join(":");
+}
+
+function symbolInformationNodeId(symbol: vscode.SymbolInformation, path: string): string {
+	return [
+		"symbolInformation",
+		path,
+		symbol.location.uri.toString(),
+		symbol.location.range.start.line,
+		symbol.location.range.end.line,
 		symbol.kind,
 		symbol.name,
 	].join(":");
@@ -64,16 +104,29 @@ function isDocumentSymbol(value: unknown): value is vscode.DocumentSymbol {
 		&& symbol.range.end.line >= symbol.range.start.line;
 }
 
+function isSymbolInformation(value: unknown): value is vscode.SymbolInformation {
+	const symbol = value as Partial<vscode.SymbolInformation>;
+	const location = symbol.location as Partial<vscode.Location> | undefined;
+
+	return typeof symbol.name === "string"
+		&& typeof symbol.kind === "number"
+		&& location !== undefined
+		&& location.uri instanceof vscode.Uri
+		&& isRange(location.range)
+		&& location.range.end.line >= location.range.start.line;
+}
+
 function isRange(value: unknown): value is vscode.Range {
 	const range = value as Partial<vscode.Range>;
 
-	return isPosition(range.start) && isPosition(range.end);
+	return range !== undefined && isPosition(range.start) && isPosition(range.end);
 }
 
 function isPosition(value: unknown): value is vscode.Position {
 	const position = value as Partial<vscode.Position>;
 
-	return typeof position.line === "number"
+	return position !== undefined
+		&& typeof position.line === "number"
 		&& Number.isInteger(position.line)
 		&& position.line >= 0
 		&& typeof position.character === "number"

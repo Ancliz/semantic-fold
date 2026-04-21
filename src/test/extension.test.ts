@@ -54,6 +54,28 @@ suite("Document Symbol Collection", () => {
 
 		assert.deepStrictEqual(regions, []);
 	});
+
+	test("accepts flat symbol information provider results", async () => {
+		const document = await vscode.workspace.openTextDocument({
+			content: "function helper() {\n\treturn true;\n}\n",
+			language: "typescript",
+		});
+		const helperSymbol = createSymbolInformation(
+			"helper",
+			vscode.SymbolKind.Function,
+			document.uri,
+			0,
+			2
+		);
+
+		const regions = await getRegions(document, async () => {
+			return [helperSymbol];
+		});
+
+		assert.strictEqual(regions.length, 1);
+		assert.strictEqual(regions[0].name, "helper");
+		assert.strictEqual(regions[0].source, "symbolInformation");
+	});
 });
 
 suite("Document Symbol Normalisation", () => {
@@ -90,6 +112,33 @@ suite("Document Symbol Normalisation", () => {
 			normalizeSymbols([{ name: "broken" } as unknown as vscode.DocumentSymbol]),
 			[]
 		);
+	});
+
+	test("normalizes flat symbol information into top-level fallback nodes", () => {
+		const uri = vscode.Uri.parse("file:///workspace/example.ts");
+		const symbols = [
+			createSymbolInformation("Example", vscode.SymbolKind.Class, uri, 0, 10),
+			createSymbolInformation("run", vscode.SymbolKind.Method, uri, 2, 5),
+			createSymbolInformation("helper", vscode.SymbolKind.Function, uri, 12, 14),
+		];
+
+		const regions = normalizeSymbols(symbols);
+
+		assert.deepStrictEqual(
+			regions.map((region) => region.name),
+			["Example", "run", "helper"]
+		);
+		assert.deepStrictEqual(
+			regions.map((region) => region.kind),
+			["class", "method", "function"]
+		);
+		assert.deepStrictEqual(
+			regions.map((region) => region.symbolDepth),
+			[1, 1, 1]
+		);
+		assert.ok(regions.every((region) => region.parent === undefined));
+		assert.ok(regions.every((region) => region.children.length === 0));
+		assert.ok(regions.every((region) => region.source === "symbolInformation"));
 	});
 });
 
@@ -264,6 +313,22 @@ suite("Region Filtering", () => {
 			[]
 		);
 	});
+
+	test("keeps kind and depth filters useful for flat fallback symbols", () => {
+		const regions = createFlatFallbackFixture();
+
+		assert.deepStrictEqual(
+			filterRegions(regions, {
+				kinds: ["method"],
+				exactSymbolDepth: 1,
+			}).map((region) => region.name),
+			["run", "stop"]
+		);
+		assert.deepStrictEqual(
+			filterRegions(regions, { exactSymbolDepth: 2 }).map((region) => region.name),
+			[]
+		);
+	});
 });
 
 suite("Fold Execution Guards", () => {
@@ -349,6 +414,22 @@ suite("Fold Execution Guards", () => {
 			selectionLines: [2, 6, 12],
 		}]);
 	});
+
+	test("selects foldable regions from flat fallback symbols", () => {
+		const regions = createFlatFallbackFixture();
+
+		const foldableRegions = selectFoldableRegions({
+			filter: {
+				kinds: ["method"],
+				exactSymbolDepth: 1,
+			},
+		}, regions);
+
+		assert.deepStrictEqual(
+			foldableRegions.map((region) => region.name),
+			["run", "stop"]
+		);
+	});
 });
 
 function createSymbol(
@@ -363,6 +444,21 @@ function createSymbol(
 		kind,
 		new vscode.Range(startLine, 0, endLine, 1),
 		new vscode.Range(startLine, 0, startLine, 1)
+	);
+}
+
+function createSymbolInformation(
+	name: string,
+	kind: vscode.SymbolKind,
+	uri: vscode.Uri,
+	startLine: number,
+	endLine: number
+): vscode.SymbolInformation {
+	return new vscode.SymbolInformation(
+		name,
+		kind,
+		"",
+		new vscode.Location(uri, new vscode.Range(startLine, 0, endLine, 1))
 	);
 }
 
@@ -391,6 +487,17 @@ function createDepthFilterFixture(): ReturnType<typeof normalizeSymbols> {
 	classSymbol.children.push(methodSymbol, siblingMethodSymbol);
 
 	return normalizeSymbols([classSymbol, functionSymbol]);
+}
+
+function createFlatFallbackFixture(): ReturnType<typeof normalizeSymbols> {
+	const uri = vscode.Uri.parse("file:///workspace/flat.ts");
+
+	return normalizeSymbols([
+		createSymbolInformation("Example", vscode.SymbolKind.Class, uri, 0, 18),
+		createSymbolInformation("run", vscode.SymbolKind.Method, uri, 1, 10),
+		createSymbolInformation("stop", vscode.SymbolKind.Method, uri, 11, 16),
+		createSymbolInformation("name", vscode.SymbolKind.Property, uri, 18, 18),
+	]);
 }
 
 function createDuplicateSelectionFixture(): ReturnType<typeof normalizeSymbols> {
