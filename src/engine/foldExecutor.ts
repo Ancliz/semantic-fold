@@ -3,7 +3,7 @@ import type { CollapseArgs } from "../model/filters";
 import type { RegionNode } from "../model/region";
 import { filterRegions } from "./filterEngine";
 
-type FoldCommand = "editor.fold" | "editor.unfold";
+type FoldCommand = "editor.fold" | "editor.unfold" | "editor.toggleFold";
 
 export type FoldCommandExecutor = (
 	command: FoldCommand,
@@ -67,6 +67,10 @@ function getFoldCommand(args: CollapseArgs): FoldCommand {
 		return "editor.unfold";
 	}
 
+	if(args.mode === "toggle") {
+		return "editor.toggleFold";
+	}
+
 	return "editor.fold";
 }
 
@@ -74,5 +78,29 @@ function defaultFoldCommandExecutor(
 	command: FoldCommand,
 	args: { selectionLines: number[] }
 ): Thenable<unknown> {
+	if(command === "editor.toggleFold") {
+		return executeToggleFold(args.selectionLines);
+	}
+
 	return vscode.commands.executeCommand(command, args);
+}
+
+async function executeToggleFold(selectionLines: readonly number[]): Promise<unknown> {
+	const editor = vscode.window.activeTextEditor;
+
+	if(!editor) {
+		return undefined;
+	}
+
+	const previousSelections = editor.selections;
+
+	editor.selections = selectionLines.map((line) => {
+		return new vscode.Selection(line, 0, line, 0);
+	});
+
+	try {
+		return await vscode.commands.executeCommand("editor.toggleFold");
+	} finally {
+		editor.selections = previousSelections;
+	}
 }
