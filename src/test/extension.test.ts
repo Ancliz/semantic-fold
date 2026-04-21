@@ -186,6 +186,60 @@ suite("Region Filtering", () => {
 			["mystery"]
 		);
 	});
+
+	test("returns only regions at an exact symbol depth", () => {
+		const regions = createDepthFilterFixture();
+
+		assert.deepStrictEqual(
+			filterRegions(regions, { exactSymbolDepth: 1 }).map((region) => region.name),
+			["Example", "helper"]
+		);
+		assert.deepStrictEqual(
+			filterRegions(regions, { exactSymbolDepth: 2 }).map((region) => region.name),
+			["run", "stop"]
+		);
+		assert.deepStrictEqual(
+			filterRegions(regions, { exactSymbolDepth: 3 }).map((region) => region.name),
+			["inner"]
+		);
+	});
+
+	test("returns regions inside a symbol-depth range", () => {
+		const regions = createDepthFilterFixture();
+
+		assert.deepStrictEqual(
+			filterRegions(regions, {
+				minSymbolDepth: 2,
+				maxSymbolDepth: 3,
+			}).map((region) => region.name),
+			["run", "inner", "stop"]
+		);
+	});
+
+	test("supports minimum-only and maximum-only symbol-depth ranges", () => {
+		const regions = createDepthFilterFixture();
+
+		assert.deepStrictEqual(
+			filterRegions(regions, { minSymbolDepth: 2 }).map((region) => region.name),
+			["run", "inner", "stop"]
+		);
+		assert.deepStrictEqual(
+			filterRegions(regions, { maxSymbolDepth: 1 }).map((region) => region.name),
+			["Example", "helper"]
+		);
+	});
+
+	test("combines symbol-depth filters with kind filters", () => {
+		const regions = createDepthFilterFixture();
+
+		assert.deepStrictEqual(
+			filterRegions(regions, {
+				kinds: ["function"],
+				exactSymbolDepth: 3,
+			}).map((region) => region.name),
+			["inner"]
+		);
+	});
 });
 
 suite("Fold Execution Guards", () => {
@@ -232,6 +286,19 @@ function createFilterFixture(): ReturnType<typeof normalizeSymbols> {
 	classSymbol.children.push(constructorSymbol, fieldSymbol, propertySymbol, methodSymbol);
 
 	return normalizeSymbols([classSymbol, functionSymbol, unknownSymbol]);
+}
+
+function createDepthFilterFixture(): ReturnType<typeof normalizeSymbols> {
+	const classSymbol = createSymbol("Example", vscode.SymbolKind.Class, 0, 18);
+	const methodSymbol = createSymbol("run", vscode.SymbolKind.Method, 1, 10);
+	const nestedFunctionSymbol = createSymbol("inner", vscode.SymbolKind.Function, 3, 7);
+	const siblingMethodSymbol = createSymbol("stop", vscode.SymbolKind.Method, 11, 16);
+	const functionSymbol = createSymbol("helper", vscode.SymbolKind.Function, 20, 22);
+
+	methodSymbol.children.push(nestedFunctionSymbol);
+	classSymbol.children.push(methodSymbol, siblingMethodSymbol);
+
+	return normalizeSymbols([classSymbol, functionSymbol]);
 }
 
 async function activateExtension(): Promise<void> {
