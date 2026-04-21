@@ -3,6 +3,7 @@ import * as vscode from "vscode";
 import { collectFoldableRegions } from "../engine/foldExecutor";
 import { getRegions } from "../engine/regionCollector";
 import { normalizeSymbols } from "../engine/symbolNormaliser";
+import { mapSymbolKind } from "../util/symbolKindMap";
 
 suite("Semantic Fold Foundation", () => {
 	test("registers collapse and expand commands", async () => {
@@ -83,6 +84,40 @@ suite("Document Symbol Normalisation", () => {
 			normalizeSymbols([{ name: "broken" } as unknown as vscode.DocumentSymbol]),
 			[]
 		);
+	});
+});
+
+suite("Symbol Kind Mapping", () => {
+	test("keeps callable and member symbol kinds distinct", () => {
+		assert.strictEqual(mapSymbolKind(vscode.SymbolKind.Function), "function");
+		assert.strictEqual(mapSymbolKind(vscode.SymbolKind.Method), "method");
+		assert.strictEqual(mapSymbolKind(vscode.SymbolKind.Constructor), "constructor");
+		assert.strictEqual(mapSymbolKind(vscode.SymbolKind.Field), "field");
+		assert.strictEqual(mapSymbolKind(vscode.SymbolKind.Property), "property");
+	});
+
+	test("preserves provider-exposed callable and member categories during normalisation", () => {
+		const functionSymbol = createSymbol("createExample", vscode.SymbolKind.Function, 0, 2);
+		const classSymbol = createSymbol("Example", vscode.SymbolKind.Class, 4, 16);
+		const constructorSymbol = createSymbol("constructor", vscode.SymbolKind.Constructor, 5, 7);
+		const fieldSymbol = createSymbol("value", vscode.SymbolKind.Field, 8, 8);
+		const propertySymbol = createSymbol("name", vscode.SymbolKind.Property, 9, 11);
+		const methodSymbol = createSymbol("run", vscode.SymbolKind.Method, 12, 15);
+
+		classSymbol.children.push(constructorSymbol, fieldSymbol, propertySymbol, methodSymbol);
+
+		const regions = normalizeSymbols([functionSymbol, classSymbol]);
+		const classChildren = regions[1].children;
+
+		assert.strictEqual(regions[0].kind, "function");
+		assert.deepStrictEqual(
+			classChildren.map((region) => region.kind),
+			["constructor", "field", "property", "method"]
+		);
+	});
+
+	test("falls back safely for unmapped symbol kinds", () => {
+		assert.strictEqual(mapSymbolKind(999 as vscode.SymbolKind), "unknown");
 	});
 });
 
