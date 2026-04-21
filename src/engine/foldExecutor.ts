@@ -3,12 +3,69 @@ import type { CollapseArgs } from "../model/filters";
 import type { RegionNode } from "../model/region";
 import { filterRegions } from "./filterEngine";
 
-type FoldCommand = "editor.fold" | "editor.unfold" | "editor.toggleFold";
+type FoldCommand = "editor.fold" | "editor.unfold";
+
+interface FoldCommandArgs {
+	selectionLines: number[];
+	levels: number;
+}
 
 export type FoldCommandExecutor = (
 	command: FoldCommand,
-	args: { selectionLines: number[] }
+	args: FoldCommandArgs
 ) => Thenable<unknown>;
+
+export class TrackedFoldState {
+	private readonly collapsedLinesByDocument = new Map<string, Set<number>>();
+
+	public areAllCollapsed(documentKey: string, selectionLines: readonly number[]): boolean {
+		const collapsedLines = this.collapsedLinesByDocument.get(documentKey);
+
+		if(!collapsedLines || selectionLines.length === 0) {
+			return false;
+		}
+
+		return selectionLines.every((line) => collapsedLines.has(line));
+	}
+
+	public markCollapsed(documentKey: string, selectionLines: readonly number[]): void {
+		const collapsedLines = this.getCollapsedLines(documentKey);
+
+		for(const line of selectionLines) {
+			collapsedLines.add(line);
+		}
+	}
+
+	public markExpanded(documentKey: string, selectionLines: readonly number[]): void {
+		const collapsedLines = this.collapsedLinesByDocument.get(documentKey);
+
+		if(!collapsedLines) {
+			return;
+		}
+
+		for(const line of selectionLines) {
+			collapsedLines.delete(line);
+		}
+
+		if(collapsedLines.size === 0) {
+			this.collapsedLinesByDocument.delete(documentKey);
+		}
+	}
+
+	private getCollapsedLines(documentKey: string): Set<number> {
+		const existingLines = this.collapsedLinesByDocument.get(documentKey);
+
+		if(existingLines) {
+			return existingLines;
+		}
+
+		const collapsedLines = new Set<number>();
+
+		this.collapsedLinesByDocument.set(documentKey, collapsedLines);
+
+		return collapsedLines;
+	}
+}
 
 export function isFoldableRegion(region: RegionNode): boolean {
 	return Number.isInteger(region.rangeStartLine)
@@ -41,7 +98,9 @@ export function collectSelectionLines(regions: readonly RegionNode[]): number[] 
 export async function runFoldCommand(
 	args: CollapseArgs,
 	rootNodes: readonly RegionNode[] = [],
-	executeCommand: FoldCommandExecutor = defaultFoldCommandExecutor
+	executeCommand: FoldCommandExecutor = defaultFoldCommandExecutor,
+	foldState: TrackedFoldState = defaultFoldState,
+	documentKey: string = getActiveDocumentKey()
 ): Promise<void> {
 	const selectionLines = collectSelectionLines(selectFoldableRegions(args, rootNodes));
 
@@ -49,7 +108,10 @@ export async function runFoldCommand(
 		return;
 	}
 
-	await executeCommand(getFoldCommand(args), { selectionLines });
+	const command = getFoldCommand(args, selectionLines, foldState, documentKey);
+
+	await executeCommand(command, { selectionLines, levels: 1 });
+	updateTrackedFoldState(command, selectionLines, foldState, documentKey);
 }
 
 function collectFoldableRegion(region: RegionNode, foldableRegions: RegionNode[]): void {
@@ -62,13 +124,22 @@ function collectFoldableRegion(region: RegionNode, foldableRegions: RegionNode[]
 	}
 }
 
-function getFoldCommand(args: CollapseArgs): FoldCommand {
+function getFoldCommand(
+	args: CollapseArgs,
+	selectionLines: readonly number[],
+	foldState: TrackedFoldState,
+	documentKey: string
+): FoldCommand {
 	if(args.mode === "expand") {
 		return "editor.unfold";
 	}
 
 	if(args.mode === "toggle") {
-		return "editor.toggleFold";
+		if(foldState.areAllCollapsed(documentKey, selectionLines)) {
+			return "editor.unfold";
+		}
+
+		return "editor.fold";
 	}
 
 	return "editor.fold";
@@ -76,31 +147,34 @@ function getFoldCommand(args: CollapseArgs): FoldCommand {
 
 function defaultFoldCommandExecutor(
 	command: FoldCommand,
-	args: { selectionLines: number[] }
+	args: FoldCommandArgs
 ): Thenable<unknown> {
-	if(command === "editor.toggleFold") {
-		return executeToggleFold(args.selectionLines);
-	}
-
 	return vscode.commands.executeCommand(command, args);
 }
 
-async function executeToggleFold(selectionLines: readonly number[]): Promise<unknown> {
+function updateTrackedFoldState(
+	command: FoldCommand,
+	selectionLines: readonly number[],
+	foldState: TrackedFoldState,
+	documentKey: string
+): void {
+	if(command === "editor.fold") {
+		foldState.markCollapsed(documentKey, selectionLines);
+
+		return;
+	}
+
+	foldState.markExpanded(documentKey, selectionLines);
+}
+
+function getActiveDocumentKey(): string {
 	const editor = vscode.window.activeTextEditor;
 
 	if(!editor) {
-		return undefined;
+		return "";
 	}
 
-	const previousSelections = editor.selections;
-
-	editor.selections = selectionLines.map((line) => {
-		return new vscode.Selection(line, 0, line, 0);
-	});
-
-	try {
-		return await vscode.commands.executeCommand("editor.toggleFold");
-	} finally {
-		editor.selections = previousSelections;
-	}
+	return editor.document.uri.toString();
 }
+
+const defaultFoldState = new TrackedFoldState();

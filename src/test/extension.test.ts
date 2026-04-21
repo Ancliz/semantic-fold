@@ -7,6 +7,7 @@ import {
 	collectSelectionLines,
 	runFoldCommand,
 	selectFoldableRegions,
+	TrackedFoldState,
 } from "../engine/foldExecutor";
 import { getRegions } from "../engine/regionCollector";
 import { normalizeSymbols } from "../engine/symbolNormaliser";
@@ -545,27 +546,83 @@ suite("Fold Execution Guards", () => {
 	test("executes exact non-recursive fold selection lines", async () => {
 		const regions = createDuplicateSelectionFixture();
 		const executedCommands: ExecutedCommand[] = [];
+		const foldState = new TrackedFoldState();
 
 		await runFoldCommand({}, regions, async (command, args) => {
-			executedCommands.push({ command, selectionLines: args.selectionLines });
-		});
+			executedCommands.push({
+				command,
+				levels: args.levels,
+				selectionLines: args.selectionLines,
+			});
+		}, foldState, "test://fold");
 
 		assert.deepStrictEqual(executedCommands, [{
 			command: "editor.fold",
+			levels: 1,
 			selectionLines: [2, 6, 12],
 		}]);
 	});
 
-	test("executes exact toggle selection lines for toggle mode", async () => {
+	test("collapses every toggle target when any target is expanded", async () => {
 		const regions = createDuplicateSelectionFixture();
 		const executedCommands: ExecutedCommand[] = [];
+		const foldState = new TrackedFoldState();
 
 		await runFoldCommand({ mode: "toggle" }, regions, async (command, args) => {
-			executedCommands.push({ command, selectionLines: args.selectionLines });
-		});
+			executedCommands.push({
+				command,
+				levels: args.levels,
+				selectionLines: args.selectionLines,
+			});
+		}, foldState, "test://toggle-collapse");
 
 		assert.deepStrictEqual(executedCommands, [{
-			command: "editor.toggleFold",
+			command: "editor.fold",
+			levels: 1,
+			selectionLines: [2, 6, 12],
+		}]);
+	});
+
+	test("expands every toggle target when all targets are collapsed", async () => {
+		const regions = createDuplicateSelectionFixture();
+		const executedCommands: ExecutedCommand[] = [];
+		const foldState = new TrackedFoldState();
+
+		foldState.markCollapsed("test://toggle-expand", [2, 6, 12]);
+
+		await runFoldCommand({ mode: "toggle" }, regions, async (command, args) => {
+			executedCommands.push({
+				command,
+				levels: args.levels,
+				selectionLines: args.selectionLines,
+			});
+		}, foldState, "test://toggle-expand");
+
+		assert.deepStrictEqual(executedCommands, [{
+			command: "editor.unfold",
+			levels: 1,
+			selectionLines: [2, 6, 12],
+		}]);
+	});
+
+	test("collapses every toggle target when tracked target state is mixed", async () => {
+		const regions = createDuplicateSelectionFixture();
+		const executedCommands: ExecutedCommand[] = [];
+		const foldState = new TrackedFoldState();
+
+		foldState.markCollapsed("test://toggle-mixed", [2]);
+
+		await runFoldCommand({ mode: "toggle" }, regions, async (command, args) => {
+			executedCommands.push({
+				command,
+				levels: args.levels,
+				selectionLines: args.selectionLines,
+			});
+		}, foldState, "test://toggle-mixed");
+
+		assert.deepStrictEqual(executedCommands, [{
+			command: "editor.fold",
+			levels: 1,
 			selectionLines: [2, 6, 12],
 		}]);
 	});
@@ -573,14 +630,19 @@ suite("Fold Execution Guards", () => {
 	test("does not execute any command when no filtered nodes are foldable", async () => {
 		const regions = createDuplicateSelectionFixture();
 		const executedCommands: ExecutedCommand[] = [];
+		const foldState = new TrackedFoldState();
 
 		await runFoldCommand({
 			filter: {
 				kinds: ["property"],
 			},
 		}, regions, async (command, args) => {
-			executedCommands.push({ command, selectionLines: args.selectionLines });
-		});
+			executedCommands.push({
+				command,
+				levels: args.levels,
+				selectionLines: args.selectionLines,
+			});
+		}, foldState, "test://empty");
 
 		assert.deepStrictEqual(executedCommands, []);
 	});
@@ -588,13 +650,19 @@ suite("Fold Execution Guards", () => {
 	test("executes exact unfold selection lines for expand mode", async () => {
 		const regions = createDuplicateSelectionFixture();
 		const executedCommands: ExecutedCommand[] = [];
+		const foldState = new TrackedFoldState();
 
 		await runFoldCommand({ mode: "expand" }, regions, async (command, args) => {
-			executedCommands.push({ command, selectionLines: args.selectionLines });
-		});
+			executedCommands.push({
+				command,
+				levels: args.levels,
+				selectionLines: args.selectionLines,
+			});
+		}, foldState, "test://expand");
 
 		assert.deepStrictEqual(executedCommands, [{
 			command: "editor.unfold",
+			levels: 1,
 			selectionLines: [2, 6, 12],
 		}]);
 	});
@@ -717,7 +785,8 @@ function createDuplicateSelectionFixture(): ReturnType<typeof normalizeSymbols> 
 }
 
 interface ExecutedCommand {
-	command: "editor.fold" | "editor.unfold" | "editor.toggleFold";
+	command: "editor.fold" | "editor.unfold";
+	levels: number;
 	selectionLines: number[];
 }
 
