@@ -19,7 +19,7 @@ export default [{
             format: ["camelCase", "PascalCase"],
         }],
 
-        indent: ["warn", "tab"],
+        // indent: ["warn", "tab"],
         
         curly: "warn",
         eqeqeq: "warn",
