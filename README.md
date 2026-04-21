@@ -113,7 +113,7 @@ This may be useful later for advanced workflows, but the main MVP is based on **
 
 ## Keybinding payload examples
 
-The generic `semanticFold.collapse` command accepts one optional `args` object:
+The generic `semanticFold.collapse`, `semanticFold.expand`, and `semanticFold.toggle` commands all accept the same optional `args` object:
 
 ```json
 {
@@ -131,7 +131,7 @@ The generic `semanticFold.collapse` command accepts one optional `args` object:
 
 Invalid or incomplete fields are ignored. For example, unknown kind strings, non-integer depths, malformed `nameRegex` values, and non-object payloads fall back to the safest valid subset instead of failing the command.
 
-Keybinding payloads default to toggle mode. If any matching target is expanded, pressing the binding collapses every matching target; when all matching targets are collapsed, pressing it expands them together. Set `"mode": "collapse"`, `"mode": "expand"`, or `"mode": "toggle"` in the payload to force a specific action.
+Payloads passed to `semanticFold.collapse` default to toggle mode for keybinding ergonomics. If any matching target is expanded, pressing the binding collapses every matching target; when all matching targets are collapsed, pressing it expands them together. Set `"mode": "collapse"`, `"mode": "expand"`, or `"mode": "toggle"` in the payload to force a specific action, or bind `semanticFold.toggle` directly when you want a dedicated toggle command.
 
 The `preserveCursorContext` field is accepted for payload compatibility, but Phase 1 folding does not protect the focused region from being folded. If the cursor is inside a folded target, VS Code moves the selection to visible fold context instead of reopening that method.
 
@@ -151,7 +151,7 @@ The generic command equivalent is:
 ```json
 {
   "key": "ctrl+alt+m",
-  "command": "semanticFold.collapse",
+  "command": "semanticFold.toggle",
   "args": {
     "filter": {
       "kinds": ["method"],
@@ -248,6 +248,7 @@ Use a file with a top-level class, methods inside that class, a nested function 
 - Run `semanticFold.toggleMethodsInClasses`; confirm it behaves like the `method` plus `class` parent filter.
 - Add `"mode": "collapse"` to the same keybinding; confirm repeated use stays a one-way collapse request.
 - Run `semanticFold.expand` with the same filter; confirm only the matching methods expand.
+- Run `semanticFold.toggle` with the same filter; confirm it targets the same methods as collapse and expand.
 - Use a filter with no matches; confirm the command leaves the editor unchanged.
 
 ### Targeted Folding Versus Recursive Folding

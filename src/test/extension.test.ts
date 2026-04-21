@@ -5,23 +5,24 @@ import { filterRegions, flattenRegions, getAncestors, hasHierarchy } from "../en
 import {
 	collectFoldableRegions,
 	collectSelectionLines,
-	runFoldCommand,
+	execFoldCommand,
 	selectFoldableRegions,
 	TrackedFoldState,
 } from "../engine/foldExecutor";
 import { getRegions } from "../engine/regionCollector";
 import { normalizeSymbols } from "../engine/symbolNormaliser";
-import { normaliseArgs, normaliseCollapseFilter } from "../model/filters";
+import { type CollapseFilter, normaliseArgs, normaliseCollapseFilter } from "../model/filters";
 import { mapSymbolKind } from "../util/symbolKindMap";
 
 suite("Semantic Fold Foundation", () => {
-	test("registers collapse and expand commands", async () => {
+	test("registers collapse, expand, and toggle commands", async () => {
 		await activateExtension();
 
 		const commands = await vscode.commands.getCommands(true);
 
 		assert.ok(commands.includes("semanticFold.collapse"));
 		assert.ok(commands.includes("semanticFold.expand"));
+		assert.ok(commands.includes("semanticFold.toggle"));
 		assert.ok(commands.includes("semanticFold.toggleMethodsInClasses"));
 	});
 });
@@ -707,7 +708,7 @@ suite("Fold Execution Guards", () => {
 		const executedCommands: ExecutedCommand[] = [];
 		const foldState = new TrackedFoldState();
 
-		await runFoldCommand({}, regions, async (command, args) => {
+		await execFoldCommand({}, regions, async (command, args) => {
 			executedCommands.push({
 				command,
 				levels: args.levels,
@@ -727,7 +728,7 @@ suite("Fold Execution Guards", () => {
 		const executedCommands: ExecutedCommand[] = [];
 		const foldState = new TrackedFoldState();
 
-		await runFoldCommand({ mode: "toggle" }, regions, async (command, args) => {
+		await execFoldCommand({ mode: "toggle" }, regions, async (command, args) => {
 			executedCommands.push({
 				command,
 				levels: args.levels,
@@ -749,7 +750,7 @@ suite("Fold Execution Guards", () => {
 
 		foldState.markCollapsed("test://toggle-expand", [2, 6, 12]);
 
-		await runFoldCommand({ mode: "toggle" }, regions, async (command, args) => {
+		await execFoldCommand({ mode: "toggle" }, regions, async (command, args) => {
 			executedCommands.push({
 				command,
 				levels: args.levels,
@@ -771,7 +772,7 @@ suite("Fold Execution Guards", () => {
 
 		foldState.markCollapsed("test://toggle-mixed", [2]);
 
-		await runFoldCommand({ mode: "toggle" }, regions, async (command, args) => {
+		await execFoldCommand({ mode: "toggle" }, regions, async (command, args) => {
 			executedCommands.push({
 				command,
 				levels: args.levels,
@@ -791,7 +792,7 @@ suite("Fold Execution Guards", () => {
 		const executedCommands: ExecutedCommand[] = [];
 		const foldState = new TrackedFoldState();
 
-		await runFoldCommand({
+		await execFoldCommand({
 			filter: {
 				kinds: ["property"],
 			},
@@ -811,7 +812,7 @@ suite("Fold Execution Guards", () => {
 		const executedCommands: ExecutedCommand[] = [];
 		const foldState = new TrackedFoldState();
 
-		await runFoldCommand({
+		await execFoldCommand({
 			filter: {
 				kinds: ["method"],
 				parentKinds: ["class"],
@@ -832,7 +833,7 @@ suite("Fold Execution Guards", () => {
 		const executedCommands: ExecutedCommand[] = [];
 		const foldState = new TrackedFoldState();
 
-		await runFoldCommand({ mode: "expand" }, regions, async (command, args) => {
+		await execFoldCommand({ mode: "expand" }, regions, async (command, args) => {
 			executedCommands.push({
 				command,
 				levels: args.levels,
@@ -845,6 +846,76 @@ suite("Fold Execution Guards", () => {
 			levels: 1,
 			selectionLines: [2, 6, 12],
 		}]);
+	});
+
+	test("uses the same filter model for collapse, expand, and toggle modes", async () => {
+		const regions = createPhaseOneFixture();
+		const sharedFilter: CollapseFilter = {
+			kinds: ["method"],
+			parentKinds: ["class"],
+		};
+		const executedCommands: ExecutedCommand[] = [];
+		const foldState = new TrackedFoldState();
+		const modeCases = [
+			{
+				documentKey: "test://shared-collapse",
+				expectedCommand: "editor.fold" as const,
+				mode: "collapse" as const,
+			},
+			{
+				documentKey: "test://shared-expand",
+				expectedCommand: "editor.unfold" as const,
+				mode: "expand" as const,
+			},
+			{
+				documentKey: "test://shared-toggle",
+				expectedCommand: "editor.fold" as const,
+				mode: "toggle" as const,
+			},
+		];
+
+		for(const modeCase of modeCases) {
+			await execFoldCommand({
+				filter: sharedFilter,
+				mode: modeCase.mode,
+			}, regions, async (command, args) => {
+				executedCommands.push({
+					command,
+					levels: args.levels,
+					selectionLines: args.selectionLines,
+				});
+			}, foldState, modeCase.documentKey);
+		}
+
+		assert.deepStrictEqual(executedCommands, modeCases.map((modeCase) => ({
+			command: modeCase.expectedCommand,
+			levels: 1,
+			selectionLines: [5, 21],
+		})));
+	});
+
+	test("handles no-match filters cleanly for every fold mode", async () => {
+		const regions = createPhaseOneFixture();
+		const executedCommands: ExecutedCommand[] = [];
+		const foldState = new TrackedFoldState();
+		const modes = ["collapse", "expand", "toggle"] as const;
+
+		for(const mode of modes) {
+			await execFoldCommand({
+				filter: {
+					kinds: ["import"],
+				},
+				mode,
+			}, regions, async (command, args) => {
+				executedCommands.push({
+					command,
+					levels: args.levels,
+					selectionLines: args.selectionLines,
+				});
+			}, foldState, `test://no-match-${mode}`);
+		}
+
+		assert.deepStrictEqual(executedCommands, []);
 	});
 
 	test("selects foldable regions from flat fallback symbols", () => {
