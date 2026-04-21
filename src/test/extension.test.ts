@@ -1,5 +1,6 @@
 import * as assert from "assert";
 import * as vscode from "vscode";
+import { getDefaultCollapseMode } from "../commands/collapse";
 import { filterRegions, flattenRegions } from "../engine/filterEngine";
 import {
 	collectFoldableRegions,
@@ -240,7 +241,7 @@ suite("Command Argument Normalisation", () => {
 		);
 	});
 
-	test("uses the command mode requested by the command implementation", () => {
+	test("uses explicit command payload modes when provided", () => {
 		assert.deepStrictEqual(
 			normaliseArgs({
 				mode: "expand",
@@ -252,12 +253,31 @@ suite("Command Argument Normalisation", () => {
 				filter: {
 					kinds: ["method"],
 				},
-				mode: "collapse",
+				mode: "expand",
 			}
 		);
+		assert.deepStrictEqual(normaliseArgs({ mode: "toggle" }, "collapse"), {
+			mode: "toggle",
+		});
+		assert.deepStrictEqual(normaliseArgs({ mode: "collapse" }, "toggle"), {
+			mode: "collapse",
+		});
+		assert.deepStrictEqual(normaliseArgs({ mode: "bad" }, "collapse"), {
+			mode: "collapse",
+		});
 		assert.deepStrictEqual(normaliseArgs({}, "expand"), {
 			mode: "expand",
 		});
+	});
+
+	test("defaults collapse keybinding payloads to toggle mode", () => {
+		assert.strictEqual(getDefaultCollapseMode(undefined), "collapse");
+		assert.strictEqual(getDefaultCollapseMode({}), "toggle");
+		assert.strictEqual(getDefaultCollapseMode({
+			filter: {
+				kinds: ["method"],
+			},
+		}), "toggle");
 	});
 });
 
@@ -471,7 +491,21 @@ suite("Fold Execution Guards", () => {
 		}]);
 	});
 
-	test("does not execute a fold command when no filtered nodes are foldable", async () => {
+	test("executes exact toggle selection lines for toggle mode", async () => {
+		const regions = createDuplicateSelectionFixture();
+		const executedCommands: ExecutedCommand[] = [];
+
+		await runFoldCommand({ mode: "toggle" }, regions, async (command, args) => {
+			executedCommands.push({ command, selectionLines: args.selectionLines });
+		});
+
+		assert.deepStrictEqual(executedCommands, [{
+			command: "editor.toggleFold",
+			selectionLines: [2, 6, 12],
+		}]);
+	});
+
+	test("does not execute any command when no filtered nodes are foldable", async () => {
 		const regions = createDuplicateSelectionFixture();
 		const executedCommands: ExecutedCommand[] = [];
 
@@ -602,7 +636,7 @@ function createDuplicateSelectionFixture(): ReturnType<typeof normalizeSymbols> 
 }
 
 interface ExecutedCommand {
-	command: "editor.fold" | "editor.unfold";
+	command: "editor.fold" | "editor.unfold" | "editor.toggleFold";
 	selectionLines: number[];
 }
 

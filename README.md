@@ -130,7 +130,9 @@ The generic `semanticFold.collapse` command accepts one optional `args` object:
 
 Invalid or incomplete fields are ignored. For example, unknown kind strings, non-integer depths, malformed `nameRegex` values, and non-object payloads fall back to the safest valid subset instead of failing the command.
 
-Collapse second-level methods:
+Keybinding payloads default to toggle mode: pressing the same binding again unfolds the same matching regions. Set `"mode": "collapse"`, `"mode": "expand"`, or `"mode": "toggle"` in the payload to force a specific action.
+
+Toggle second-level methods:
 
 ```json
 {
@@ -145,7 +147,7 @@ Collapse second-level methods:
 }
 ```
 
-Collapse top-level classes and functions:
+Toggle top-level classes and functions:
 
 ```json
 {
@@ -160,7 +162,7 @@ Collapse top-level classes and functions:
 }
 ```
 
-Collapse implementation details below the top level:
+Toggle implementation details below the top level:
 
 ```json
 {

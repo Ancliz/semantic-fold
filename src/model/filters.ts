@@ -33,6 +33,7 @@ type DepthFilterKey =
 	| "maxFoldDepth";
 
 type KindFilterKey = "kinds" | "excludeKinds" | "parentKinds" | "ancestorKinds";
+type CommandMode = NonNullable<CollapseArgs["mode"]>;
 
 const depthFilterKeys: DepthFilterKey[] = [
 	"exactSymbolDepth",
@@ -54,7 +55,7 @@ const regionKinds = new Set<string>(REGION_KINDS);
 
 export function normaliseArgs(args: unknown, mode: CollapseArgs["mode"] = "collapse"): CollapseArgs {
 	const payload = isRecord(args) ? args : {};
-	const normalisedArgs: CollapseArgs = { mode };
+	const normalisedArgs: CollapseArgs = { mode: normaliseMode(payload.mode) ?? mode };
 	const filter = normaliseCollapseFilter(payload.filter);
 
 	if(filter !== undefined) {
@@ -66,6 +67,14 @@ export function normaliseArgs(args: unknown, mode: CollapseArgs["mode"] = "colla
 	}
 
 	return normalisedArgs;
+}
+
+function normaliseMode(value: unknown): CommandMode | undefined {
+	if(value === "collapse" || value === "expand" || value === "toggle") {
+		return value;
+	}
+
+	return undefined;
 }
 
 export function normaliseCollapseFilter(filter: unknown): CollapseFilter | undefined {
