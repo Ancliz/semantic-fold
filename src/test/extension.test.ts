@@ -1,7 +1,7 @@
 import * as assert from "assert";
 import * as vscode from "vscode";
 import { filterRegions, flattenRegions } from "../engine/filterEngine";
-import { collectFoldableRegions } from "../engine/foldExecutor";
+import { collectFoldableRegions, selectFoldableRegions } from "../engine/foldExecutor";
 import { getRegions } from "../engine/regionCollector";
 import { normalizeSymbols } from "../engine/symbolNormaliser";
 import { mapSymbolKind } from "../util/symbolKindMap";
@@ -240,6 +240,25 @@ suite("Region Filtering", () => {
 			["inner"]
 		);
 	});
+
+	test("returns only regions satisfying every kind and depth constraint", () => {
+		const regions = createDepthFilterFixture();
+
+		assert.deepStrictEqual(
+			filterRegions(regions, {
+				kinds: ["method"],
+				exactSymbolDepth: 2,
+			}).map((region) => region.name),
+			["run", "stop"]
+		);
+		assert.deepStrictEqual(
+			filterRegions(regions, {
+				kinds: ["method"],
+				exactSymbolDepth: 1,
+			}).map((region) => region.name),
+			[]
+		);
+	});
 });
 
 suite("Fold Execution Guards", () => {
@@ -255,6 +274,22 @@ suite("Fold Execution Guards", () => {
 		assert.deepStrictEqual(
 			foldableRegions.map((region) => region.name),
 			["Example", "run"]
+		);
+	});
+
+	test("selects foldable regions using a combined command payload filter", () => {
+		const regions = createDepthFilterFixture();
+
+		const foldableRegions = selectFoldableRegions({
+			filter: {
+				kinds: ["method"],
+				exactSymbolDepth: 2,
+			},
+		}, regions);
+
+		assert.deepStrictEqual(
+			foldableRegions.map((region) => region.name),
+			["run", "stop"]
 		);
 	});
 });

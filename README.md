@@ -111,6 +111,53 @@ This may be useful later for advanced workflows, but the main MVP is based on **
 - Fold kinds within a specific parent kind
 - Build overview modes for large files
 
+## Keybinding payload examples
+
+Collapse second-level methods:
+
+```json
+{
+  "key": "ctrl+alt+m",
+  "command": "semanticFold.collapse",
+  "args": {
+    "filter": {
+      "kinds": ["method"],
+      "exactSymbolDepth": 2
+    }
+  }
+}
+```
+
+Collapse top-level classes and functions:
+
+```json
+{
+  "key": "ctrl+alt+o",
+  "command": "semanticFold.collapse",
+  "args": {
+    "filter": {
+      "kinds": ["class", "function"],
+      "exactSymbolDepth": 1
+    }
+  }
+}
+```
+
+Collapse implementation details below the top level:
+
+```json
+{
+  "key": "ctrl+alt+i",
+  "command": "semanticFold.collapse",
+  "args": {
+    "filter": {
+      "kinds": ["method", "function"],
+      "minSymbolDepth": 2
+    }
+  }
+}
+```
+
 ## MVP scope
 
 The first version focuses on the active editor and aims to support languages with decent document-symbol providers, such as:
@@ -260,10 +307,10 @@ Open the workspace in VS Code and launch the extension host from the debugger.
 
 ## Roadmap
 
-- [ ] Scaffold extension
-- [ ] Implement symbol collection
-- [ ] Normalize `DocumentSymbol` trees
-- [ ] Add filter engine
+- [x] Scaffold extension
+- [x] Implement symbol collection
+- [x] Normalize `DocumentSymbol` trees
+- [x] Add filter engine
 - [ ] Add targeted collapse execution
 - [ ] Add keybinding-ready generic command
 - [ ] Add convenience commands
