@@ -1,5 +1,6 @@
 import type { CollapseArgs } from "../model/filters";
 import type { RegionNode } from "../model/region";
+import { filterRegions } from "./filterEngine";
 
 export function isFoldableRegion(region: RegionNode): boolean {
 	return Number.isInteger(region.rangeStartLine)
@@ -17,11 +18,18 @@ export function collectFoldableRegions(rootNodes: readonly RegionNode[]): Region
 	return foldableRegions;
 }
 
+export function selectFoldableRegions(
+	args: CollapseArgs,
+	rootNodes: readonly RegionNode[]
+): RegionNode[] {
+	return filterRegions(rootNodes, args.filter).filter(isFoldableRegion);
+}
+
 export async function runFoldCommand(
-	_args: CollapseArgs,
+	args: CollapseArgs,
 	rootNodes: readonly RegionNode[] = []
 ): Promise<void> {
-	collectFoldableRegions(rootNodes);
+	selectFoldableRegions(args, rootNodes);
 }
 
 function collectFoldableRegion(region: RegionNode, foldableRegions: RegionNode[]): void {
