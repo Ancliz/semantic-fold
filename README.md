@@ -113,6 +113,23 @@ This may be useful later for advanced workflows, but the main MVP is based on **
 
 ## Keybinding payload examples
 
+The generic `semanticFold.collapse` command accepts one optional `args` object:
+
+```json
+{
+  "filter": {
+    "kinds": ["method"],
+    "excludeKinds": ["unknown"],
+    "exactSymbolDepth": 2,
+    "minSymbolDepth": 1,
+    "maxSymbolDepth": 3
+  },
+  "preserveCursorContext": true
+}
+```
+
+Invalid or incomplete fields are ignored. For example, unknown kind strings, non-integer depths, malformed `nameRegex` values, and non-object payloads fall back to the safest valid subset instead of failing the command.
+
 Collapse second-level methods:
 
 ```json

@@ -1,18 +1,21 @@
-export type RegionKind =
-	| "class"
-	| "interface"
-	| "enum"
-	| "namespace"
-	| "function"
-	| "method"
-	| "constructor"
-	| "property"
-	| "field"
-	| "variable"
-	| "import"
-	| "comment"
-	| "region"
-	| "unknown";
+export const REGION_KINDS = [
+	"class",
+	"interface",
+	"enum",
+	"namespace",
+	"function",
+	"method",
+	"constructor",
+	"property",
+	"field",
+	"variable",
+	"import",
+	"comment",
+	"region",
+	"unknown",
+] as const;
+
+export type RegionKind = typeof REGION_KINDS[number];
 
 export interface RegionNode {
 	id: string;
