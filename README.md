@@ -331,6 +331,8 @@ Some language providers return flat `SymbolInformation` results instead of hiera
 
 Flat fallback mode does not infer parent/child relationships. Parent, ancestor, and deeper symbol-depth filters require hierarchical provider data and may return no matches when only flat symbols are available.
 
+Relationship filters fail soft in that situation: `parentKinds` and `ancestorKinds` do not fabricate hierarchy from line ranges, indentation, or names. If no real parent chain exists, the command produces no matching regions and leaves the editor unchanged instead of folding misleading targets.
+
 ## Design decisions
 
 ### Why not semantic tokens first?

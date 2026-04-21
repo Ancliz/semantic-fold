@@ -52,7 +52,9 @@ function matchesParentKind(region: RegionNode, filter: CollapseFilter): boolean 
 		return true;
 	}
 
-	return region.parent !== undefined && filter.parentKinds.includes(region.parent.kind);
+	const parent = getParent(region);
+
+	return parent !== undefined && filter.parentKinds.includes(parent.kind);
 }
 
 function matchesAncestorKind(region: RegionNode, filter: CollapseFilter): boolean {
@@ -63,15 +65,27 @@ function matchesAncestorKind(region: RegionNode, filter: CollapseFilter): boolea
 	return getAncestors(region).some((ancestor) => filter.ancestorKinds?.includes(ancestor.kind));
 }
 
+export function hasHierarchy(region: RegionNode): boolean {
+	return getParent(region) !== undefined || region.children.length > 0;
+}
+
+function getParent(region: RegionNode): RegionNode | undefined {
+	if(region.parent === region) {
+		return undefined;
+	}
+
+	return region.parent;
+}
+
 export function getAncestors(region: RegionNode): RegionNode[] {
 	const ancestors: RegionNode[] = [];
 	const visitedNodes = new Set<RegionNode>();
-	let ancestor = region.parent;
+	let ancestor = getParent(region);
 
 	while(ancestor !== undefined && !visitedNodes.has(ancestor)) {
 		visitedNodes.add(ancestor);
 		ancestors.push(ancestor);
-		ancestor = ancestor.parent;
+		ancestor = getParent(ancestor);
 	}
 
 	return ancestors;

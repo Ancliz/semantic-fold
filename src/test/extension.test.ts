@@ -1,7 +1,7 @@
 import * as assert from "assert";
 import * as vscode from "vscode";
 import { getDefaultCollapseMode } from "../commands/collapse";
-import { filterRegions, flattenRegions, getAncestors } from "../engine/filterEngine";
+import { filterRegions, flattenRegions, getAncestors, hasHierarchy } from "../engine/filterEngine";
 import {
 	collectFoldableRegions,
 	collectSelectionLines,
@@ -506,6 +506,27 @@ suite("Region Filtering", () => {
 		);
 	});
 
+	test("does not fabricate parent or ancestor matches for flat fallback symbols", () => {
+		const regions = createFlatFallbackFixture();
+		const flatRegions = flattenRegions(regions);
+
+		assert.ok(flatRegions.every((region) => !hasHierarchy(region)));
+		assert.deepStrictEqual(
+			filterRegions(regions, {
+				kinds: ["method"],
+				parentKinds: ["class"],
+			}).map((region) => region.name),
+			[]
+		);
+		assert.deepStrictEqual(
+			filterRegions(regions, {
+				kinds: ["method"],
+				ancestorKinds: ["class"],
+			}).map((region) => region.name),
+			[]
+		);
+	});
+
 	test("returns regions whose immediate parent kind matches the requested parent kinds", () => {
 		const regions = createPhaseOneFixture();
 
@@ -618,6 +639,24 @@ suite("Region Filtering", () => {
 				ancestorKinds: ["class"],
 			}).map((region) => region.name),
 			["formatPayload"]
+		);
+	});
+
+	test("ignores self-parent links instead of treating them as valid hierarchy", () => {
+		const regions = createFlatFallbackFixture();
+		const runRegion = regions[1];
+
+		runRegion.parent = runRegion;
+
+		assert.strictEqual(hasHierarchy(runRegion), false);
+		assert.deepStrictEqual(getAncestors(runRegion), []);
+		assert.deepStrictEqual(
+			filterRegions(regions, {
+				kinds: ["method"],
+				parentKinds: ["method"],
+				ancestorKinds: ["method"],
+			}).map((region) => region.name),
+			[]
 		);
 	});
 });
@@ -763,6 +802,27 @@ suite("Fold Execution Guards", () => {
 				selectionLines: args.selectionLines,
 			});
 		}, foldState, "test://empty");
+
+		assert.deepStrictEqual(executedCommands, []);
+	});
+
+	test("does not execute any command when relationship filters cannot match flat fallback symbols", async () => {
+		const regions = createFlatFallbackFixture();
+		const executedCommands: ExecutedCommand[] = [];
+		const foldState = new TrackedFoldState();
+
+		await runFoldCommand({
+			filter: {
+				kinds: ["method"],
+				parentKinds: ["class"],
+			},
+		}, regions, async (command, args) => {
+			executedCommands.push({
+				command,
+				levels: args.levels,
+				selectionLines: args.selectionLines,
+			});
+		}, foldState, "test://flat-relationship");
 
 		assert.deepStrictEqual(executedCommands, []);
 	});
