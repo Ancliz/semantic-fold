@@ -12,7 +12,7 @@ The main use case is simple:
 
 VS Code's built-in folding is useful, but it is mostly oriented around lexical folding depth and general folding commands.
 
-That works for broad collapse operations, but it breaks down when you want more targeted behavior such as:
+That works for broad collapse operations, but it breaks down when you want more targeted behaviour such as:
 
 - collapse only methods
 - collapse only top-level classes
@@ -41,9 +41,9 @@ These are not first-version goals:
 - full custom parsing for all languages
 - owning fold state globally across every provider and extension
 
-## Core behavior
+## Core Behaviour
 
-Semantic Fold discovers structural regions in the active document and normalizes them into an internal tree.
+Semantic Fold discovers structural regions in the active document and normalises them into an internal tree.
 
 It primarily uses:
 
@@ -67,7 +67,7 @@ This should fold each method directly, rather than recursively folding everythin
 
 ### Symbol kind
 
-The normalized semantic category of a region, such as:
+The normalised semantic category of a region, such as:
 
 - `class`
 - `interface`
@@ -177,6 +177,37 @@ Toggle implementation details below the top level:
 }
 ```
 
+## Phase 1 Validation
+
+Phase 1 is the symbol-driven MVP. It proves that Semantic Fold can collect document symbols, convert them into one internal region model, filter those regions by kind and symbol depth, and apply folding only to the exact matching regions.
+
+The core workflow is:
+
+```text
+active document
+  -> collect document symbols
+  -> normalise into RegionNode tree
+  -> filter by kind and symbol depth
+  -> collect exact selection lines
+  -> collapse, expand, or toggle matching regions
+```
+
+### Main Command Checklist
+
+Use a file with a top-level class, methods inside that class, a nested function inside one method, and a top-level function.
+
+- Run `semanticFold.collapse` with no args and confirm foldable symbol regions collapse.
+- Bind `semanticFold.collapse` with `filter.kinds: ["method"]` and `filter.exactSymbolDepth: 2`; confirm second-level methods toggle without folding their parent class.
+- Add `"mode": "collapse"` to the same keybinding; confirm repeated use stays a one-way collapse request.
+- Run `semanticFold.expand` with the same filter; confirm only the matching methods expand.
+- Use a filter with no matches; confirm the command leaves the editor unchanged.
+
+### Targeted Folding Versus Recursive Folding
+
+Recursive level folding starts from a broad location or depth and can fold child ranges inside the selected region. That is useful for quickly hiding everything below a level, but it is not precise enough for workflows such as reviewing only method signatures.
+
+Targeted folding starts from the symbol provider. Semantic Fold filters symbols first, then sends VS Code the exact start lines for the matching regions. Folding methods this way hides each method as a whole method; when one method is expanded, its body is visible instead of remaining full of recursively collapsed child ranges.
+
 ## MVP scope
 
 The first version focuses on the active editor and aims to support languages with decent document-symbol providers, such as:
@@ -196,7 +227,7 @@ active document
   -> document symbols
   -> folding ranges
   -> semantic tokens (optional refinement)
-  -> normalize into RegionNode tree
+  -> normalise into RegionNode tree
   -> filter by kinds / depth / parent kinds / ancestors
   -> fold exact matching regions
 ```
@@ -206,7 +237,7 @@ active document
 ### Phase 1: symbol-driven MVP
 
 - collect document symbols
-- normalize to `RegionNode`
+- normalise to `RegionNode`
 - compute symbol depth
 - filter by kind and depth
 - fold matching regions
@@ -334,10 +365,10 @@ Open the workspace in VS Code and launch the extension host from the debugger.
 
 - [x] Scaffold extension
 - [x] Implement symbol collection
-- [x] Normalize `DocumentSymbol` trees
+- [x] Normalise `DocumentSymbol` trees
 - [x] Add filter engine
-- [ ] Add targeted collapse execution
-- [ ] Add keybinding-ready generic command
+- [x] Add targeted collapse execution
+- [x] Add keybinding-ready generic command
 - [ ] Add convenience commands
 - [ ] Add imports/comments/regions support
 - [ ] Add semantic-token refinement

@@ -281,8 +281,73 @@ suite("Command Argument Normalisation", () => {
 	});
 });
 
+suite("Phase 1 Validation Fixtures", () => {
+	test("models nested classes, methods, and functions in document-symbol order", () => {
+		const regions = createPhaseOneFixture();
+		const flattenedRegions = flattenRegions(regions);
+
+		assert.deepStrictEqual(
+			flattenedRegions.map((region) => `${region.name}:${region.kind}:${region.symbolDepth}`),
+			[
+				"Controller:class:1",
+				"constructor:constructor:2",
+				"handle:method:2",
+				"formatPayload:function:3",
+				"ViewModel:class:2",
+				"render:method:3",
+				"bootstrap:function:1",
+			]
+		);
+	});
+
+	test("matches documented Phase 1 command filters against the nested fixture", () => {
+		const regions = createPhaseOneFixture();
+
+		assert.deepStrictEqual(
+			filterRegions(regions, {
+				kinds: ["method"],
+				exactSymbolDepth: 2,
+			}).map((region) => region.name),
+			["handle"]
+		);
+		assert.deepStrictEqual(
+			filterRegions(regions, {
+				kinds: ["class", "function"],
+				exactSymbolDepth: 1,
+			}).map((region) => region.name),
+			["Controller", "bootstrap"]
+		);
+		assert.deepStrictEqual(
+			filterRegions(regions, {
+				kinds: ["method", "function"],
+				minSymbolDepth: 2,
+			}).map((region) => region.name),
+			["handle", "formatPayload", "render"]
+		);
+	});
+
+	test("collects exact method fold targets without recursive child function lines", () => {
+		const regions = createPhaseOneFixture();
+		const foldableRegions = selectFoldableRegions({
+			filter: {
+				kinds: ["method"],
+				minSymbolDepth: 2,
+			},
+		}, regions);
+
+		assert.deepStrictEqual(
+			foldableRegions.map((region) => region.name),
+			["handle", "render"]
+		);
+		assert.deepStrictEqual(
+			collectSelectionLines(foldableRegions),
+			[5, 21]
+		);
+	});
+});
+
 suite("Region Filtering", () => {
-	test("flattens normalized region trees in document order", () => {
+	test("flattens normalised region trees in document order", () => {
 		const regions = createFilterFixture();
 
 		assert.deepStrictEqual(
@@ -593,6 +658,22 @@ function createFilterFixture(): ReturnType<typeof normalizeSymbols> {
 	classSymbol.children.push(constructorSymbol, fieldSymbol, propertySymbol, methodSymbol);
 
 	return normalizeSymbols([classSymbol, functionSymbol, unknownSymbol]);
+}
+
+function createPhaseOneFixture(): ReturnType<typeof normalizeSymbols> {
+	const controllerSymbol = createSymbol("Controller", vscode.SymbolKind.Class, 0, 28);
+	const constructorSymbol = createSymbol("constructor", vscode.SymbolKind.Constructor, 1, 3);
+	const handleSymbol = createSymbol("handle", vscode.SymbolKind.Method, 5, 16);
+	const formatPayloadSymbol = createSymbol("formatPayload", vscode.SymbolKind.Function, 7, 10);
+	const viewModelSymbol = createSymbol("ViewModel", vscode.SymbolKind.Class, 18, 25);
+	const renderSymbol = createSymbol("render", vscode.SymbolKind.Method, 21, 24);
+	const bootstrapSymbol = createSymbol("bootstrap", vscode.SymbolKind.Function, 30, 35);
+
+	handleSymbol.children.push(formatPayloadSymbol);
+	viewModelSymbol.children.push(renderSymbol);
+	controllerSymbol.children.push(constructorSymbol, handleSymbol, viewModelSymbol);
+
+	return normalizeSymbols([controllerSymbol, bootstrapSymbol]);
 }
 
 function createDepthFilterFixture(): ReturnType<typeof normalizeSymbols> {
