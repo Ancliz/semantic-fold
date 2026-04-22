@@ -290,6 +290,35 @@ Toggle region markers:
 }
 ```
 
+Toggle a file overview that includes imports and top-level types:
+
+```json
+{
+  "key": "ctrl+alt+shift+o",
+  "command": "semanticFold.toggle",
+  "args": {
+    "filter": {
+      "kinds": ["import", "class", "struct", "interface", "enum"],
+      "exactSymbolDepth": 1
+    }
+  }
+}
+```
+
+Toggle comments and methods together:
+
+```json
+{
+  "key": "ctrl+alt+shift+c",
+  "command": "semanticFold.toggle",
+  "args": {
+    "filter": {
+      "kinds": ["comment", "method"]
+    }
+  }
+}
+```
+
 ## Phase 1 Validation
 
 Phase 1 is the symbol-driven MVP. It proves that Semantic Fold can collect document symbols, convert them into one internal region model, filter those regions by kind and symbol depth, and apply folding only to the exact matching regions.
@@ -327,6 +356,7 @@ Use a file with a top-level class, methods inside that class, a nested function 
 - Use `filter.kinds: ["import"]`; confirm provider-exposed import folding ranges toggle together.
 - Use `filter.kinds: ["comment"]`; confirm provider-exposed comment block folding ranges toggle together.
 - Use `filter.kinds: ["region"]`; confirm provider-exposed region marker folding ranges toggle together.
+- Use `filter.kinds: ["import", "class", "comment"]`; confirm symbol and folding-range categories toggle together.
 - Use a filter with no matches; confirm the command leaves the editor unchanged.
 
 ### Targeted Folding Versus Recursive Folding
