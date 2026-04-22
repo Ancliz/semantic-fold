@@ -285,25 +285,29 @@ suite("Symbol Kind Mapping", () => {
 });
 
 suite("Folding Range Refinement", () => {
-	test("maps import folding ranges into folding-only regions", () => {
+	test("maps supported folding ranges into folding-only regions", () => {
 		const regions = normaliseFoldingRanges([
 			new vscode.FoldingRange(0, 2, vscode.FoldingRangeKind.Imports),
+			new vscode.FoldingRange(4, 8, vscode.FoldingRangeKind.Comment),
+			new vscode.FoldingRange(10, 20, vscode.FoldingRangeKind.Region),
 		]);
 
-		assert.strictEqual(regions.length, 1);
-		assert.strictEqual(regions[0].kind, "import");
-		assert.strictEqual(regions[0].source, "foldingRange");
-		assert.strictEqual(regions[0].rangeStartLine, 0);
-		assert.strictEqual(regions[0].rangeEndLine, 2);
-		assert.strictEqual(regions[0].selectionLine, 0);
-		assert.strictEqual(regions[0].symbolDepth, 1);
-		assert.strictEqual(regions[0].foldDepth, 1);
+		assert.deepStrictEqual(
+			regions.map((region) => `${region.kind}:${region.selectionLine}:${region.rangeEndLine}`),
+			[
+				"import:0:2",
+				"comment:4:8",
+				"region:10:20",
+			]
+		);
+		assert.ok(regions.every((region) => region.source === "foldingRange"));
+		assert.ok(regions.every((region) => region.symbolDepth === 1));
+		assert.ok(regions.every((region) => region.foldDepth === 1));
 	});
 
-	test("ignores unsupported and malformed folding ranges", () => {
+	test("ignores uncategorised and malformed folding ranges", () => {
 		assert.deepStrictEqual(
 			normaliseFoldingRanges([
-				new vscode.FoldingRange(0, 2, vscode.FoldingRangeKind.Comment),
 				new vscode.FoldingRange(4, 6),
 				new vscode.FoldingRange(7.5, 9, vscode.FoldingRangeKind.Imports),
 				{ start: 10, end: 8, kind: vscode.FoldingRangeKind.Imports } as vscode.FoldingRange,
@@ -342,6 +346,44 @@ suite("Folding Range Refinement", () => {
 		assert.deepStrictEqual(
 			foldableRegions.map((region) => `${region.kind}:${region.selectionLine}`),
 			["import:0"]
+		);
+		assert.deepStrictEqual(collectSelectionLines(foldableRegions), [0]);
+	});
+
+	test("selects foldable comment ranges through the generic command filter", () => {
+		const classSymbol = createSymbol("Example", vscode.SymbolKind.Class, 8, 14);
+		const regions = attachFoldingOnlyNodes(normalizeSymbols([classSymbol]), [
+			new vscode.FoldingRange(0, 5, vscode.FoldingRangeKind.Comment),
+		]);
+
+		const foldableRegions = selectFoldableRegions({
+			filter: {
+				kinds: ["comment"],
+			},
+		}, regions);
+
+		assert.deepStrictEqual(
+			foldableRegions.map((region) => `${region.kind}:${region.selectionLine}`),
+			["comment:0"]
+		);
+		assert.deepStrictEqual(collectSelectionLines(foldableRegions), [0]);
+	});
+
+	test("selects foldable region marker ranges through the generic command filter", () => {
+		const classSymbol = createSymbol("Example", vscode.SymbolKind.Class, 8, 14);
+		const regions = attachFoldingOnlyNodes(normalizeSymbols([classSymbol]), [
+			new vscode.FoldingRange(0, 5, vscode.FoldingRangeKind.Region),
+		]);
+
+		const foldableRegions = selectFoldableRegions({
+			filter: {
+				kinds: ["region"],
+			},
+		}, regions);
+
+		assert.deepStrictEqual(
+			foldableRegions.map((region) => `${region.kind}:${region.selectionLine}`),
+			["region:0"]
 		);
 		assert.deepStrictEqual(collectSelectionLines(foldableRegions), [0]);
 	});

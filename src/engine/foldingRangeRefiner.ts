@@ -2,7 +2,7 @@ import * as vscode from "vscode";
 import type { RegionKind, RegionNode } from "../model/region";
 import { mapFoldingRangeKind } from "../util/symbolKindMap";
 
-const supportedFoldingRangeKinds = new Set<RegionKind>(["import"]);
+const supportedFoldingRangeKinds = new Set<RegionKind>(["import", "comment", "region"]);
 
 export function attachFoldingOnlyNodes(
 	rootNodes: RegionNode[],
