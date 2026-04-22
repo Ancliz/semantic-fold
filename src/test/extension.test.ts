@@ -472,6 +472,57 @@ suite("Folding Range Refinement", () => {
 		);
 		assert.deepStrictEqual(collectSelectionLines(foldableRegions), [0]);
 	});
+
+	test("treats unsupported folding-range categories as soft no-match results", async () => {
+		const regions = attachFoldingOnlyNodes([], [
+			new vscode.FoldingRange(0, 2, vscode.FoldingRangeKind.Imports),
+		]);
+		const executedCommands: ExecutedCommand[] = [];
+
+		const commentRegions = selectFoldableRegions({
+			filter: {
+				kinds: ["comment"],
+			},
+		}, regions);
+
+		await execFoldCommand({
+			filter: {
+				kinds: ["comment"],
+			},
+		}, regions, async (command, args) => {
+			executedCommands.push({
+				command,
+				levels: args.levels,
+				selectionLines: args.selectionLines,
+			});
+		}, new TrackedFoldState(), "test://missing-comment-category");
+
+		assert.deepStrictEqual(commentRegions, []);
+		assert.deepStrictEqual(executedCommands, []);
+	});
+
+	test("keeps present folding-range categories available when another category is absent", () => {
+		const regions = attachFoldingOnlyNodes([], [
+			new vscode.FoldingRange(0, 2, vscode.FoldingRangeKind.Imports),
+		]);
+
+		assert.deepStrictEqual(
+			collectSelectionLines(selectFoldableRegions({
+				filter: {
+					kinds: ["import"],
+				},
+			}, regions)),
+			[0]
+		);
+		assert.deepStrictEqual(
+			collectSelectionLines(selectFoldableRegions({
+				filter: {
+					kinds: ["region"],
+				},
+			}, regions)),
+			[]
+		);
+	});
 });
 
 suite("Command Argument Normalisation", () => {

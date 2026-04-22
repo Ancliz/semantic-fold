@@ -139,6 +139,8 @@ The `preserveCursorContext` field is accepted for payload compatibility, but Pha
 
 Toggle state is tracked for folds created through Semantic Fold commands. Manual folding, unfolding, or other extensions can make the tracked state incomplete, but the next semantic toggle collapses a mixed target set back into a consistent state before later toggles expand it as a group.
 
+Category support depends on the active language and folding providers. If the current editor does not report a category such as `import`, `comment`, or `region`, filters for that category simply produce no matching fold targets; other reported categories continue to work.
+
 ## Convenience commands
 
 These commands are available from the Command Palette and use the same filter pipeline as the generic commands:
@@ -400,7 +402,9 @@ That means:
 - some languages may expose great symbol trees
 - some may expose weak or incomplete symbol data
 - semantic token coverage may vary
-- comment/import folding may depend on folding providers
+- import, comment, and region-marker folding may depend on folding providers
+
+Folding-range categories are provider-dependent. A language can report imports without comments, comments without region markers, or none of those categories. Semantic Fold treats missing categories as soft no-match cases instead of errors, so unsupported filters leave the editor unchanged while unrelated supported categories still fold normally.
 
 ### Flat symbol fallback
 
