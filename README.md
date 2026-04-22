@@ -51,6 +51,8 @@ It primarily uses:
 - folding ranges for extra foldable spans such as comments/imports/regions
 - semantic tokens as a refinement layer, not the main source of structure
 
+Semantic-token refinement is additive. When semantic tokens and their legend are available, Semantic Fold can add a secondary classification to weak symbol regions such as `unknown`, `variable`, or `object` without replacing the original provider kind. If semantic data is missing or fails, the structural symbol and folding-range model is used unchanged.
+
 The extension then filters those regions using one or more constraints and folds only the matching lines.
 
 ### Example
