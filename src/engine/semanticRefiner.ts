@@ -17,7 +17,6 @@ interface DecodedSemanticToken {
 	tokenType: string;
 }
 
-const weakRegionKinds = new Set<RegionKind>(["unknown", "object", "variable"]);
 const semanticTokenKinds = new Map<string, RegionKind>([
 	["class", "class"],
 	["struct", "struct"],
@@ -27,7 +26,22 @@ const semanticTokenKinds = new Map<string, RegionKind>([
 	["function", "function"],
 	["method", "method"],
 	["property", "property"],
+	["field", "field"],
 	["variable", "variable"],
+]);
+
+const broadSemanticRegionKinds   = new Set<RegionKind>(["unknown", "object", "variable"]);
+
+/*
+ * Refinement moves from broader or commonly ambiguous provider categories toward
+ * narrower semantic evidence. A provider-backed method stays a method, even if a
+ * token provider calls it a function, because function filters should not expand
+ * to every method unless the structural provider was already broad
+ */
+const ambiguousRegionRefinements = new Map<RegionKind, ReadonlySet<RegionKind>>([
+	["function", new Set<RegionKind>(["method"])],
+	["property", new Set<RegionKind>(["field"])],
+	["field", new Set<RegionKind>(["property"])],
 ]);
 
 /**
@@ -104,7 +118,7 @@ function findSemanticKindForRegion(
 	semanticTokens: readonly DecodedSemanticToken[],
 	document: vscode.TextDocument
 ): RegionKind | undefined {
-	if(region.source === "foldingRange" || !weakRegionKinds.has(region.kind)) {
+	if(region.source === "foldingRange") {
 		return undefined;
 	}
 
@@ -115,7 +129,7 @@ function findSemanticKindForRegion(
 
 		const semanticKind = semanticTokenKinds.get(semanticToken.tokenType);
 
-		if(semanticKind === undefined) {
+		if(semanticKind === undefined || !canRefineRegionKind(region.kind, semanticKind)) {
 			continue;
 		}
 
@@ -125,6 +139,18 @@ function findSemanticKindForRegion(
 	}
 
 	return undefined;
+}
+
+function canRefineRegionKind(regionKind: RegionKind, semanticKind: RegionKind): boolean {
+	if(regionKind === semanticKind) {
+		return false;
+	}
+
+	if(broadSemanticRegionKinds.has(regionKind)) {
+		return true;
+	}
+
+	return ambiguousRegionRefinements.get(regionKind)?.has(semanticKind) ?? false;
 }
 
 function getTokenText(document: vscode.TextDocument, semanticToken: DecodedSemanticToken): string | undefined {

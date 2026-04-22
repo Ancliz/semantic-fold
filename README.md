@@ -51,7 +51,9 @@ It primarily uses:
 - folding ranges for extra foldable spans such as comments/imports/regions
 - semantic tokens as a refinement layer, not the main source of structure
 
-Semantic-token refinement is additive. When semantic tokens and their legend are available, Semantic Fold can add a secondary classification to weak symbol regions such as `unknown`, `variable`, or `object` without replacing the original provider kind. If semantic data is missing or fails, the structural symbol and folding-range model is used unchanged.
+Semantic-token refinement is additive and best-effort. When semantic tokens and their legend are available, Semantic Fold can add a secondary classification to weak or ambiguous symbol regions such as `unknown`, `variable`, `object`, `function`, `property`, or `field` without replacing the original provider kind. This can make callable and member filters behave more consistently when language servers disagree about `function` versus `method`, or `property` versus `field`. If semantic data is missing, incomplete, or provider-dependent in a different way, the structural symbol and folding-range model is used unchanged.
+
+Refinement prefers narrower semantic evidence without broadening clear structural categories. For example, a provider-backed `function` may also match `method` when semantic tokens identify it as a method, but a provider-backed `method` is not broadened into `function`.
 
 The extension then filters those regions using one or more constraints and folds only the matching lines.
 
@@ -86,7 +88,7 @@ The normalised semantic category of a region, such as:
 - `comment`
 - `region`
 
-Semantic Fold preserves distinctions such as `struct`, `function`, `method`, `constructor`, `property`, `field`, `variable`, and `object` when the active language extension exposes them through VS Code's document-symbol provider. Provider quality varies by language and extension, so weak providers may report less precise kinds or fall back to unknown categories.
+Semantic Fold preserves distinctions such as `struct`, `function`, `method`, `constructor`, `property`, `field`, `variable`, and `object` when the active language extension exposes them through VS Code's document-symbol provider. Provider quality varies by language and extension, so weak providers may report less precise kinds or fall back to unknown categories. Semantic tokens can refine some of those ambiguous categories, but the result remains provider-dependent rather than a full parser.
 
 ### Symbol depth
 

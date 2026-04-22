@@ -1539,6 +1539,106 @@ suite("Semantic Token Refinement", () => {
 		);
 	});
 
+	test("refines ambiguous callable symbols without changing clear method symbols", async () => {
+		const document = await vscode.workspace.openTextDocument({
+			content: "class Example {\n\trun() {\n\t\treturn true;\n\t}\n\tstop() {\n\t\treturn true;\n\t}\n}\n",
+			language: "typescript",
+		});
+		const classSymbol = createSymbol("Example", vscode.SymbolKind.Class, 0, 7);
+		const functionSymbol = createSymbol("run", vscode.SymbolKind.Function, 1, 3);
+		const methodSymbol = createSymbol("stop", vscode.SymbolKind.Method, 4, 6);
+		classSymbol.children.push(functionSymbol, methodSymbol);
+		const regions = normalizeSymbols([classSymbol]);
+
+		refineWithSemanticTokens(regions, {
+			document,
+			semanticTokens: createSemanticTokens([
+				{
+					line: 1,
+					startCharacter: 1,
+					length: 3,
+					tokenType: 0,
+				},
+				{
+					line: 4,
+					startCharacter: 1,
+					length: 4,
+					tokenType: 1,
+				},
+			]),
+			semanticTokenLegend: new vscode.SemanticTokensLegend(["method", "function"]),
+		});
+
+		assert.strictEqual(regions[0].children[0].kind, "function");
+		assert.strictEqual(regions[0].children[0].semanticKind, "method");
+		assert.strictEqual(regions[0].children[1].kind, "method");
+		assert.strictEqual(regions[0].children[1].semanticKind, undefined);
+		assert.deepStrictEqual(
+			filterRegions(regions, {
+				kinds: ["method"],
+				parentKinds: ["class"],
+			}).map((region) => region.name),
+			["run", "stop"]
+		);
+		assert.deepStrictEqual(
+			filterRegions(regions, {
+				kinds: ["function"],
+				parentKinds: ["class"],
+			}).map((region) => region.name),
+			["run"]
+		);
+	});
+
+	test("refines property and field ambiguity in both filter directions", async () => {
+		const document = await vscode.workspace.openTextDocument({
+			content: "class Example {\n\tcount = 1;\n\ttitle = \"\";\n}\n",
+			language: "typescript",
+		});
+		const classSymbol = createSymbol("Example", vscode.SymbolKind.Class, 0, 3);
+		const propertySymbol = createSymbol("count", vscode.SymbolKind.Property, 1, 1);
+		const fieldSymbol = createSymbol("title", vscode.SymbolKind.Field, 2, 2);
+		classSymbol.children.push(propertySymbol, fieldSymbol);
+		const regions = normalizeSymbols([classSymbol]);
+
+		refineWithSemanticTokens(regions, {
+			document,
+			semanticTokens: createSemanticTokens([
+				{
+					line: 1,
+					startCharacter: 1,
+					length: 5,
+					tokenType: 0,
+				},
+				{
+					line: 2,
+					startCharacter: 1,
+					length: 5,
+					tokenType: 1,
+				},
+			]),
+			semanticTokenLegend: new vscode.SemanticTokensLegend(["field", "property"]),
+		});
+
+		assert.strictEqual(regions[0].children[0].kind, "property");
+		assert.strictEqual(regions[0].children[0].semanticKind, "field");
+		assert.strictEqual(regions[0].children[1].kind, "field");
+		assert.strictEqual(regions[0].children[1].semanticKind, "property");
+		assert.deepStrictEqual(
+			filterRegions(regions, {
+				kinds: ["field"],
+				parentKinds: ["class"],
+			}).map((region) => region.name),
+			["count", "title"]
+		);
+		assert.deepStrictEqual(
+			filterRegions(regions, {
+				kinds: ["property"],
+				parentKinds: ["class"],
+			}).map((region) => region.name),
+			["count", "title"]
+		);
+	});
+
 	test("ignores semantic tokens whose text does not match the region name", async () => {
 		const document = await vscode.workspace.openTextDocument({
 			content: "const other = () => {\n\treturn true;\n}\n",
