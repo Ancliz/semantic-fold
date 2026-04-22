@@ -95,7 +95,7 @@ export function collectSelectionLines(regions: readonly RegionNode[]): number[] 
 		.sort((left, right) => left - right);
 }
 
-export async function runFoldCommand(
+export async function execFoldCommand(
 	args: CollapseArgs,
 	rootNodes: readonly RegionNode[] = [],
 	executeCommand: FoldCommandExecutor = defaultFoldCommandExecutor,
