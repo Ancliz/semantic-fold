@@ -85,6 +85,61 @@ suite("Document Symbol Collection", () => {
 		assert.strictEqual(regions[0].name, "helper");
 		assert.strictEqual(regions[0].source, "symbolInformation");
 	});
+
+	test("caches regions per document URI and version", async () => {
+		const document = await vscode.workspace.openTextDocument({
+			content: "class Example {\n\tmethod() {}\n}\n",
+			language: "typescript",
+		});
+		const expectedSymbol = createSymbol("Example", vscode.SymbolKind.Class, 0, 2);
+		let providerCallCount = 0;
+
+		const regions1 = await getRegions(document, async () => {
+			providerCallCount++;
+			return [expectedSymbol];
+		});
+
+		const regions2 = await getRegions(document, async () => {
+			providerCallCount++;
+			return [expectedSymbol];
+		});
+
+		// Should only call provider once (cache hit on second call)
+		assert.strictEqual(providerCallCount, 1);
+		assert.strictEqual(regions1.length, 1);
+		assert.strictEqual(regions2.length, 1);
+		assert.strictEqual(regions1[0].name, regions2[0].name);
+	});
+
+	test("invalidates cache on document version change", async () => {
+		const document = await vscode.workspace.openTextDocument({
+			content: "class Example {\n\tmethod() {}\n}\n",
+			language: "typescript",
+		});
+		const expectedSymbol = createSymbol("Example", vscode.SymbolKind.Class, 0, 2);
+		let providerCallCount = 0;
+
+		const regions1 = await getRegions(document, async () => {
+			providerCallCount++;
+			return [expectedSymbol];
+		});
+
+		// Simulate document version change by editing
+		const editResult = await vscode.workspace.openTextDocument({
+			content: "class Example {\n\tmethod() {}\n\tnewMethod() {}\n}\n",
+			language: "typescript",
+		});
+
+		const regions2 = await getRegions(editResult, async () => {
+			providerCallCount++;
+			return [expectedSymbol];
+		});
+
+		// Should call provider twice (version changed, cache miss)
+		assert.strictEqual(providerCallCount, 2);
+		assert.strictEqual(regions1.length, 1);
+		assert.strictEqual(regions2.length, 1);
+	});
 });
 
 suite("Document Symbol Normalisation", () => {

@@ -9,6 +9,9 @@ import {
 } from "./commands/collapse";
 import { expandCommand } from "./commands/expand";
 import { toggleCommand } from "./commands/toggle";
+import { invalidateRegionCache, invalidateRegionCacheDebounced } from "./util/cache";
+
+const DEBOUNCE_DELAY_MS = 500;
 
 export function activate(context: vscode.ExtensionContext): void {
 	context.subscriptions.push(
@@ -34,7 +37,16 @@ export function activate(context: vscode.ExtensionContext): void {
 		vscode.commands.registerCommand(
 			"semanticFold.toggleFunctionsInVariables",
 			toggleFunctionsInVariablesCommand
-		)
+		),
+		// Register cache invalidation listeners
+		vscode.workspace.onDidChangeTextDocument((event) => {
+			const documentUri = event.document.uri.toString();
+			invalidateRegionCacheDebounced(documentUri, DEBOUNCE_DELAY_MS);
+		}),
+		vscode.workspace.onDidCloseTextDocument((document) => {
+			const documentUri = document.uri.toString();
+			invalidateRegionCache(documentUri);
+		})
 	);
 }
 
