@@ -2,7 +2,7 @@
   "name": "semantic-fold",
   "displayName": "Semantic Fold",
   "description": "Policy-driven code folding for VS Code",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "engines": {
     "vscode": "^1.111.0"
   },
