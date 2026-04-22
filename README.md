@@ -260,6 +260,34 @@ The generic command equivalent is:
 }
 ```
 
+Toggle comment blocks:
+
+```json
+{
+  "key": "ctrl+alt+c",
+  "command": "semanticFold.toggle",
+  "args": {
+    "filter": {
+      "kinds": ["comment"]
+    }
+  }
+}
+```
+
+Toggle region markers:
+
+```json
+{
+  "key": "ctrl+alt+r",
+  "command": "semanticFold.toggle",
+  "args": {
+    "filter": {
+      "kinds": ["region"]
+    }
+  }
+}
+```
+
 ## Phase 1 Validation
 
 Phase 1 is the symbol-driven MVP. It proves that Semantic Fold can collect document symbols, convert them into one internal region model, filter those regions by kind and symbol depth, and apply folding only to the exact matching regions.
@@ -295,6 +323,8 @@ Use a file with a top-level class, methods inside that class, a nested function 
 - Run `semanticFold.expand` with the same filter; confirm only the matching methods expand.
 - Run `semanticFold.toggle` with the same filter; confirm it targets the same methods as collapse and expand.
 - Use `filter.kinds: ["import"]`; confirm provider-exposed import folding ranges toggle together.
+- Use `filter.kinds: ["comment"]`; confirm provider-exposed comment block folding ranges toggle together.
+- Use `filter.kinds: ["region"]`; confirm provider-exposed region marker folding ranges toggle together.
 - Use a filter with no matches; confirm the command leaves the editor unchanged.
 
 ### Targeted Folding Versus Recursive Folding
@@ -468,7 +498,7 @@ Open the workspace in VS Code and launch the extension host from the debugger.
 - [x] Add keybinding-ready generic command
 - [ ] Add convenience commands
 - [x] Add imports support
-- [ ] Add comments/regions support
+- [x] Add comments/regions support
 - [ ] Add semantic-token refinement
 - [ ] Add presets
 - [ ] Publish extension
