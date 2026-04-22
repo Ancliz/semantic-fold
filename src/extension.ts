@@ -10,7 +10,8 @@ import {
 } from "./commands/collapse";
 import { expandCommand } from "./commands/expand";
 import { toggleCommand } from "./commands/toggle";
-import { invalidateRegionCache, invalidateRegionCacheDebounced } from "./util/cache";
+import { clearRegionCache, invalidateRegionCache, invalidateRegionCacheDebounced } from "./util/cache";
+import { SEMANTIC_REFINEMENT_ENABLED_SETTING } from "./util/config";
 
 /**
  * Delay used to avoid rebuilding regions for every keystroke
@@ -54,7 +55,13 @@ export function activate(context: vscode.ExtensionContext): void {
 		vscode.workspace.onDidCloseTextDocument((document) => {
 			const documentUri = document.uri.toString();
 			invalidateRegionCache(documentUri);
-		})
+		}),
+			vscode.workspace.onDidChangeConfiguration((event) => {
+				if(event.affectsConfiguration(SEMANTIC_REFINEMENT_ENABLED_SETTING)) {
+					console.debug("[semanticFold] Semantic refinement setting changed, clearing region cache");
+					clearRegionCache();
+				}
+			})
 	);
 }
 

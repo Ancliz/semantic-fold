@@ -5,6 +5,7 @@ import type { RegionNode } from "../model/region";
  */
 export interface CachedRegions {
 	documentVersion: number;
+	semanticRefinementEnabled?: boolean;
 	nodes: RegionNode[];
 }
 

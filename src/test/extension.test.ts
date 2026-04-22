@@ -39,6 +39,15 @@ suite("Semantic Fold Foundation", () => {
 		assert.ok(commands.includes("semanticFold.toggleFunctionsInVariables"));
 		assert.ok(commands.includes("semanticFold.toggleImports"));
 	});
+
+	test("contributes semantic refinement configuration", () => {
+		const extension = getSemanticFoldExtension();
+		const setting = extension.packageJSON.contributes.configuration.properties["semanticFold.semanticRefinement.enabled"];
+
+		assert.strictEqual(setting.type, "boolean");
+		assert.strictEqual(setting.default, true);
+		assert.strictEqual(setting.scope, "resource");
+	});
 });
 
 suite("Document Region Collection", () => {
@@ -72,6 +81,96 @@ suite("Document Region Collection", () => {
 		);
 	});
 
+	test("requests semantic tokens and legend for the supplied document uri", async () => {
+		const document = await vscode.workspace.openTextDocument({
+			content: "const handler = () => {\n\treturn true;\n}\n",
+			language: "typescript",
+		});
+		const weakSymbol = createSymbol("handler", 999 as vscode.SymbolKind, 0, 2);
+		const semanticTokens = createSemanticTokens([{
+			line: 0,
+			startCharacter: 6,
+			length: 7,
+			tokenType: 0,
+		}]);
+		const semanticTokenLegend = new vscode.SemanticTokensLegend(["function"]);
+		let requestedSemanticTokenUri: vscode.Uri | undefined;
+		let requestedSemanticLegendUri: vscode.Uri | undefined;
+
+		const regions = await getRegions(document, async () => {
+			return [weakSymbol];
+		}, async () => {
+			return [];
+		}, async (uri) => {
+			requestedSemanticTokenUri = uri;
+
+			return semanticTokens;
+		}, async (uri) => {
+			requestedSemanticLegendUri = uri;
+
+			return semanticTokenLegend;
+		});
+
+		assert.strictEqual(requestedSemanticTokenUri?.toString(), document.uri.toString());
+		assert.strictEqual(requestedSemanticLegendUri?.toString(), document.uri.toString());
+		assert.strictEqual(regions[0].kind, "unknown");
+		assert.strictEqual(regions[0].semanticKind, "function");
+		assert.deepStrictEqual(
+			collectSelectionLines(selectFoldableRegions({
+				filter: {
+					kinds: ["function"],
+				},
+			}, regions)),
+			[0]
+		);
+	});
+
+	test("skips semantic token collection when semantic refinement is disabled", async () => {
+		await withSemanticRefinementEnabled(false, async () => {
+			clearRegionCache();
+
+			const document = await vscode.workspace.openTextDocument({
+				content: "const handler = () => {\n\treturn true;\n}\n",
+				language: "typescript",
+			});
+			const weakSymbol = createSymbol("handler", 999 as vscode.SymbolKind, 0, 2);
+			let semanticTokenCallCount = 0;
+			let semanticLegendCallCount = 0;
+
+			const regions = await getRegions(document, async () => {
+				return [weakSymbol];
+			}, async () => {
+				return [];
+			}, async () => {
+				semanticTokenCallCount++;
+
+				return createSemanticTokens([{
+					line: 0,
+					startCharacter: 6,
+					length: 7,
+					tokenType: 0,
+				}]);
+			}, async () => {
+				semanticLegendCallCount++;
+
+				return new vscode.SemanticTokensLegend(["function"]);
+			});
+
+			assert.strictEqual(semanticTokenCallCount, 0);
+			assert.strictEqual(semanticLegendCallCount, 0);
+			assert.strictEqual(regions[0].kind, "unknown");
+			assert.strictEqual(regions[0].semanticKind, undefined);
+			assert.deepStrictEqual(
+				collectSelectionLines(selectFoldableRegions({
+					filter: {
+						kinds: ["unknown"],
+					},
+				}, regions)),
+				[0]
+			);
+		});
+	});
+
 	test("returns an empty region tree when the provider fails", async () => {
 		const document = await vscode.workspace.openTextDocument({
 			content: "class Example {}\n",
@@ -103,6 +202,36 @@ suite("Document Region Collection", () => {
 		assert.strictEqual(regions.length, 1);
 		assert.strictEqual(regions[0].name, "Example");
 		assert.strictEqual(regions[0].source, "documentSymbol");
+	});
+
+	test("keeps structural regions when semantic tokens are unavailable", async () => {
+		const document = await vscode.workspace.openTextDocument({
+			content: "const handler = () => {\n\treturn true;\n}\n",
+			language: "typescript",
+		});
+		const weakSymbol = createSymbol("handler", 999 as vscode.SymbolKind, 0, 2);
+
+		const regions = await getRegions(document, async () => {
+			return [weakSymbol];
+		}, async () => {
+			return [];
+		}, async () => {
+			throw new Error("semantic provider failed");
+		}, async () => {
+			return new vscode.SemanticTokensLegend(["function"]);
+		});
+
+		assert.strictEqual(regions.length, 1);
+		assert.strictEqual(regions[0].kind, "unknown");
+		assert.strictEqual(regions[0].semanticKind, undefined);
+		assert.deepStrictEqual(
+			collectSelectionLines(selectFoldableRegions({
+				filter: {
+					kinds: ["unknown"],
+				},
+			}, regions)),
+			[0]
+		);
 	});
 
 	test("keeps folding ranges when symbols are unavailable", async () => {
@@ -1416,10 +1545,236 @@ suite("Region Filtering", () => {
 });
 
 suite("Semantic Token Refinement", () => {
-	test("returns the provider-backed region tree unchanged until semantic refinement is implemented", () => {
+	test("returns the provider-backed region tree unchanged when semantic data is missing", () => {
 		const regions = createMixedSymbolAndFoldingFixture();
 
 		assert.strictEqual(refineWithSemanticTokens(regions), regions);
+	});
+
+	test("keeps structural regions when semantic token legend is missing", async () => {
+		const document = await vscode.workspace.openTextDocument({
+			content: "const handler = () => {\n\treturn true;\n}\n",
+			language: "typescript",
+		});
+		const weakSymbol = createSymbol("handler", 999 as vscode.SymbolKind, 0, 2);
+		const regions = normalizeSymbols([weakSymbol]);
+
+		const refinedRegions = refineWithSemanticTokens(regions, {
+			document,
+			semanticTokens: createSemanticTokens([{
+				line: 0,
+				startCharacter: 6,
+				length: 7,
+				tokenType: 0,
+			}]),
+			semanticTokenLegend: undefined,
+		});
+
+		assert.strictEqual(refinedRegions, regions);
+		assert.strictEqual(regions[0].semanticKind, undefined);
+	});
+
+	test("adds semantic kinds to weak symbol regions without replacing structural kinds", async () => {
+		const document = await vscode.workspace.openTextDocument({
+			content: "const handler = () => {\n\treturn true;\n}\n\nfunction run() {\n\treturn true;\n}\n",
+			language: "typescript",
+		});
+		const weakSymbol = createSymbol("handler", 999 as vscode.SymbolKind, 0, 2);
+		const strongSymbol = createSymbol("run", vscode.SymbolKind.Function, 4, 6);
+		const regions = normalizeSymbols([weakSymbol, strongSymbol]);
+		const semanticTokenLegend = new vscode.SemanticTokensLegend(["function", "property"]);
+		const semanticTokens = createSemanticTokens([
+			{
+				line: 0,
+				startCharacter: 6,
+				length: 7,
+				tokenType: 0,
+			},
+			{
+				line: 4,
+				startCharacter: 9,
+				length: 3,
+				tokenType: 1,
+			},
+		]);
+
+		const refinedRegions = refineWithSemanticTokens(regions, {
+			document,
+			semanticTokens,
+			semanticTokenLegend,
+		});
+
+		assert.strictEqual(refinedRegions, regions);
+		assert.strictEqual(regions[0].kind, "unknown");
+		assert.strictEqual(regions[0].semanticKind, "function");
+		assert.strictEqual(regions[1].kind, "function");
+		assert.strictEqual(regions[1].semanticKind, undefined);
+		assert.deepStrictEqual(
+			filterRegions(regions, {
+				kinds: ["function"],
+			}).map((region) => region.name),
+			["handler", "run"]
+		);
+	});
+
+	test("refines ambiguous callable symbols without changing clear method symbols", async () => {
+		const document = await vscode.workspace.openTextDocument({
+			content: "class Example {\n\trun() {\n\t\treturn true;\n\t}\n\tstop() {\n\t\treturn true;\n\t}\n}\n",
+			language: "typescript",
+		});
+		const classSymbol = createSymbol("Example", vscode.SymbolKind.Class, 0, 7);
+		const functionSymbol = createSymbol("run", vscode.SymbolKind.Function, 1, 3);
+		const methodSymbol = createSymbol("stop", vscode.SymbolKind.Method, 4, 6);
+		classSymbol.children.push(functionSymbol, methodSymbol);
+		const regions = normalizeSymbols([classSymbol]);
+
+		refineWithSemanticTokens(regions, {
+			document,
+			semanticTokens: createSemanticTokens([
+				{
+					line: 1,
+					startCharacter: 1,
+					length: 3,
+					tokenType: 0,
+				},
+				{
+					line: 4,
+					startCharacter: 1,
+					length: 4,
+					tokenType: 1,
+				},
+			]),
+			semanticTokenLegend: new vscode.SemanticTokensLegend(["method", "function"]),
+		});
+
+		assert.strictEqual(regions[0].children[0].kind, "function");
+		assert.strictEqual(regions[0].children[0].semanticKind, "method");
+		assert.strictEqual(regions[0].children[1].kind, "method");
+		assert.strictEqual(regions[0].children[1].semanticKind, undefined);
+		assert.deepStrictEqual(
+			filterRegions(regions, {
+				kinds: ["method"],
+				parentKinds: ["class"],
+			}).map((region) => region.name),
+			["run", "stop"]
+		);
+		assert.deepStrictEqual(
+			filterRegions(regions, {
+				kinds: ["function"],
+				parentKinds: ["class"],
+			}).map((region) => region.name),
+			["run"]
+		);
+	});
+
+	test("refines property and field ambiguity in both filter directions", async () => {
+		const document = await vscode.workspace.openTextDocument({
+			content: "class Example {\n\tcount = 1;\n\ttitle = \"\";\n}\n",
+			language: "typescript",
+		});
+		const classSymbol = createSymbol("Example", vscode.SymbolKind.Class, 0, 3);
+		const propertySymbol = createSymbol("count", vscode.SymbolKind.Property, 1, 1);
+		const fieldSymbol = createSymbol("title", vscode.SymbolKind.Field, 2, 2);
+		classSymbol.children.push(propertySymbol, fieldSymbol);
+		const regions = normalizeSymbols([classSymbol]);
+
+		refineWithSemanticTokens(regions, {
+			document,
+			semanticTokens: createSemanticTokens([
+				{
+					line: 1,
+					startCharacter: 1,
+					length: 5,
+					tokenType: 0,
+				},
+				{
+					line: 2,
+					startCharacter: 1,
+					length: 5,
+					tokenType: 1,
+				},
+			]),
+			semanticTokenLegend: new vscode.SemanticTokensLegend(["field", "property"]),
+		});
+
+		assert.strictEqual(regions[0].children[0].kind, "property");
+		assert.strictEqual(regions[0].children[0].semanticKind, "field");
+		assert.strictEqual(regions[0].children[1].kind, "field");
+		assert.strictEqual(regions[0].children[1].semanticKind, "property");
+		assert.deepStrictEqual(
+			filterRegions(regions, {
+				kinds: ["field"],
+				parentKinds: ["class"],
+			}).map((region) => region.name),
+			["count", "title"]
+		);
+		assert.deepStrictEqual(
+			filterRegions(regions, {
+				kinds: ["property"],
+				parentKinds: ["class"],
+			}).map((region) => region.name),
+			["count", "title"]
+		);
+	});
+
+	test("ignores semantic tokens whose text does not match the region name", async () => {
+		const document = await vscode.workspace.openTextDocument({
+			content: "const other = () => {\n\treturn true;\n}\n",
+			language: "typescript",
+		});
+		const weakSymbol = createSymbol("handler", 999 as vscode.SymbolKind, 0, 2);
+		const regions = normalizeSymbols([weakSymbol]);
+
+		refineWithSemanticTokens(regions, {
+			document,
+			semanticTokens: createSemanticTokens([{
+				line: 0,
+				startCharacter: 6,
+				length: 5,
+				tokenType: 0,
+			}]),
+			semanticTokenLegend: new vscode.SemanticTokensLegend(["function"]),
+		});
+
+		assert.strictEqual(regions[0].semanticKind, undefined);
+		assert.deepStrictEqual(
+			filterRegions(regions, {
+				kinds: ["function"],
+			}),
+			[]
+		);
+	});
+
+	test("uses semantic parent classifications in relationship filters", async () => {
+		const document = await vscode.workspace.openTextDocument({
+			content: "class Example {\n\trun() {\n\t\treturn true;\n\t}\n}\n",
+			language: "typescript",
+		});
+		const classSymbol = createSymbol("Example", 999 as vscode.SymbolKind, 0, 4);
+		const methodSymbol = createSymbol("run", vscode.SymbolKind.Method, 1, 3);
+		classSymbol.children.push(methodSymbol);
+		const regions = normalizeSymbols([classSymbol]);
+
+		refineWithSemanticTokens(regions, {
+			document,
+			semanticTokens: createSemanticTokens([{
+				line: 0,
+				startCharacter: 6,
+				length: 7,
+				tokenType: 0,
+			}]),
+			semanticTokenLegend: new vscode.SemanticTokensLegend(["class"]),
+		});
+
+		assert.strictEqual(regions[0].kind, "unknown");
+		assert.strictEqual(regions[0].semanticKind, "class");
+		assert.deepStrictEqual(
+			filterRegions(regions, {
+				kinds: ["method"],
+				parentKinds: ["class"],
+			}).map((region) => region.name),
+			["run"]
+		);
 	});
 });
 
@@ -1889,6 +2244,38 @@ function createSymbolInformation(
 	);
 }
 
+function createSemanticTokens(tokens: Array<{
+	line: number;
+	startCharacter: number;
+	length: number;
+	tokenType: number;
+	tokenModifiers?: number;
+}>): vscode.SemanticTokens {
+	const data: number[] = [];
+	let previousLine = 0;
+	let previousStartCharacter = 0;
+
+	for(const token of tokens) {
+		const deltaLine = token.line - previousLine;
+		const deltaStartCharacter = deltaLine === 0
+			? token.startCharacter - previousStartCharacter
+			: token.startCharacter;
+
+		data.push(
+			deltaLine,
+			deltaStartCharacter,
+			token.length,
+			token.tokenType,
+			token.tokenModifiers ?? 0
+		);
+
+		previousLine = token.line;
+		previousStartCharacter = token.startCharacter;
+	}
+
+	return new vscode.SemanticTokens(new Uint32Array(data));
+}
+
 function createFilterFixture(): ReturnType<typeof normalizeSymbols> {
 	const classSymbol = createSymbol("Example", vscode.SymbolKind.Class, 0, 12);
 	const constructorSymbol = createSymbol("constructor", vscode.SymbolKind.Constructor, 1, 3);
@@ -2018,14 +2405,34 @@ interface ExecutedCommand {
 	selectionLines: number[];
 }
 
-async function activateExtension(): Promise<void> {
+function getSemanticFoldExtension(): vscode.Extension<unknown> {
 	const extension = vscode.extensions.all.find((candidate) => {
 		return candidate.packageJSON.name === "semantic-fold";
 	});
 
 	assert.ok(extension);
 
+	return extension;
+}
+
+async function activateExtension(): Promise<void> {
+	const extension = getSemanticFoldExtension();
+
 	await extension.activate();
+}
+
+async function withSemanticRefinementEnabled(enabled: boolean, callback: () => Promise<void>): Promise<void> {
+	const configuration = vscode.workspace.getConfiguration("semanticFold.semanticRefinement");
+	const inspectedValue = configuration.inspect<boolean>("enabled");
+
+	await configuration.update("enabled", enabled, vscode.ConfigurationTarget.Global);
+
+	try {
+		await callback();
+	} finally {
+		await configuration.update("enabled", inspectedValue?.globalValue, vscode.ConfigurationTarget.Global);
+		clearRegionCache();
+	}
 }
 
 async function delay(delayMs: number): Promise<void> {

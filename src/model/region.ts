@@ -48,6 +48,11 @@ export interface RegionNode {
 	kind: RegionKind;
 
 	/**
+	 * Optional semantic-token-backed category added without replacing the provider kind
+	 */
+	semanticKind?: RegionKind;
+
+	/**
 	 * Inclusive zero-based start line for the full provider range
 	 */
 	rangeStartLine: number;

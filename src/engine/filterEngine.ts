@@ -48,7 +48,7 @@ function matchesIncludedKind(region: RegionNode, filter: CollapseFilter): boolea
 		return true;
 	}
 
-	return filter.kinds.includes(region.kind);
+	return hasAnyRegionKind(region, filter.kinds);
 }
 
 /**
@@ -59,7 +59,7 @@ function matchesExcludedKind(region: RegionNode, filter: CollapseFilter): boolea
 		return false;
 	}
 
-	return filter.excludeKinds.includes(region.kind);
+	return hasAnyRegionKind(region, filter.excludeKinds);
 }
 
 /**
@@ -72,7 +72,7 @@ function matchesParentKind(region: RegionNode, filter: CollapseFilter): boolean 
 
 	const parent = getParent(region);
 
-	return parent !== undefined && filter.parentKinds.includes(parent.kind);
+	return parent !== undefined && hasAnyRegionKind(parent, filter.parentKinds);
 }
 
 /**
@@ -83,7 +83,9 @@ function matchesAncestorKind(region: RegionNode, filter: CollapseFilter): boolea
 		return true;
 	}
 
-	return getAncestors(region).some((ancestor) => filter.ancestorKinds?.includes(ancestor.kind));
+	return getAncestors(region).some((ancestor) => {
+		return filter.ancestorKinds !== undefined && hasAnyRegionKind(ancestor, filter.ancestorKinds);
+	});
 }
 
 /**
@@ -138,4 +140,12 @@ function matchesSymbolDepth(region: RegionNode, filter: CollapseFilter): boolean
 	}
 
 	return true;
+}
+
+/**
+ * Checks structural and semantic classifications as one additive kind set
+ */
+function hasAnyRegionKind(region: RegionNode, kinds: readonly RegionNode["kind"][]): boolean {
+	return kinds.includes(region.kind)
+		|| (region.semanticKind !== undefined && kinds.includes(region.semanticKind));
 }

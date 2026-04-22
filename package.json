@@ -2,7 +2,7 @@
   "name": "semantic-fold",
   "displayName": "Semantic Fold",
   "description": "Policy-driven code folding for VS Code",
-  "version": "0.1.2-dev",
+  "version": "0.1.2",
   "engines": {
     "vscode": "^1.111.0"
   },
@@ -52,7 +52,18 @@
         "command": "semanticFold.toggleImports",
         "title": "Semantic Fold: Toggle Imports"
       }
-    ]
+    ],
+    "configuration": {
+      "title": "Semantic Fold",
+      "properties": {
+        "semanticFold.semanticRefinement.enabled": {
+          "type": "boolean",
+          "default": true,
+          "scope": "resource",
+          "description": "Enable semantic-token refinement for weak or ambiguous symbol classifications. When disabled, Semantic Fold uses only document symbols and folding ranges."
+        }
+      }
+    }
   },
   "scripts": {
     "vscode:prepublish": "npm run compile",
