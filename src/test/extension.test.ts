@@ -331,6 +331,91 @@ suite("Folding Range Refinement", () => {
 		);
 	});
 
+	test("attaches folding-only nodes to the smallest containing symbol node", () => {
+		const classSymbol = createSymbol("Example", vscode.SymbolKind.Class, 0, 20);
+		const methodSymbol = createSymbol("run", vscode.SymbolKind.Method, 5, 15);
+		classSymbol.children.push(methodSymbol);
+
+		const regions = attachFoldingOnlyNodes(normalizeSymbols([classSymbol]), [
+			new vscode.FoldingRange(7, 9, vscode.FoldingRangeKind.Comment),
+		]);
+		const methodRegion = regions[0].children[0];
+		const commentRegion = methodRegion.children[0];
+
+		assert.strictEqual(commentRegion.kind, "comment");
+		assert.strictEqual(commentRegion.parent, methodRegion);
+		assert.strictEqual(commentRegion.symbolDepth, 3);
+		assert.deepStrictEqual(
+			flattenRegions(regions).map((region) => `${region.name}:${region.kind}`),
+			[
+				"Example:class",
+				"run:method",
+				"comment:comment",
+			]
+		);
+	});
+
+	test("keeps folding-only nodes at the root when no containing node exists", () => {
+		const classSymbol = createSymbol("Example", vscode.SymbolKind.Class, 4, 10);
+		const regions = attachFoldingOnlyNodes(normalizeSymbols([classSymbol]), [
+			new vscode.FoldingRange(0, 2, vscode.FoldingRangeKind.Imports),
+			new vscode.FoldingRange(12, 16, vscode.FoldingRangeKind.Region),
+		]);
+
+		assert.deepStrictEqual(
+			regions.map((region) => `${region.kind}:${region.selectionLine}`),
+			[
+				"import:0",
+				"class:4",
+				"region:12",
+			]
+		);
+		assert.ok(regions.every((region) => region.parent === undefined));
+	});
+
+	test("does not duplicate folding ranges already covered by symbol-backed regions", () => {
+		const classSymbol = createSymbol("Example", vscode.SymbolKind.Class, 0, 10);
+		const regions = attachFoldingOnlyNodes(normalizeSymbols([classSymbol]), [
+			new vscode.FoldingRange(0, 10, vscode.FoldingRangeKind.Region),
+		]);
+
+		assert.deepStrictEqual(
+			flattenRegions(regions).map((region) => `${region.kind}:${region.selectionLine}`),
+			["class:0"]
+		);
+		assert.deepStrictEqual(
+			collectSelectionLines(selectFoldableRegions({}, regions)),
+			[0]
+		);
+	});
+
+	test("supports filtering folding-only nodes after they are attached to symbol parents", () => {
+		const classSymbol = createSymbol("Example", vscode.SymbolKind.Class, 0, 20);
+		const methodSymbol = createSymbol("run", vscode.SymbolKind.Method, 5, 15);
+		classSymbol.children.push(methodSymbol);
+
+		const regions = attachFoldingOnlyNodes(normalizeSymbols([classSymbol]), [
+			new vscode.FoldingRange(7, 9, vscode.FoldingRangeKind.Comment),
+		]);
+
+		assert.deepStrictEqual(
+			filterRegions(regions, {
+				kinds: ["comment"],
+				ancestorKinds: ["class"],
+			}).map((region) => `${region.kind}:${region.selectionLine}`),
+			["comment:7"]
+		);
+		assert.deepStrictEqual(
+			collectSelectionLines(selectFoldableRegions({
+				filter: {
+					kinds: ["comment"],
+					parentKinds: ["method"],
+				},
+			}, regions)),
+			[7]
+		);
+	});
+
 	test("selects foldable import ranges through the generic command filter", () => {
 		const classSymbol = createSymbol("Example", vscode.SymbolKind.Class, 4, 10);
 		const regions = attachFoldingOnlyNodes(normalizeSymbols([classSymbol]), [
