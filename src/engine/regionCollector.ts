@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 import type { RegionNode } from "../model/region";
 import { normalizeSymbols } from "./symbolNormaliser";
+import { getCachedRegions, setCachedRegions } from "../util/cache";
 
 type SymbolProviderResult =
 	| vscode.DocumentSymbol[]
@@ -15,8 +16,22 @@ export async function getRegions(
 	executeSymbolProvider: SymbolProviderExecutor = defaultSymbolProviderExecutor
 ): Promise<RegionNode[]> {
 	try {
+		const uri = document.uri.toString();
+		const cached = getCachedRegions(uri);
+		
+		if(cached && cached.documentVersion === document.version) {
+			return cached.nodes;
+		}
+
 		const symbols = await executeSymbolProvider(document.uri);
-		return normalizeSymbols(symbols);
+		const nodes = normalizeSymbols(symbols);
+		
+		setCachedRegions(uri, {
+			documentVersion: document.version,
+			nodes
+		});
+
+		return nodes;
 	} catch {
 		return [];
 	}
