@@ -1,6 +1,10 @@
 import { type CollapseArgs } from "../model/filters";
 import { runFoldCommand } from "./foldCommand";
 
+/*
+ * Filters for contributed commands, provider-backed categories only
+ */
+
 const methodsInClassesArgs: CollapseArgs = {
 	filter: {
 		kinds: ["method", "function"],
@@ -39,6 +43,16 @@ const functionsInVariablesArgs: CollapseArgs = {
 	mode: "toggle",
 };
 
+const importsArgs: CollapseArgs = {
+	filter: {
+		kinds: ["import"],
+	},
+	mode: "toggle",
+};
+
+/**
+ * Base collapse command used by the command palette and keybinding payloads
+ */
 export async function collapseCommand(args?: unknown): Promise<void> {
 	await runFoldCommand(args, getDefaultCollapseMode(args));
 }
@@ -63,6 +77,14 @@ export async function toggleFunctionsInVariablesCommand(): Promise<void> {
 	await collapseCommand(functionsInVariablesArgs);
 }
 
+export async function toggleImportsCommand(): Promise<void> {
+	await collapseCommand(importsArgs);
+}
+
+/**
+ * Plain command-palette collapse defaults to one-way collapse, while structured
+ * payloads default to toggle so keybindings can reuse the same command entry
+ */
 export function getDefaultCollapseMode(args: unknown): CollapseArgs["mode"] {
 	if(isRecord(args)) {
 		return "toggle";
@@ -71,6 +93,9 @@ export function getDefaultCollapseMode(args: unknown): CollapseArgs["mode"] {
 	return "collapse";
 }
 
+/**
+ * Narrows arbitrary command payloads to object-like values
+ */
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null;
 }

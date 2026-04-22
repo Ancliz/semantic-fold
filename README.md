@@ -139,6 +139,8 @@ The `preserveCursorContext` field is accepted for payload compatibility, but Pha
 
 Toggle state is tracked for folds created through Semantic Fold commands. Manual folding, unfolding, or other extensions can make the tracked state incomplete, but the next semantic toggle collapses a mixed target set back into a consistent state before later toggles expand it as a group.
 
+Category support depends on the active language and folding providers. If the current editor does not report a category such as `import`, `comment`, or `region`, filters for that category simply produce no matching fold targets; other reported categories continue to work.
+
 ## Convenience commands
 
 These commands are available from the Command Palette and use the same filter pipeline as the generic commands:
@@ -150,6 +152,7 @@ These commands are available from the Command Palette and use the same filter pi
 | `semanticFold.toggleTypes` | Toggle provider-exposed class, struct, interface, and enum regions. Type aliases are included only if the language provider reports them as one of those symbol kinds. |
 | `semanticFold.toggleVariables` | Toggle variable, constant, and object regions that have foldable symbol ranges. |
 | `semanticFold.toggleFunctionsInVariables` | Toggle function and method regions anywhere inside a variable or object ancestor context, such as functions inside an object literal assigned to a variable. |
+| `semanticFold.toggleImports` | Toggle provider-exposed import folding ranges. |
 
 Toggle methods whose immediate parent is a class:
 
@@ -236,6 +239,86 @@ Toggle implementation details below the top level:
 }
 ```
 
+Toggle imports:
+
+```json
+{
+  "key": "ctrl+alt+p",
+  "command": "semanticFold.toggleImports"
+}
+```
+
+The generic command equivalent is:
+
+```json
+{
+  "key": "ctrl+alt+p",
+  "command": "semanticFold.toggle",
+  "args": {
+    "filter": {
+      "kinds": ["import"]
+    }
+  }
+}
+```
+
+Toggle comment blocks:
+
+```json
+{
+  "key": "ctrl+alt+c",
+  "command": "semanticFold.toggle",
+  "args": {
+    "filter": {
+      "kinds": ["comment"]
+    }
+  }
+}
+```
+
+Toggle region markers:
+
+```json
+{
+  "key": "ctrl+alt+r",
+  "command": "semanticFold.toggle",
+  "args": {
+    "filter": {
+      "kinds": ["region"]
+    }
+  }
+}
+```
+
+Toggle a file overview that includes imports and top-level types:
+
+```json
+{
+  "key": "ctrl+alt+shift+o",
+  "command": "semanticFold.toggle",
+  "args": {
+    "filter": {
+      "kinds": ["import", "class", "struct", "interface", "enum"],
+      "exactSymbolDepth": 1
+    }
+  }
+}
+```
+
+Toggle comments and methods together:
+
+```json
+{
+  "key": "ctrl+alt+shift+c",
+  "command": "semanticFold.toggle",
+  "args": {
+    "filter": {
+      "kinds": ["comment", "method"]
+    }
+  }
+}
+```
+
 ## Phase 1 Validation
 
 Phase 1 is the symbol-driven MVP. It proves that Semantic Fold can collect document symbols, convert them into one internal region model, filter those regions by kind and symbol depth, and apply folding only to the exact matching regions.
@@ -266,9 +349,14 @@ Use a file with a top-level class, methods inside that class, a nested function 
 - Run `semanticFold.toggleTypes`; confirm class, struct, interface, and enum regions toggle.
 - Run `semanticFold.toggleVariables`; confirm foldable variable, constant, and object regions toggle.
 - Run `semanticFold.toggleFunctionsInVariables`; confirm function and method regions inside variable or object contexts toggle when the provider exposes that hierarchy.
+- Run `semanticFold.toggleImports`; confirm provider-exposed import folding ranges toggle together.
 - Add `"mode": "collapse"` to the same keybinding; confirm repeated use stays a one-way collapse request.
 - Run `semanticFold.expand` with the same filter; confirm only the matching methods expand.
 - Run `semanticFold.toggle` with the same filter; confirm it targets the same methods as collapse and expand.
+- Use `filter.kinds: ["import"]`; confirm provider-exposed import folding ranges toggle together.
+- Use `filter.kinds: ["comment"]`; confirm provider-exposed comment block folding ranges toggle together.
+- Use `filter.kinds: ["region"]`; confirm provider-exposed region marker folding ranges toggle together.
+- Use `filter.kinds: ["import", "class", "comment"]`; confirm symbol and folding-range categories toggle together.
 - Use a filter with no matches; confirm the command leaves the editor unchanged.
 
 ### Targeted Folding Versus Recursive Folding
@@ -344,7 +432,9 @@ That means:
 - some languages may expose great symbol trees
 - some may expose weak or incomplete symbol data
 - semantic token coverage may vary
-- comment/import folding may depend on folding providers
+- import, comment, and region-marker folding may depend on folding providers
+
+Folding-range categories are provider-dependent. A language can report imports without comments, comments without region markers, or none of those categories. Semantic Fold treats missing categories as soft no-match cases instead of errors, so unsupported filters leave the editor unchanged while unrelated supported categories still fold normally.
 
 ### Flat symbol fallback
 
@@ -441,7 +531,8 @@ Open the workspace in VS Code and launch the extension host from the debugger.
 - [x] Add targeted collapse execution
 - [x] Add keybinding-ready generic command
 - [ ] Add convenience commands
-- [ ] Add imports/comments/regions support
+- [x] Add imports support
+- [x] Add comments/regions support
 - [ ] Add semantic-token refinement
 - [ ] Add presets
 - [ ] Publish extension

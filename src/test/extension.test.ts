@@ -2,6 +2,7 @@ import * as assert from "assert";
 import * as vscode from "vscode";
 import { getDefaultCollapseMode } from "../commands/collapse";
 import { filterRegions, flattenRegions, getAncestors, hasHierarchy } from "../engine/filterEngine";
+import { attachFoldingOnlyNodes, normaliseFoldingRanges } from "../engine/foldingRangeRefiner";
 import {
 	collectFoldableRegions,
 	collectSelectionLines,
@@ -10,9 +11,17 @@ import {
 	TrackedFoldState,
 } from "../engine/foldExecutor";
 import { getRegions } from "../engine/regionCollector";
+import { refineWithSemanticTokens } from "../engine/semanticRefiner";
 import { normalizeSymbols } from "../engine/symbolNormaliser";
 import { type CollapseFilter, normaliseArgs, normaliseCollapseFilter } from "../model/filters";
-import { mapSymbolKind } from "../util/symbolKindMap";
+import {
+	clearRegionCache,
+	getCachedRegions,
+	invalidateRegionCache,
+	invalidateRegionCacheDebounced,
+	setCachedRegions,
+} from "../util/cache";
+import { mapFoldingRangeKind, mapSymbolKind } from "../util/symbolKindMap";
 
 suite("Semantic Fold Foundation", () => {
 	test("registers collapse, expand, and toggle commands", async () => {
@@ -28,27 +37,39 @@ suite("Semantic Fold Foundation", () => {
 		assert.ok(commands.includes("semanticFold.toggleTypes"));
 		assert.ok(commands.includes("semanticFold.toggleVariables"));
 		assert.ok(commands.includes("semanticFold.toggleFunctionsInVariables"));
+		assert.ok(commands.includes("semanticFold.toggleImports"));
 	});
 });
 
-suite("Document Symbol Collection", () => {
-	test("requests document symbols for the supplied document uri", async () => {
+suite("Document Region Collection", () => {
+	test("requests document symbols and folding ranges for the supplied document uri", async () => {
 		const document = await vscode.workspace.openTextDocument({
-			content: "class Example {\n\tmethod() {}\n}\n",
+			content: "import value from \"module\";\nimport other from \"other\";\n\nclass Example {\n\tmethod() {}\n}\n",
 			language: "typescript",
 		});
-		const expectedSymbol = createSymbol("Example", vscode.SymbolKind.Class, 0, 2);
-		let requestedUri: vscode.Uri | undefined;
+		const expectedSymbol = createSymbol("Example", vscode.SymbolKind.Class, 3, 5);
+		let requestedSymbolUri: vscode.Uri | undefined;
+		let requestedFoldingRangeUri: vscode.Uri | undefined;
 
 		const regions = await getRegions(document, async (uri) => {
-			requestedUri = uri;
+			requestedSymbolUri = uri;
 
 			return [expectedSymbol];
+		}, async (uri) => {
+			requestedFoldingRangeUri = uri;
+
+			return [new vscode.FoldingRange(0, 1, vscode.FoldingRangeKind.Imports)];
 		});
 
-		assert.strictEqual(requestedUri?.toString(), document.uri.toString());
-		assert.strictEqual(regions.length, 1);
-		assert.strictEqual(regions[0].name, "Example");
+		assert.strictEqual(requestedSymbolUri?.toString(), document.uri.toString());
+		assert.strictEqual(requestedFoldingRangeUri?.toString(), document.uri.toString());
+		assert.deepStrictEqual(
+			regions.map((region) => `${region.kind}:${region.source}:${region.selectionLine}`),
+			[
+				"import:foldingRange:0",
+				"class:documentSymbol:3",
+			]
+		);
 	});
 
 	test("returns an empty region tree when the provider fails", async () => {
@@ -59,9 +80,53 @@ suite("Document Symbol Collection", () => {
 
 		const regions = await getRegions(document, async () => {
 			throw new Error("provider failed");
+		}, async () => {
+			throw new Error("provider failed");
 		});
 
 		assert.deepStrictEqual(regions, []);
+	});
+
+	test("keeps symbol regions when folding ranges are unavailable", async () => {
+		const document = await vscode.workspace.openTextDocument({
+			content: "class Example {\n\tmethod() {}\n}\n",
+			language: "typescript",
+		});
+		const expectedSymbol = createSymbol("Example", vscode.SymbolKind.Class, 0, 2);
+
+		const regions = await getRegions(document, async () => {
+			return [expectedSymbol];
+		}, async () => {
+			throw new Error("provider failed");
+		});
+
+		assert.strictEqual(regions.length, 1);
+		assert.strictEqual(regions[0].name, "Example");
+		assert.strictEqual(regions[0].source, "documentSymbol");
+	});
+
+	test("keeps folding ranges when symbols are unavailable", async () => {
+		const document = await vscode.workspace.openTextDocument({
+			content: "import value from \"module\";\nimport other from \"other\";\n\n// first\n// second\n",
+			language: "typescript",
+		});
+
+		const regions = await getRegions(document, async () => {
+			throw new Error("provider failed");
+		}, async () => {
+			return [
+				new vscode.FoldingRange(0, 1, vscode.FoldingRangeKind.Imports),
+				new vscode.FoldingRange(3, 4, vscode.FoldingRangeKind.Comment),
+			];
+		});
+
+		assert.deepStrictEqual(
+			regions.map((region) => `${region.kind}:${region.source}:${region.selectionLine}`),
+			[
+				"import:foldingRange:0",
+				"comment:foldingRange:3",
+			]
+		);
 	});
 
 	test("accepts flat symbol information provider results", async () => {
@@ -79,6 +144,8 @@ suite("Document Symbol Collection", () => {
 
 		const regions = await getRegions(document, async () => {
 			return [helperSymbol];
+		}, async () => {
+			return [];
 		});
 
 		assert.strictEqual(regions.length, 1);
@@ -140,6 +207,43 @@ suite("Document Symbol Collection", () => {
 		assert.strictEqual(regions1.length, 1);
 		assert.strictEqual(regions2.length, 1);
 	});
+
+	test("caches merged symbol and folding-range results for the same document version", async () => {
+		const document = await vscode.workspace.openTextDocument({
+			content: "import value from \"module\";\nimport other from \"other\";\n\nclass Example {}\n",
+			language: "typescript",
+		});
+		const expectedSymbol = createSymbol("Example", vscode.SymbolKind.Class, 3, 3);
+		let symbolProviderCallCount = 0;
+		let foldingProviderCallCount = 0;
+
+		const regions1 = await getRegions(document, async () => {
+			symbolProviderCallCount++;
+
+			return [expectedSymbol];
+		}, async () => {
+			foldingProviderCallCount++;
+
+			return [new vscode.FoldingRange(0, 1, vscode.FoldingRangeKind.Imports)];
+		});
+
+		const regions2 = await getRegions(document, async () => {
+			symbolProviderCallCount++;
+
+			return [expectedSymbol];
+		}, async () => {
+			foldingProviderCallCount++;
+
+			return [new vscode.FoldingRange(0, 1, vscode.FoldingRangeKind.Imports)];
+		});
+
+		assert.strictEqual(symbolProviderCallCount, 1);
+		assert.strictEqual(foldingProviderCallCount, 1);
+		assert.deepStrictEqual(
+			regions2.map((region) => `${region.kind}:${region.selectionLine}`),
+			regions1.map((region) => `${region.kind}:${region.selectionLine}`)
+		);
+	});
 });
 
 suite("Document Symbol Normalisation", () => {
@@ -178,6 +282,30 @@ suite("Document Symbol Normalisation", () => {
 		);
 	});
 
+	test("ignores malformed nested document symbols while preserving valid siblings", () => {
+		const classSymbol = createSymbol("Example", vscode.SymbolKind.Class, 0, 12);
+		const methodSymbol = createSymbol("run", vscode.SymbolKind.Method, 2, 6);
+		const propertySymbol = createSymbol("name", vscode.SymbolKind.Property, 8, 10);
+
+		classSymbol.children.push(
+			methodSymbol,
+			{ name: "broken" } as unknown as vscode.DocumentSymbol,
+			propertySymbol
+		);
+
+		const regions = normalizeSymbols([classSymbol]);
+		const classRegion = regions[0];
+
+		assert.deepStrictEqual(
+			classRegion.children.map((region) => `${region.name}:${region.kind}:${region.symbolDepth}`),
+			[
+				"run:method:2",
+				"name:property:2",
+			]
+		);
+		assert.ok(classRegion.children.every((region) => region.parent === classRegion));
+	});
+
 	test("normalises flat symbol information into top-level fallback nodes", () => {
 		const uri = vscode.Uri.parse("file:///workspace/example.ts");
 		const symbols = [
@@ -209,11 +337,15 @@ suite("Document Symbol Normalisation", () => {
 suite("Symbol Kind Mapping", () => {
 	test("keeps callable and member symbol kinds distinct", () => {
 		assert.strictEqual(mapSymbolKind(vscode.SymbolKind.Struct), "struct");
+		assert.strictEqual(mapSymbolKind(vscode.SymbolKind.Module), "namespace");
+		assert.strictEqual(mapSymbolKind(vscode.SymbolKind.Namespace), "namespace");
 		assert.strictEqual(mapSymbolKind(vscode.SymbolKind.Function), "function");
 		assert.strictEqual(mapSymbolKind(vscode.SymbolKind.Method), "method");
 		assert.strictEqual(mapSymbolKind(vscode.SymbolKind.Constructor), "constructor");
 		assert.strictEqual(mapSymbolKind(vscode.SymbolKind.Field), "field");
 		assert.strictEqual(mapSymbolKind(vscode.SymbolKind.Property), "property");
+		assert.strictEqual(mapSymbolKind(vscode.SymbolKind.Variable), "variable");
+		assert.strictEqual(mapSymbolKind(vscode.SymbolKind.Constant), "variable");
 		assert.strictEqual(mapSymbolKind(vscode.SymbolKind.Object), "object");
 	});
 
@@ -239,6 +371,438 @@ suite("Symbol Kind Mapping", () => {
 
 	test("falls back safely for unmapped symbol kinds", () => {
 		assert.strictEqual(mapSymbolKind(999 as vscode.SymbolKind), "unknown");
+	});
+
+	test("maps folding range kinds to normalised categories", () => {
+		assert.strictEqual(mapFoldingRangeKind(vscode.FoldingRangeKind.Imports), "import");
+		assert.strictEqual(mapFoldingRangeKind(vscode.FoldingRangeKind.Comment), "comment");
+		assert.strictEqual(mapFoldingRangeKind(vscode.FoldingRangeKind.Region), "region");
+		assert.strictEqual(mapFoldingRangeKind(undefined), "unknown");
+	});
+});
+
+suite("Region Cache", () => {
+	test("stores, reads, invalidates, and clears cached region entries", () => {
+		const documentUri = "test://cache/direct";
+		const nodes = createFilterFixture();
+
+		clearRegionCache();
+		setCachedRegions(documentUri, {
+			documentVersion: 3,
+			nodes,
+		});
+
+		assert.strictEqual(getCachedRegions(documentUri)?.documentVersion, 3);
+		assert.strictEqual(getCachedRegions(documentUri)?.nodes, nodes);
+
+		invalidateRegionCache(documentUri);
+		assert.strictEqual(getCachedRegions(documentUri), undefined);
+
+		setCachedRegions(documentUri, {
+			documentVersion: 4,
+			nodes,
+		});
+		clearRegionCache();
+		assert.strictEqual(getCachedRegions(documentUri), undefined);
+	});
+
+	test("debounces cache invalidation until the requested delay elapses", async () => {
+		const documentUri = "test://cache/debounce";
+		const nodes = createFilterFixture();
+
+		clearRegionCache();
+		setCachedRegions(documentUri, {
+			documentVersion: 1,
+			nodes,
+		});
+		invalidateRegionCacheDebounced(documentUri, 20);
+
+		assert.strictEqual(getCachedRegions(documentUri)?.nodes, nodes);
+
+		await delay(50);
+
+		assert.strictEqual(getCachedRegions(documentUri), undefined);
+		clearRegionCache();
+	});
+});
+
+suite("Folding Range Refinement", () => {
+	test("maps supported folding ranges into folding-only regions", () => {
+		const regions = normaliseFoldingRanges([
+			new vscode.FoldingRange(0, 2, vscode.FoldingRangeKind.Imports),
+			new vscode.FoldingRange(4, 8, vscode.FoldingRangeKind.Comment),
+			new vscode.FoldingRange(10, 20, vscode.FoldingRangeKind.Region),
+		]);
+
+		assert.deepStrictEqual(
+			regions.map((region) => `${region.kind}:${region.selectionLine}:${region.rangeEndLine}`),
+			[
+				"import:0:2",
+				"comment:4:8",
+				"region:10:20",
+			]
+		);
+		assert.ok(regions.every((region) => region.source === "foldingRange"));
+		assert.ok(regions.every((region) => region.symbolDepth === 1));
+		assert.ok(regions.every((region) => region.foldDepth === 1));
+	});
+
+	test("ignores uncategorised and malformed folding ranges", () => {
+		assert.deepStrictEqual(
+			normaliseFoldingRanges([
+				new vscode.FoldingRange(4, 6),
+				new vscode.FoldingRange(7.5, 9, vscode.FoldingRangeKind.Imports),
+				{ start: 10, end: 8, kind: vscode.FoldingRangeKind.Imports } as vscode.FoldingRange,
+			]),
+			[]
+		);
+	});
+
+	test("adds import nodes in document order with symbol nodes", () => {
+		const classSymbol = createSymbol("Example", vscode.SymbolKind.Class, 4, 10);
+		const regions = attachFoldingOnlyNodes(normalizeSymbols([classSymbol]), [
+			new vscode.FoldingRange(0, 2, vscode.FoldingRangeKind.Imports),
+		]);
+
+		assert.deepStrictEqual(
+			regions.map((region) => `${region.kind}:${region.selectionLine}`),
+			[
+				"import:0",
+				"class:4",
+			]
+		);
+	});
+
+	test("attaches folding-only nodes to the smallest containing symbol node", () => {
+		const classSymbol = createSymbol("Example", vscode.SymbolKind.Class, 0, 20);
+		const methodSymbol = createSymbol("run", vscode.SymbolKind.Method, 5, 15);
+		classSymbol.children.push(methodSymbol);
+
+		const regions = attachFoldingOnlyNodes(normalizeSymbols([classSymbol]), [
+			new vscode.FoldingRange(7, 9, vscode.FoldingRangeKind.Comment),
+		]);
+		const methodRegion = regions[0].children[0];
+		const commentRegion = methodRegion.children[0];
+
+		assert.strictEqual(commentRegion.kind, "comment");
+		assert.strictEqual(commentRegion.parent, methodRegion);
+		assert.strictEqual(commentRegion.symbolDepth, 3);
+		assert.deepStrictEqual(
+			flattenRegions(regions).map((region) => `${region.name}:${region.kind}`),
+			[
+				"Example:class",
+				"run:method",
+				"comment:comment",
+			]
+		);
+	});
+
+	test("attaches nested folding-only nodes regardless of provider order", () => {
+		const regions = attachFoldingOnlyNodes([], [
+			new vscode.FoldingRange(4, 8, vscode.FoldingRangeKind.Comment),
+			new vscode.FoldingRange(0, 12, vscode.FoldingRangeKind.Region),
+		]);
+		const regionNode = regions[0];
+		const commentNode = regionNode.children[0];
+
+		assert.strictEqual(regionNode.kind, "region");
+		assert.strictEqual(commentNode.kind, "comment");
+		assert.strictEqual(commentNode.parent, regionNode);
+		assert.deepStrictEqual(
+			flattenRegions(regions).map((region) => `${region.kind}:${region.symbolDepth}:${region.foldDepth}`),
+			[
+				"region:1:1",
+				"comment:2:2",
+			]
+		);
+	});
+
+	test("keeps folding-only nodes at the root when no containing node exists", () => {
+		const classSymbol = createSymbol("Example", vscode.SymbolKind.Class, 4, 10);
+		const regions = attachFoldingOnlyNodes(normalizeSymbols([classSymbol]), [
+			new vscode.FoldingRange(0, 2, vscode.FoldingRangeKind.Imports),
+			new vscode.FoldingRange(12, 16, vscode.FoldingRangeKind.Region),
+		]);
+
+		assert.deepStrictEqual(
+			regions.map((region) => `${region.kind}:${region.selectionLine}`),
+			[
+				"import:0",
+				"class:4",
+				"region:12",
+			]
+		);
+		assert.ok(regions.every((region) => region.parent === undefined));
+	});
+
+	test("does not duplicate folding ranges already covered by symbol-backed regions", () => {
+		const classSymbol = createSymbol("Example", vscode.SymbolKind.Class, 0, 10);
+		const regions = attachFoldingOnlyNodes(normalizeSymbols([classSymbol]), [
+			new vscode.FoldingRange(0, 10, vscode.FoldingRangeKind.Region),
+		]);
+
+		assert.deepStrictEqual(
+			flattenRegions(regions).map((region) => `${region.kind}:${region.selectionLine}`),
+			["class:0"]
+		);
+		assert.deepStrictEqual(
+			collectSelectionLines(selectFoldableRegions({}, regions)),
+			[0]
+		);
+	});
+
+	test("does not duplicate folding ranges that share a symbol selection line", () => {
+		const classSymbol = createSymbol("Example", vscode.SymbolKind.Class, 4, 12);
+		const regions = attachFoldingOnlyNodes(normalizeSymbols([classSymbol]), [
+			new vscode.FoldingRange(4, 14, vscode.FoldingRangeKind.Region),
+		]);
+
+		assert.deepStrictEqual(
+			flattenRegions(regions).map((region) => `${region.kind}:${region.selectionLine}:${region.rangeEndLine}`),
+			["class:4:12"]
+		);
+		assert.deepStrictEqual(
+			collectSelectionLines(selectFoldableRegions({}, regions)),
+			[4]
+		);
+	});
+
+	test("keeps partially overlapping folding ranges that are not symbol duplicates", () => {
+		const methodSymbol = createSymbol("run", vscode.SymbolKind.Method, 4, 12);
+		const regions = attachFoldingOnlyNodes(normalizeSymbols([methodSymbol]), [
+			new vscode.FoldingRange(2, 6, vscode.FoldingRangeKind.Comment),
+		]);
+
+		assert.deepStrictEqual(
+			flattenRegions(regions).map((region) => `${region.kind}:${region.selectionLine}`),
+			[
+				"comment:2",
+				"method:4",
+			]
+		);
+		assert.deepStrictEqual(
+			collectSelectionLines(selectFoldableRegions({}, regions)),
+			[2, 4]
+		);
+	});
+
+	test("nests folding-only nodes inside symbol parents with separate symbol and fold depths", () => {
+		const classSymbol = createSymbol("Example", vscode.SymbolKind.Class, 0, 30);
+		const methodSymbol = createSymbol("run", vscode.SymbolKind.Method, 4, 25);
+		classSymbol.children.push(methodSymbol);
+
+		const regions = attachFoldingOnlyNodes(normalizeSymbols([classSymbol]), [
+			new vscode.FoldingRange(8, 12, vscode.FoldingRangeKind.Comment),
+			new vscode.FoldingRange(6, 20, vscode.FoldingRangeKind.Region),
+		]);
+
+		assert.deepStrictEqual(
+			flattenRegions(regions).map((region) => {
+				return `${region.name}:${region.kind}:${region.symbolDepth}:${region.foldDepth ?? "none"}`;
+			}),
+			[
+				"Example:class:1:none",
+				"run:method:2:none",
+				"region:region:3:1",
+				"comment:comment:4:2",
+			]
+		);
+	});
+
+	test("supports filtering folding-only nodes after they are attached to symbol parents", () => {
+		const classSymbol = createSymbol("Example", vscode.SymbolKind.Class, 0, 20);
+		const methodSymbol = createSymbol("run", vscode.SymbolKind.Method, 5, 15);
+		classSymbol.children.push(methodSymbol);
+
+		const regions = attachFoldingOnlyNodes(normalizeSymbols([classSymbol]), [
+			new vscode.FoldingRange(7, 9, vscode.FoldingRangeKind.Comment),
+		]);
+
+		assert.deepStrictEqual(
+			filterRegions(regions, {
+				kinds: ["comment"],
+				ancestorKinds: ["class"],
+			}).map((region) => `${region.kind}:${region.selectionLine}`),
+			["comment:7"]
+		);
+		assert.deepStrictEqual(
+			collectSelectionLines(selectFoldableRegions({
+				filter: {
+					kinds: ["comment"],
+					parentKinds: ["method"],
+				},
+			}, regions)),
+			[7]
+		);
+	});
+
+	test("selects foldable import ranges through the generic command filter", () => {
+		const classSymbol = createSymbol("Example", vscode.SymbolKind.Class, 4, 10);
+		const regions = attachFoldingOnlyNodes(normalizeSymbols([classSymbol]), [
+			new vscode.FoldingRange(0, 2, vscode.FoldingRangeKind.Imports),
+		]);
+
+		const foldableRegions = selectFoldableRegions({
+			filter: {
+				kinds: ["import"],
+			},
+		}, regions);
+
+		assert.deepStrictEqual(
+			foldableRegions.map((region) => `${region.kind}:${region.selectionLine}`),
+			["import:0"]
+		);
+		assert.deepStrictEqual(collectSelectionLines(foldableRegions), [0]);
+	});
+
+	test("selects foldable comment ranges through the generic command filter", () => {
+		const classSymbol = createSymbol("Example", vscode.SymbolKind.Class, 8, 14);
+		const regions = attachFoldingOnlyNodes(normalizeSymbols([classSymbol]), [
+			new vscode.FoldingRange(0, 5, vscode.FoldingRangeKind.Comment),
+		]);
+
+		const foldableRegions = selectFoldableRegions({
+			filter: {
+				kinds: ["comment"],
+			},
+		}, regions);
+
+		assert.deepStrictEqual(
+			foldableRegions.map((region) => `${region.kind}:${region.selectionLine}`),
+			["comment:0"]
+		);
+		assert.deepStrictEqual(collectSelectionLines(foldableRegions), [0]);
+	});
+
+	test("selects foldable region marker ranges through the generic command filter", () => {
+		const classSymbol = createSymbol("Example", vscode.SymbolKind.Class, 8, 14);
+		const regions = attachFoldingOnlyNodes(normalizeSymbols([classSymbol]), [
+			new vscode.FoldingRange(0, 5, vscode.FoldingRangeKind.Region),
+		]);
+
+		const foldableRegions = selectFoldableRegions({
+			filter: {
+				kinds: ["region"],
+			},
+		}, regions);
+
+		assert.deepStrictEqual(
+			foldableRegions.map((region) => `${region.kind}:${region.selectionLine}`),
+			["region:0"]
+		);
+		assert.deepStrictEqual(collectSelectionLines(foldableRegions), [0]);
+	});
+
+	test("treats unsupported folding-range categories as soft no-match results", async () => {
+		const regions = attachFoldingOnlyNodes([], [
+			new vscode.FoldingRange(0, 2, vscode.FoldingRangeKind.Imports),
+		]);
+		const executedCommands: ExecutedCommand[] = [];
+
+		const commentRegions = selectFoldableRegions({
+			filter: {
+				kinds: ["comment"],
+			},
+		}, regions);
+
+		await execFoldCommand({
+			filter: {
+				kinds: ["comment"],
+			},
+		}, regions, async (command, args) => {
+			executedCommands.push({
+				command,
+				levels: args.levels,
+				selectionLines: args.selectionLines,
+			});
+		}, new TrackedFoldState(), "test://missing-comment-category");
+
+		assert.deepStrictEqual(commentRegions, []);
+		assert.deepStrictEqual(executedCommands, []);
+	});
+
+	test("keeps present folding-range categories available when another category is absent", () => {
+		const regions = attachFoldingOnlyNodes([], [
+			new vscode.FoldingRange(0, 2, vscode.FoldingRangeKind.Imports),
+		]);
+
+		assert.deepStrictEqual(
+			collectSelectionLines(selectFoldableRegions({
+				filter: {
+					kinds: ["import"],
+				},
+			}, regions)),
+			[0]
+		);
+		assert.deepStrictEqual(
+			collectSelectionLines(selectFoldableRegions({
+				filter: {
+					kinds: ["region"],
+				},
+			}, regions)),
+			[]
+		);
+	});
+
+	test("filters mixed symbol and folding-range categories together", () => {
+		const classSymbol = createSymbol("Example", vscode.SymbolKind.Class, 4, 12);
+		const methodSymbol = createSymbol("run", vscode.SymbolKind.Method, 6, 10);
+		classSymbol.children.push(methodSymbol);
+
+		const regions = attachFoldingOnlyNodes(normalizeSymbols([classSymbol]), [
+			new vscode.FoldingRange(0, 2, vscode.FoldingRangeKind.Imports),
+			new vscode.FoldingRange(7, 8, vscode.FoldingRangeKind.Comment),
+		]);
+
+		assert.deepStrictEqual(
+			filterRegions(regions, {
+				kinds: ["import", "class", "comment"],
+			}).map((region) => `${region.kind}:${region.selectionLine}`),
+			[
+				"import:0",
+				"class:4",
+				"comment:7",
+			]
+		);
+		assert.deepStrictEqual(
+			collectSelectionLines(selectFoldableRegions({
+				filter: {
+					kinds: ["import", "class", "comment"],
+				},
+			}, regions)),
+			[0, 4, 7]
+		);
+	});
+
+	test("combines mixed categories with relationship filters after merge", () => {
+		const classSymbol = createSymbol("Example", vscode.SymbolKind.Class, 0, 20);
+		const methodSymbol = createSymbol("run", vscode.SymbolKind.Method, 5, 15);
+		classSymbol.children.push(methodSymbol);
+
+		const regions = attachFoldingOnlyNodes(normalizeSymbols([classSymbol]), [
+			new vscode.FoldingRange(7, 9, vscode.FoldingRangeKind.Comment),
+			new vscode.FoldingRange(22, 24, vscode.FoldingRangeKind.Imports),
+		]);
+
+		assert.deepStrictEqual(
+			filterRegions(regions, {
+				kinds: ["comment", "method"],
+				ancestorKinds: ["class"],
+			}).map((region) => `${region.kind}:${region.selectionLine}`),
+			[
+				"method:5",
+				"comment:7",
+			]
+		);
+		assert.deepStrictEqual(
+			collectSelectionLines(selectFoldableRegions({
+				filter: {
+					kinds: ["comment", "method"],
+					ancestorKinds: ["class"],
+				},
+			}, regions)),
+			[5, 7]
+		);
 	});
 });
 
@@ -269,6 +833,27 @@ suite("Command Argument Normalisation", () => {
 				},
 				mode: "collapse",
 				preserveCursorContext: true,
+			}
+		);
+	});
+
+	test("normalises every supported depth boundary from command payloads", () => {
+		assert.deepStrictEqual(
+			normaliseCollapseFilter({
+				exactSymbolDepth: 2,
+				minSymbolDepth: 1,
+				maxSymbolDepth: 4,
+				exactFoldDepth: 3,
+				minFoldDepth: 2,
+				maxFoldDepth: 5,
+			}),
+			{
+				exactSymbolDepth: 2,
+				minSymbolDepth: 1,
+				maxSymbolDepth: 4,
+				exactFoldDepth: 3,
+				minFoldDepth: 2,
+				maxFoldDepth: 5,
 			}
 		);
 	});
@@ -684,6 +1269,48 @@ suite("Region Filtering", () => {
 		);
 	});
 
+	test("combines symbol depth, parent, and ancestor filters across nested folding ranges", () => {
+		const regions = createMixedSymbolAndFoldingFixture();
+
+		assert.deepStrictEqual(
+			filterRegions(regions, {
+				kinds: ["comment"],
+				parentKinds: ["region"],
+				ancestorKinds: ["method"],
+				exactSymbolDepth: 4,
+			}).map((region) => `${region.kind}:${region.selectionLine}`),
+			["comment:22"]
+		);
+		assert.deepStrictEqual(
+			collectSelectionLines(selectFoldableRegions({
+				filter: {
+					kinds: ["comment"],
+					parentKinds: ["region"],
+					ancestorKinds: ["method"],
+					exactSymbolDepth: 4,
+				},
+			}, regions)),
+			[22]
+		);
+	});
+
+	test("combines exclusions and depth bounds across symbol and folding-range categories", () => {
+		const regions = createMixedSymbolAndFoldingFixture();
+
+		assert.deepStrictEqual(
+			filterRegions(regions, {
+				kinds: ["import", "method", "comment"],
+				excludeKinds: ["comment"],
+				minSymbolDepth: 1,
+				maxSymbolDepth: 2,
+			}).map((region) => `${region.kind}:${region.selectionLine}`),
+			[
+				"import:0",
+				"method:10",
+			]
+		);
+	});
+
 	test("matches convenience command filters for common structural workflows", () => {
 		const regions = createConvenienceCommandFixture();
 
@@ -788,6 +1415,14 @@ suite("Region Filtering", () => {
 	});
 });
 
+suite("Semantic Token Refinement", () => {
+	test("returns the provider-backed region tree unchanged until semantic refinement is implemented", () => {
+		const regions = createMixedSymbolAndFoldingFixture();
+
+		assert.strictEqual(refineWithSemanticTokens(regions), regions);
+	});
+});
+
 suite("Fold Execution Guards", () => {
 	test("excludes zero-span and one-line regions from fold execution candidates", () => {
 		const classSymbol = createSymbol("Example", vscode.SymbolKind.Class, 0, 8);
@@ -829,6 +1464,27 @@ suite("Fold Execution Guards", () => {
 		);
 	});
 
+	test("collects deduplicated sorted selection lines from mixed symbol and folding-range nodes", () => {
+		const classSymbol = createSymbol("Example", vscode.SymbolKind.Class, 4, 12);
+		const methodSymbol = createSymbol("run", vscode.SymbolKind.Method, 6, 10);
+		classSymbol.children.push(methodSymbol);
+
+		const regions = attachFoldingOnlyNodes(normalizeSymbols([classSymbol]), [
+			new vscode.FoldingRange(0, 2, vscode.FoldingRangeKind.Imports),
+			new vscode.FoldingRange(7, 8, vscode.FoldingRangeKind.Comment),
+			new vscode.FoldingRange(4, 12, vscode.FoldingRangeKind.Region),
+		]);
+
+		assert.deepStrictEqual(
+			collectSelectionLines(selectFoldableRegions({
+				filter: {
+					kinds: ["import", "class", "comment", "region"],
+				},
+			}, regions)),
+			[0, 4, 7]
+		);
+	});
+
 	test("executes exact non-recursive fold selection lines", async () => {
 		const regions = createDuplicateSelectionFixture();
 		const executedCommands: ExecutedCommand[] = [];
@@ -846,6 +1502,63 @@ suite("Fold Execution Guards", () => {
 			command: "editor.fold",
 			levels: 1,
 			selectionLines: [2, 6, 12],
+		}]);
+	});
+
+	test("executes mixed symbol and folding-range targets non-recursively", async () => {
+		const classSymbol = createSymbol("Example", vscode.SymbolKind.Class, 4, 12);
+		const methodSymbol = createSymbol("run", vscode.SymbolKind.Method, 6, 10);
+		classSymbol.children.push(methodSymbol);
+
+		const regions = attachFoldingOnlyNodes(normalizeSymbols([classSymbol]), [
+			new vscode.FoldingRange(0, 2, vscode.FoldingRangeKind.Imports),
+			new vscode.FoldingRange(7, 8, vscode.FoldingRangeKind.Comment),
+			new vscode.FoldingRange(4, 12, vscode.FoldingRangeKind.Region),
+		]);
+		const executedCommands: ExecutedCommand[] = [];
+
+		await execFoldCommand({
+			filter: {
+				kinds: ["import", "class", "comment", "region"],
+			},
+		}, regions, async (command, args) => {
+			executedCommands.push({
+				command,
+				levels: args.levels,
+				selectionLines: args.selectionLines,
+			});
+		}, new TrackedFoldState(), "test://mixed-sources");
+
+		assert.deepStrictEqual(executedCommands, [{
+			command: "editor.fold",
+			levels: 1,
+			selectionLines: [0, 4, 7],
+		}]);
+	});
+
+	test("executes multifaceted filters across symbol and folding-range targets", async () => {
+		const regions = createMixedSymbolAndFoldingFixture();
+		const executedCommands: ExecutedCommand[] = [];
+
+		await execFoldCommand({
+			filter: {
+				kinds: ["import", "method", "comment"],
+				excludeKinds: ["comment"],
+				minSymbolDepth: 1,
+				maxSymbolDepth: 2,
+			},
+		}, regions, async (command, args) => {
+			executedCommands.push({
+				command,
+				levels: args.levels,
+				selectionLines: args.selectionLines,
+			});
+		}, new TrackedFoldState(), "test://multifaceted");
+
+		assert.deepStrictEqual(executedCommands, [{
+			command: "editor.fold",
+			levels: 1,
+			selectionLines: [0, 10],
 		}]);
 	});
 
@@ -911,6 +1624,91 @@ suite("Fold Execution Guards", () => {
 			levels: 1,
 			selectionLines: [2, 6, 12],
 		}]);
+	});
+
+	test("updates tracked state after explicit expand so later toggles collapse again", async () => {
+		const regions = createDuplicateSelectionFixture();
+		const executedCommands: ExecutedCommand[] = [];
+		const foldState = new TrackedFoldState();
+
+		await execFoldCommand({ mode: "collapse" }, regions, async (command, args) => {
+			executedCommands.push({
+				command,
+				levels: args.levels,
+				selectionLines: args.selectionLines,
+			});
+		}, foldState, "test://toggle-after-expand");
+
+		await execFoldCommand({ mode: "expand" }, regions, async (command, args) => {
+			executedCommands.push({
+				command,
+				levels: args.levels,
+				selectionLines: args.selectionLines,
+			});
+		}, foldState, "test://toggle-after-expand");
+
+		await execFoldCommand({ mode: "toggle" }, regions, async (command, args) => {
+			executedCommands.push({
+				command,
+				levels: args.levels,
+				selectionLines: args.selectionLines,
+			});
+		}, foldState, "test://toggle-after-expand");
+
+		assert.deepStrictEqual(executedCommands, [
+			{
+				command: "editor.fold",
+				levels: 1,
+				selectionLines: [2, 6, 12],
+			},
+			{
+				command: "editor.unfold",
+				levels: 1,
+				selectionLines: [2, 6, 12],
+			},
+			{
+				command: "editor.fold",
+				levels: 1,
+				selectionLines: [2, 6, 12],
+			},
+		]);
+	});
+
+	test("tracks toggle state independently per document key", async () => {
+		const regions = createDuplicateSelectionFixture();
+		const executedCommands: ExecutedCommand[] = [];
+		const foldState = new TrackedFoldState();
+
+		foldState.markCollapsed("test://document-a", [2, 6, 12]);
+
+		await execFoldCommand({ mode: "toggle" }, regions, async (command, args) => {
+			executedCommands.push({
+				command,
+				levels: args.levels,
+				selectionLines: args.selectionLines,
+			});
+		}, foldState, "test://document-b");
+
+		await execFoldCommand({ mode: "toggle" }, regions, async (command, args) => {
+			executedCommands.push({
+				command,
+				levels: args.levels,
+				selectionLines: args.selectionLines,
+			});
+		}, foldState, "test://document-a");
+
+		assert.deepStrictEqual(executedCommands, [
+			{
+				command: "editor.fold",
+				levels: 1,
+				selectionLines: [2, 6, 12],
+			},
+			{
+				command: "editor.unfold",
+				levels: 1,
+				selectionLines: [2, 6, 12],
+			},
+		]);
 	});
 
 	test("does not execute any command when no filtered nodes are foldable", async () => {
@@ -1168,6 +1966,25 @@ function createDepthFilterFixture(): ReturnType<typeof normalizeSymbols> {
 	return normalizeSymbols([classSymbol, functionSymbol]);
 }
 
+function createMixedSymbolAndFoldingFixture(): ReturnType<typeof attachFoldingOnlyNodes> {
+	const classSymbol = createSymbol("Example", vscode.SymbolKind.Class, 4, 36);
+	const constructorSymbol = createSymbol("constructor", vscode.SymbolKind.Constructor, 5, 7);
+	const methodSymbol = createSymbol("run", vscode.SymbolKind.Method, 10, 28);
+	const nestedFunctionSymbol = createSymbol("inner", vscode.SymbolKind.Function, 14, 18);
+	const propertySymbol = createSymbol("name", vscode.SymbolKind.Property, 32, 32);
+	const helperSymbol = createSymbol("helper", vscode.SymbolKind.Function, 40, 44);
+
+	methodSymbol.children.push(nestedFunctionSymbol);
+	classSymbol.children.push(constructorSymbol, methodSymbol, propertySymbol);
+
+	return attachFoldingOnlyNodes(normalizeSymbols([classSymbol, helperSymbol]), [
+		new vscode.FoldingRange(0, 1, vscode.FoldingRangeKind.Imports),
+		new vscode.FoldingRange(12, 13, vscode.FoldingRangeKind.Comment),
+		new vscode.FoldingRange(22, 23, vscode.FoldingRangeKind.Comment),
+		new vscode.FoldingRange(20, 26, vscode.FoldingRangeKind.Region),
+	]);
+}
+
 function createFlatFallbackFixture(): ReturnType<typeof normalizeSymbols> {
 	const uri = vscode.Uri.parse("file:///workspace/flat.ts");
 
@@ -1209,4 +2026,10 @@ async function activateExtension(): Promise<void> {
 	assert.ok(extension);
 
 	await extension.activate();
+}
+
+async function delay(delayMs: number): Promise<void> {
+	return new Promise((resolve) => {
+		setTimeout(resolve, delayMs);
+	});
 }

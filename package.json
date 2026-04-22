@@ -2,7 +2,7 @@
   "name": "semantic-fold",
   "displayName": "Semantic Fold",
   "description": "Policy-driven code folding for VS Code",
-  "version": "0.1.0",
+  "version": "0.1.2-dev",
   "engines": {
     "vscode": "^1.111.0"
   },
@@ -47,6 +47,10 @@
       {
         "command": "semanticFold.toggleFunctionsInVariables",
         "title": "Semantic Fold: Toggle Functions in Variables"
+      },
+      {
+        "command": "semanticFold.toggleImports",
+        "title": "Semantic Fold: Toggle Imports"
       }
     ]
   },

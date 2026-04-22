@@ -1,5 +1,8 @@
 import type { RegionNode } from "../model/region";
 
+/**
+ * Cached region tree for a specific document version
+ */
 export interface CachedRegions {
 	documentVersion: number;
 	nodes: RegionNode[];
@@ -8,6 +11,9 @@ export interface CachedRegions {
 const regionCache = new Map<string, CachedRegions>();
 const debounceTimers = new Map<string, NodeJS.Timeout>();
 
+/**
+ * Reads the cached region tree for a document URI when present
+ */
 export function getCachedRegions(documentUri: string): CachedRegions | undefined {
 	const cached = regionCache.get(documentUri);
 	if(cached) {
@@ -18,16 +24,25 @@ export function getCachedRegions(documentUri: string): CachedRegions | undefined
 	return cached;
 }
 
+/**
+ * Stores a region tree for the exact document version that produced it
+ */
 export function setCachedRegions(documentUri: string, value: CachedRegions): void {
 	console.debug(`[semanticFold] Setting cache for ${documentUri} at version ${value.documentVersion}`);
 	regionCache.set(documentUri, value);
 }
 
+/**
+ * Removes cached region data for one document URI
+ */
 export function invalidateRegionCache(documentUri: string): void {
 	console.debug(`[semanticFold] Invalidating cache for ${documentUri}`);
 	regionCache.delete(documentUri);
 }
 
+/**
+ * Schedules cache invalidation after edits settle
+ */
 export function invalidateRegionCacheDebounced(documentUri: string, delayMs: number): void {
 	const existingTimer = debounceTimers.get(documentUri);
 	if(existingTimer) {
@@ -46,6 +61,9 @@ export function invalidateRegionCacheDebounced(documentUri: string, delayMs: num
 	debounceTimers.set(documentUri, timer);
 }
 
+/**
+ * Clears cached data and pending timers, primarily for extension shutdown or tests
+ */
 export function clearRegionCache(): void {
 	console.debug(`[semanticFold] Clearing entire region cache`);
 	regionCache.clear();

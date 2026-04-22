@@ -3,6 +3,7 @@ import {
 	collapseCommand,
 	toggleClassMembersCommand,
 	toggleFunctionsInVariablesCommand,
+	toggleImportsCommand,
 	toggleMethodsInClassesCommand,
 	toggleTypesCommand,
 	toggleVariablesCommand,
@@ -11,6 +12,9 @@ import { expandCommand } from "./commands/expand";
 import { toggleCommand } from "./commands/toggle";
 import { invalidateRegionCache, invalidateRegionCacheDebounced } from "./util/cache";
 
+/**
+ * Delay used to avoid rebuilding regions for every keystroke
+ */
 const DEBOUNCE_DELAY_MS = 500;
 
 export function activate(context: vscode.ExtensionContext): void {
@@ -38,7 +42,11 @@ export function activate(context: vscode.ExtensionContext): void {
 			"semanticFold.toggleFunctionsInVariables",
 			toggleFunctionsInVariablesCommand
 		),
-		// Register cache invalidation listeners
+		vscode.commands.registerCommand(
+			"semanticFold.toggleImports",
+			toggleImportsCommand
+		),
+		// Text changes use debounce because providers can be expensive
 		vscode.workspace.onDidChangeTextDocument((event) => {
 			const documentUri = event.document.uri.toString();
 			invalidateRegionCacheDebounced(documentUri, DEBOUNCE_DELAY_MS);
@@ -50,4 +58,7 @@ export function activate(context: vscode.ExtensionContext): void {
 	);
 }
 
+/**
+ * No explicit shutdown work is required because disposables live in context
+ */
 export function deactivate(): void {}
