@@ -150,6 +150,7 @@ These commands are available from the Command Palette and use the same filter pi
 | `semanticFold.toggleTypes` | Toggle provider-exposed class, struct, interface, and enum regions. Type aliases are included only if the language provider reports them as one of those symbol kinds. |
 | `semanticFold.toggleVariables` | Toggle variable, constant, and object regions that have foldable symbol ranges. |
 | `semanticFold.toggleFunctionsInVariables` | Toggle function and method regions anywhere inside a variable or object ancestor context, such as functions inside an object literal assigned to a variable. |
+| `semanticFold.toggleImports` | Toggle provider-exposed import folding ranges. |
 
 Toggle methods whose immediate parent is a class:
 
@@ -236,6 +237,29 @@ Toggle implementation details below the top level:
 }
 ```
 
+Toggle imports:
+
+```json
+{
+  "key": "ctrl+alt+p",
+  "command": "semanticFold.toggleImports"
+}
+```
+
+The generic command equivalent is:
+
+```json
+{
+  "key": "ctrl+alt+p",
+  "command": "semanticFold.toggle",
+  "args": {
+    "filter": {
+      "kinds": ["import"]
+    }
+  }
+}
+```
+
 ## Phase 1 Validation
 
 Phase 1 is the symbol-driven MVP. It proves that Semantic Fold can collect document symbols, convert them into one internal region model, filter those regions by kind and symbol depth, and apply folding only to the exact matching regions.
@@ -266,9 +290,11 @@ Use a file with a top-level class, methods inside that class, a nested function 
 - Run `semanticFold.toggleTypes`; confirm class, struct, interface, and enum regions toggle.
 - Run `semanticFold.toggleVariables`; confirm foldable variable, constant, and object regions toggle.
 - Run `semanticFold.toggleFunctionsInVariables`; confirm function and method regions inside variable or object contexts toggle when the provider exposes that hierarchy.
+- Run `semanticFold.toggleImports`; confirm provider-exposed import folding ranges toggle together.
 - Add `"mode": "collapse"` to the same keybinding; confirm repeated use stays a one-way collapse request.
 - Run `semanticFold.expand` with the same filter; confirm only the matching methods expand.
 - Run `semanticFold.toggle` with the same filter; confirm it targets the same methods as collapse and expand.
+- Use `filter.kinds: ["import"]`; confirm provider-exposed import folding ranges toggle together.
 - Use a filter with no matches; confirm the command leaves the editor unchanged.
 
 ### Targeted Folding Versus Recursive Folding
@@ -441,7 +467,8 @@ Open the workspace in VS Code and launch the extension host from the debugger.
 - [x] Add targeted collapse execution
 - [x] Add keybinding-ready generic command
 - [ ] Add convenience commands
-- [ ] Add imports/comments/regions support
+- [x] Add imports support
+- [ ] Add comments/regions support
 - [ ] Add semantic-token refinement
 - [ ] Add presets
 - [ ] Publish extension

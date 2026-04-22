@@ -2,6 +2,7 @@ import * as assert from "assert";
 import * as vscode from "vscode";
 import { getDefaultCollapseMode } from "../commands/collapse";
 import { filterRegions, flattenRegions, getAncestors, hasHierarchy } from "../engine/filterEngine";
+import { attachFoldingOnlyNodes, normaliseFoldingRanges } from "../engine/foldingRangeRefiner";
 import {
 	collectFoldableRegions,
 	collectSelectionLines,
@@ -12,7 +13,7 @@ import {
 import { getRegions } from "../engine/regionCollector";
 import { normalizeSymbols } from "../engine/symbolNormaliser";
 import { type CollapseFilter, normaliseArgs, normaliseCollapseFilter } from "../model/filters";
-import { mapSymbolKind } from "../util/symbolKindMap";
+import { mapFoldingRangeKind, mapSymbolKind } from "../util/symbolKindMap";
 
 suite("Semantic Fold Foundation", () => {
 	test("registers collapse, expand, and toggle commands", async () => {
@@ -28,27 +29,39 @@ suite("Semantic Fold Foundation", () => {
 		assert.ok(commands.includes("semanticFold.toggleTypes"));
 		assert.ok(commands.includes("semanticFold.toggleVariables"));
 		assert.ok(commands.includes("semanticFold.toggleFunctionsInVariables"));
+		assert.ok(commands.includes("semanticFold.toggleImports"));
 	});
 });
 
-suite("Document Symbol Collection", () => {
-	test("requests document symbols for the supplied document uri", async () => {
+suite("Document Region Collection", () => {
+	test("requests document symbols and folding ranges for the supplied document uri", async () => {
 		const document = await vscode.workspace.openTextDocument({
-			content: "class Example {\n\tmethod() {}\n}\n",
+			content: "import value from \"module\";\nimport other from \"other\";\n\nclass Example {\n\tmethod() {}\n}\n",
 			language: "typescript",
 		});
-		const expectedSymbol = createSymbol("Example", vscode.SymbolKind.Class, 0, 2);
-		let requestedUri: vscode.Uri | undefined;
+		const expectedSymbol = createSymbol("Example", vscode.SymbolKind.Class, 3, 5);
+		let requestedSymbolUri: vscode.Uri | undefined;
+		let requestedFoldingRangeUri: vscode.Uri | undefined;
 
 		const regions = await getRegions(document, async (uri) => {
-			requestedUri = uri;
+			requestedSymbolUri = uri;
 
 			return [expectedSymbol];
+		}, async (uri) => {
+			requestedFoldingRangeUri = uri;
+
+			return [new vscode.FoldingRange(0, 1, vscode.FoldingRangeKind.Imports)];
 		});
 
-		assert.strictEqual(requestedUri?.toString(), document.uri.toString());
-		assert.strictEqual(regions.length, 1);
-		assert.strictEqual(regions[0].name, "Example");
+		assert.strictEqual(requestedSymbolUri?.toString(), document.uri.toString());
+		assert.strictEqual(requestedFoldingRangeUri?.toString(), document.uri.toString());
+		assert.deepStrictEqual(
+			regions.map((region) => `${region.kind}:${region.source}:${region.selectionLine}`),
+			[
+				"import:foldingRange:0",
+				"class:documentSymbol:3",
+			]
+		);
 	});
 
 	test("returns an empty region tree when the provider fails", async () => {
@@ -59,9 +72,29 @@ suite("Document Symbol Collection", () => {
 
 		const regions = await getRegions(document, async () => {
 			throw new Error("provider failed");
+		}, async () => {
+			throw new Error("provider failed");
 		});
 
 		assert.deepStrictEqual(regions, []);
+	});
+
+	test("keeps symbol regions when folding ranges are unavailable", async () => {
+		const document = await vscode.workspace.openTextDocument({
+			content: "class Example {\n\tmethod() {}\n}\n",
+			language: "typescript",
+		});
+		const expectedSymbol = createSymbol("Example", vscode.SymbolKind.Class, 0, 2);
+
+		const regions = await getRegions(document, async () => {
+			return [expectedSymbol];
+		}, async () => {
+			throw new Error("provider failed");
+		});
+
+		assert.strictEqual(regions.length, 1);
+		assert.strictEqual(regions[0].name, "Example");
+		assert.strictEqual(regions[0].source, "documentSymbol");
 	});
 
 	test("accepts flat symbol information provider results", async () => {
@@ -79,6 +112,8 @@ suite("Document Symbol Collection", () => {
 
 		const regions = await getRegions(document, async () => {
 			return [helperSymbol];
+		}, async () => {
+			return [];
 		});
 
 		assert.strictEqual(regions.length, 1);
@@ -239,6 +274,76 @@ suite("Symbol Kind Mapping", () => {
 
 	test("falls back safely for unmapped symbol kinds", () => {
 		assert.strictEqual(mapSymbolKind(999 as vscode.SymbolKind), "unknown");
+	});
+
+	test("maps folding range kinds to normalised categories", () => {
+		assert.strictEqual(mapFoldingRangeKind(vscode.FoldingRangeKind.Imports), "import");
+		assert.strictEqual(mapFoldingRangeKind(vscode.FoldingRangeKind.Comment), "comment");
+		assert.strictEqual(mapFoldingRangeKind(vscode.FoldingRangeKind.Region), "region");
+		assert.strictEqual(mapFoldingRangeKind(undefined), "unknown");
+	});
+});
+
+suite("Folding Range Refinement", () => {
+	test("maps import folding ranges into folding-only regions", () => {
+		const regions = normaliseFoldingRanges([
+			new vscode.FoldingRange(0, 2, vscode.FoldingRangeKind.Imports),
+		]);
+
+		assert.strictEqual(regions.length, 1);
+		assert.strictEqual(regions[0].kind, "import");
+		assert.strictEqual(regions[0].source, "foldingRange");
+		assert.strictEqual(regions[0].rangeStartLine, 0);
+		assert.strictEqual(regions[0].rangeEndLine, 2);
+		assert.strictEqual(regions[0].selectionLine, 0);
+		assert.strictEqual(regions[0].symbolDepth, 1);
+		assert.strictEqual(regions[0].foldDepth, 1);
+	});
+
+	test("ignores unsupported and malformed folding ranges", () => {
+		assert.deepStrictEqual(
+			normaliseFoldingRanges([
+				new vscode.FoldingRange(0, 2, vscode.FoldingRangeKind.Comment),
+				new vscode.FoldingRange(4, 6),
+				new vscode.FoldingRange(7.5, 9, vscode.FoldingRangeKind.Imports),
+				{ start: 10, end: 8, kind: vscode.FoldingRangeKind.Imports } as vscode.FoldingRange,
+			]),
+			[]
+		);
+	});
+
+	test("adds import nodes in document order with symbol nodes", () => {
+		const classSymbol = createSymbol("Example", vscode.SymbolKind.Class, 4, 10);
+		const regions = attachFoldingOnlyNodes(normalizeSymbols([classSymbol]), [
+			new vscode.FoldingRange(0, 2, vscode.FoldingRangeKind.Imports),
+		]);
+
+		assert.deepStrictEqual(
+			regions.map((region) => `${region.kind}:${region.selectionLine}`),
+			[
+				"import:0",
+				"class:4",
+			]
+		);
+	});
+
+	test("selects foldable import ranges through the generic command filter", () => {
+		const classSymbol = createSymbol("Example", vscode.SymbolKind.Class, 4, 10);
+		const regions = attachFoldingOnlyNodes(normalizeSymbols([classSymbol]), [
+			new vscode.FoldingRange(0, 2, vscode.FoldingRangeKind.Imports),
+		]);
+
+		const foldableRegions = selectFoldableRegions({
+			filter: {
+				kinds: ["import"],
+			},
+		}, regions);
+
+		assert.deepStrictEqual(
+			foldableRegions.map((region) => `${region.kind}:${region.selectionLine}`),
+			["import:0"]
+		);
+		assert.deepStrictEqual(collectSelectionLines(foldableRegions), [0]);
 	});
 });
 

@@ -3,6 +3,7 @@ import {
 	collapseCommand,
 	toggleClassMembersCommand,
 	toggleFunctionsInVariablesCommand,
+	toggleImportsCommand,
 	toggleMethodsInClassesCommand,
 	toggleTypesCommand,
 	toggleVariablesCommand,
@@ -37,6 +38,10 @@ export function activate(context: vscode.ExtensionContext): void {
 		vscode.commands.registerCommand(
 			"semanticFold.toggleFunctionsInVariables",
 			toggleFunctionsInVariablesCommand
+		),
+		vscode.commands.registerCommand(
+			"semanticFold.toggleImports",
+			toggleImportsCommand
 		),
 		// Register cache invalidation listeners
 		vscode.workspace.onDidChangeTextDocument((event) => {

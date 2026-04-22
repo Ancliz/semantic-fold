@@ -39,6 +39,13 @@ const functionsInVariablesArgs: CollapseArgs = {
 	mode: "toggle",
 };
 
+const importsArgs: CollapseArgs = {
+	filter: {
+		kinds: ["import"],
+	},
+	mode: "toggle",
+};
+
 export async function collapseCommand(args?: unknown): Promise<void> {
 	await runFoldCommand(args, getDefaultCollapseMode(args));
 }
@@ -61,6 +68,10 @@ export async function toggleVariablesCommand(): Promise<void> {
 
 export async function toggleFunctionsInVariablesCommand(): Promise<void> {
 	await collapseCommand(functionsInVariablesArgs);
+}
+
+export async function toggleImportsCommand(): Promise<void> {
+	await collapseCommand(importsArgs);
 }
 
 export function getDefaultCollapseMode(args: unknown): CollapseArgs["mode"] {
