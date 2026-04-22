@@ -1,18 +1,66 @@
-import * as vscode from "vscode";
-import { getRegions } from "../engine/regionCollector";
-import { runFoldCommand } from "../engine/foldExecutor";
-import { type CollapseArgs, normaliseArgs } from "../model/filters";
+import { type CollapseArgs } from "../model/filters";
+import { runFoldCommand } from "./foldCommand";
+
+const methodsInClassesArgs: CollapseArgs = {
+	filter: {
+		kinds: ["method", "function"],
+		parentKinds: ["class"],
+	},
+	mode: "toggle",
+};
+
+const classMembersArgs: CollapseArgs = {
+	filter: {
+		kinds: ["constructor", "method", "property", "field"],
+		parentKinds: ["class"],
+	},
+	mode: "toggle",
+};
+
+const typesArgs: CollapseArgs = {
+	filter: {
+		kinds: ["class", "struct", "interface", "enum"],
+	},
+	mode: "toggle",
+};
+
+const variablesArgs: CollapseArgs = {
+	filter: {
+		kinds: ["variable", "object"],
+	},
+	mode: "toggle",
+};
+
+const functionsInVariablesArgs: CollapseArgs = {
+	filter: {
+		kinds: ["function", "method"],
+		ancestorKinds: ["variable", "object"],
+	},
+	mode: "toggle",
+};
 
 export async function collapseCommand(args?: unknown): Promise<void> {
-	const editor = vscode.window.activeTextEditor;
+	await runFoldCommand(args, getDefaultCollapseMode(args));
+}
 
-	if(!editor) {
-		return;
-	}
+export async function toggleMethodsInClassesCommand(): Promise<void> {
+	await collapseCommand(methodsInClassesArgs);
+}
 
-	const regions = await getRegions(editor.document);
+export async function toggleClassMembersCommand(): Promise<void> {
+	await collapseCommand(classMembersArgs);
+}
 
-	await runFoldCommand(normaliseArgs(args, getDefaultCollapseMode(args)), regions);
+export async function toggleTypesCommand(): Promise<void> {
+	await collapseCommand(typesArgs);
+}
+
+export async function toggleVariablesCommand(): Promise<void> {
+	await collapseCommand(variablesArgs);
+}
+
+export async function toggleFunctionsInVariablesCommand(): Promise<void> {
+	await collapseCommand(functionsInVariablesArgs);
 }
 
 export function getDefaultCollapseMode(args: unknown): CollapseArgs["mode"] {

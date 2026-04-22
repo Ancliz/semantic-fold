@@ -5,6 +5,8 @@ export function mapSymbolKind(kind: vscode.SymbolKind): RegionKind {
 	switch (kind) {
 	case vscode.SymbolKind.Class:
 		return "class";
+	case vscode.SymbolKind.Struct:
+		return "struct";
 	case vscode.SymbolKind.Interface:
 		return "interface";
 	case vscode.SymbolKind.Enum:
@@ -25,6 +27,8 @@ export function mapSymbolKind(kind: vscode.SymbolKind): RegionKind {
 	case vscode.SymbolKind.Variable:
 	case vscode.SymbolKind.Constant:
 		return "variable";
+	case vscode.SymbolKind.Object:
+		return "object";
 	default:
 		return "unknown";
 	}

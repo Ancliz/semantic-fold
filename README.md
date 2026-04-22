@@ -12,7 +12,7 @@ The main use case is simple:
 
 VS Code's built-in folding is useful, but it is mostly oriented around lexical folding depth and general folding commands.
 
-That works for broad collapse operations, but it breaks down when you want more targeted behavior such as:
+That works for broad collapse operations, but it breaks down when you want more targeted behaviour such as:
 
 - collapse only methods
 - collapse only top-level classes
@@ -41,9 +41,9 @@ These are not first-version goals:
 - full custom parsing for all languages
 - owning fold state globally across every provider and extension
 
-## Core behavior
+## Core Behaviour
 
-Semantic Fold discovers structural regions in the active document and normalizes them into an internal tree.
+Semantic Fold discovers structural regions in the active document and normalises them into an internal tree.
 
 It primarily uses:
 
@@ -67,9 +67,10 @@ This should fold each method directly, rather than recursively folding everythin
 
 ### Symbol kind
 
-The normalized semantic category of a region, such as:
+The normalised semantic category of a region, such as:
 
 - `class`
+- `struct`
 - `interface`
 - `enum`
 - `function`
@@ -78,11 +79,12 @@ The normalized semantic category of a region, such as:
 - `namespace`
 - `property`
 - `field`
+- `object`
 - `import`
 - `comment`
 - `region`
 
-Semantic Fold preserves distinctions such as `function`, `method`, `constructor`, `property`, and `field` when the active language extension exposes them through VS Code's document-symbol provider. Provider quality varies by language and extension, so weak providers may report less precise kinds or fall back to unknown categories.
+Semantic Fold preserves distinctions such as `struct`, `function`, `method`, `constructor`, `property`, `field`, `variable`, and `object` when the active language extension exposes them through VS Code's document-symbol provider. Provider quality varies by language and extension, so weak providers may report less precise kinds or fall back to unknown categories.
 
 ### Symbol depth
 
@@ -113,7 +115,7 @@ This may be useful later for advanced workflows, but the main MVP is based on **
 
 ## Keybinding payload examples
 
-The generic `semanticFold.collapse` command accepts one optional `args` object:
+The generic `semanticFold.collapse`, `semanticFold.expand`, and `semanticFold.toggle` commands all accept the same optional `args` object:
 
 ```json
 {
@@ -122,26 +124,83 @@ The generic `semanticFold.collapse` command accepts one optional `args` object:
     "excludeKinds": ["unknown"],
     "exactSymbolDepth": 2,
     "minSymbolDepth": 1,
-    "maxSymbolDepth": 3
-  },
-  "preserveCursorContext": true
+    "maxSymbolDepth": 3,
+    "parentKinds": ["class"],
+    "ancestorKinds": ["class"]
+  }
 }
 ```
 
 Invalid or incomplete fields are ignored. For example, unknown kind strings, non-integer depths, malformed `nameRegex` values, and non-object payloads fall back to the safest valid subset instead of failing the command.
 
-Keybinding payloads default to toggle mode: pressing the same binding again unfolds the same matching regions. Set `"mode": "collapse"`, `"mode": "expand"`, or `"mode": "toggle"` in the payload to force a specific action.
+Payloads passed to `semanticFold.collapse` default to toggle mode for keybinding ergonomics. If any matching target is expanded, pressing the binding collapses every matching target; when all matching targets are collapsed, pressing it expands them together. Set `"mode": "collapse"`, `"mode": "expand"`, or `"mode": "toggle"` in the payload to force a specific action, or bind `semanticFold.toggle` directly when you want a dedicated toggle command.
 
-Toggle second-level methods:
+The `preserveCursorContext` field is accepted for payload compatibility, but Phase 1 folding does not protect the focused region from being folded. If the cursor is inside a folded target, VS Code moves the selection to visible fold context instead of reopening that method.
+
+Toggle state is tracked for folds created through Semantic Fold commands. Manual folding, unfolding, or other extensions can make the tracked state incomplete, but the next semantic toggle collapses a mixed target set back into a consistent state before later toggles expand it as a group.
+
+## Convenience commands
+
+These commands are available from the Command Palette and use the same filter pipeline as the generic commands:
+
+| Command | Intended behaviour |
+| --- | --- |
+| `semanticFold.toggleMethodsInClasses` | Toggle methods whose immediate parent is a class. |
+| `semanticFold.toggleClassMembers` | Toggle constructors, methods, properties, and fields whose immediate parent is a class. |
+| `semanticFold.toggleTypes` | Toggle provider-exposed class, struct, interface, and enum regions. Type aliases are included only if the language provider reports them as one of those symbol kinds. |
+| `semanticFold.toggleVariables` | Toggle variable, constant, and object regions that have foldable symbol ranges. |
+| `semanticFold.toggleFunctionsInVariables` | Toggle function and method regions anywhere inside a variable or object ancestor context, such as functions inside an object literal assigned to a variable. |
+
+Toggle methods whose immediate parent is a class:
 
 ```json
 {
   "key": "ctrl+alt+m",
+  "command": "semanticFold.toggleMethodsInClasses"
+}
+```
+
+The generic command equivalent is:
+
+```json
+{
+  "key": "ctrl+alt+m",
+  "command": "semanticFold.toggle",
+  "args": {
+    "filter": {
+      "kinds": ["method"],
+      "parentKinds": ["class"]
+    }
+  }
+}
+```
+
+Add `exactSymbolDepth` when you only want methods at one level of the symbol tree:
+
+```json
+{
+  "key": "ctrl+alt+shift+m",
   "command": "semanticFold.collapse",
   "args": {
     "filter": {
       "kinds": ["method"],
+      "parentKinds": ["class"],
       "exactSymbolDepth": 2
+    }
+  }
+}
+```
+
+Toggle nested helper functions anywhere inside a class context:
+
+```json
+{
+  "key": "ctrl+alt+h",
+  "command": "semanticFold.collapse",
+  "args": {
+    "filter": {
+      "kinds": ["function"],
+      "ancestorKinds": ["class"]
     }
   }
 }
@@ -177,6 +236,47 @@ Toggle implementation details below the top level:
 }
 ```
 
+## Phase 1 Validation
+
+Phase 1 is the symbol-driven MVP. It proves that Semantic Fold can collect document symbols, convert them into one internal region model, filter those regions by kind and symbol depth, and apply folding only to the exact matching regions.
+
+The core workflow is:
+
+```text
+active document
+  -> collect document symbols
+  -> normalise into RegionNode tree
+  -> filter by kind and symbol depth
+  -> collect exact selection lines
+  -> collapse, expand, or toggle matching regions
+```
+
+### Main Command Checklist
+
+Use a file with a top-level class, methods inside that class, a nested function inside one method, and a top-level function.
+
+- Run `semanticFold.collapse` with no args and confirm foldable symbol regions collapse.
+- Bind `semanticFold.collapse` with `filter.kinds: ["method"]` and `filter.exactSymbolDepth: 2`; confirm second-level methods toggle without folding their parent class.
+- Bind `semanticFold.collapse` with `filter.kinds: ["method"]` and `filter.parentKinds: ["class"]`; confirm class methods toggle while top-level helper functions stay visible.
+- Bind `semanticFold.collapse` with `filter.kinds: ["function"]` and `filter.ancestorKinds: ["class"]`; confirm nested helper functions inside a class context toggle while top-level helper functions stay visible.
+- Run `semanticFold.toggleMethodsInClasses`; confirm it behaves like the `method` plus `class` parent filter.
+- Run `semanticFold.toggleClassMembers`; confirm it toggles direct class members such as constructors, methods, properties, and fields.
+- Run `semanticFold.toggleFunctionsInClasses`; confirm it toggles nested helper functions inside class context while top-level helper functions stay visible.
+- Run `semanticFold.toggleStructs`; confirm provider-exposed struct regions toggle if the active language reports structs separately from classes.
+- Run `semanticFold.toggleTypes`; confirm class, struct, interface, and enum regions toggle.
+- Run `semanticFold.toggleVariables`; confirm foldable variable, constant, and object regions toggle.
+- Run `semanticFold.toggleFunctionsInVariables`; confirm function and method regions inside variable or object contexts toggle when the provider exposes that hierarchy.
+- Add `"mode": "collapse"` to the same keybinding; confirm repeated use stays a one-way collapse request.
+- Run `semanticFold.expand` with the same filter; confirm only the matching methods expand.
+- Run `semanticFold.toggle` with the same filter; confirm it targets the same methods as collapse and expand.
+- Use a filter with no matches; confirm the command leaves the editor unchanged.
+
+### Targeted Folding Versus Recursive Folding
+
+Recursive level folding starts from a broad location or depth and can fold child ranges inside the selected region. That is useful for quickly hiding everything below a level, but it is not precise enough for workflows such as reviewing only method signatures.
+
+Targeted folding starts from the symbol provider. Semantic Fold filters symbols first, then sends VS Code the exact start lines for the matching regions. Folding methods this way hides each method as a whole method; when one method is expanded, its body is visible instead of remaining full of recursively collapsed child ranges.
+
 ## MVP scope
 
 The first version focuses on the active editor and aims to support languages with decent document-symbol providers, such as:
@@ -196,7 +296,7 @@ active document
   -> document symbols
   -> folding ranges
   -> semantic tokens (optional refinement)
-  -> normalize into RegionNode tree
+  -> normalise into RegionNode tree
   -> filter by kinds / depth / parent kinds / ancestors
   -> fold exact matching regions
 ```
@@ -206,7 +306,7 @@ active document
 ### Phase 1: symbol-driven MVP
 
 - collect document symbols
-- normalize to `RegionNode`
+- normalise to `RegionNode`
 - compute symbol depth
 - filter by kind and depth
 - fold matching regions
@@ -251,6 +351,8 @@ That means:
 Some language providers return flat `SymbolInformation` results instead of hierarchical `DocumentSymbol` trees. Semantic Fold treats those symbols as top-level regions so basic kind filtering, depth `1` filtering, and exact selection-line folding can still work.
 
 Flat fallback mode does not infer parent/child relationships. Parent, ancestor, and deeper symbol-depth filters require hierarchical provider data and may return no matches when only flat symbols are available.
+
+Relationship filters fail soft in that situation: `parentKinds` and `ancestorKinds` do not fabricate hierarchy from line ranges, indentation, or names. If no real parent chain exists, the command produces no matching regions and leaves the editor unchanged instead of folding misleading targets.
 
 ## Design decisions
 
@@ -334,10 +436,10 @@ Open the workspace in VS Code and launch the extension host from the debugger.
 
 - [x] Scaffold extension
 - [x] Implement symbol collection
-- [x] Normalize `DocumentSymbol` trees
+- [x] Normalise `DocumentSymbol` trees
 - [x] Add filter engine
-- [ ] Add targeted collapse execution
-- [ ] Add keybinding-ready generic command
+- [x] Add targeted collapse execution
+- [x] Add keybinding-ready generic command
 - [ ] Add convenience commands
 - [ ] Add imports/comments/regions support
 - [ ] Add semantic-token refinement

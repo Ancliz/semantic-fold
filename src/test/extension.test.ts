@@ -1,26 +1,33 @@
 import * as assert from "assert";
 import * as vscode from "vscode";
 import { getDefaultCollapseMode } from "../commands/collapse";
-import { filterRegions, flattenRegions } from "../engine/filterEngine";
+import { filterRegions, flattenRegions, getAncestors, hasHierarchy } from "../engine/filterEngine";
 import {
 	collectFoldableRegions,
 	collectSelectionLines,
-	runFoldCommand,
+	execFoldCommand,
 	selectFoldableRegions,
+	TrackedFoldState,
 } from "../engine/foldExecutor";
 import { getRegions } from "../engine/regionCollector";
 import { normalizeSymbols } from "../engine/symbolNormaliser";
-import { normaliseArgs, normaliseCollapseFilter } from "../model/filters";
+import { type CollapseFilter, normaliseArgs, normaliseCollapseFilter } from "../model/filters";
 import { mapSymbolKind } from "../util/symbolKindMap";
 
 suite("Semantic Fold Foundation", () => {
-	test("registers collapse and expand commands", async () => {
+	test("registers collapse, expand, and toggle commands", async () => {
 		await activateExtension();
 
 		const commands = await vscode.commands.getCommands(true);
 
 		assert.ok(commands.includes("semanticFold.collapse"));
 		assert.ok(commands.includes("semanticFold.expand"));
+		assert.ok(commands.includes("semanticFold.toggle"));
+		assert.ok(commands.includes("semanticFold.toggleMethodsInClasses"));
+		assert.ok(commands.includes("semanticFold.toggleClassMembers"));
+		assert.ok(commands.includes("semanticFold.toggleTypes"));
+		assert.ok(commands.includes("semanticFold.toggleVariables"));
+		assert.ok(commands.includes("semanticFold.toggleFunctionsInVariables"));
 	});
 });
 
@@ -77,6 +84,61 @@ suite("Document Symbol Collection", () => {
 		assert.strictEqual(regions.length, 1);
 		assert.strictEqual(regions[0].name, "helper");
 		assert.strictEqual(regions[0].source, "symbolInformation");
+	});
+
+	test("caches regions per document URI and version", async () => {
+		const document = await vscode.workspace.openTextDocument({
+			content: "class Example {\n\tmethod() {}\n}\n",
+			language: "typescript",
+		});
+		const expectedSymbol = createSymbol("Example", vscode.SymbolKind.Class, 0, 2);
+		let providerCallCount = 0;
+
+		const regions1 = await getRegions(document, async () => {
+			providerCallCount++;
+			return [expectedSymbol];
+		});
+
+		const regions2 = await getRegions(document, async () => {
+			providerCallCount++;
+			return [expectedSymbol];
+		});
+
+		// Should only call provider once (cache hit on second call)
+		assert.strictEqual(providerCallCount, 1);
+		assert.strictEqual(regions1.length, 1);
+		assert.strictEqual(regions2.length, 1);
+		assert.strictEqual(regions1[0].name, regions2[0].name);
+	});
+
+	test("invalidates cache on document version change", async () => {
+		const document = await vscode.workspace.openTextDocument({
+			content: "class Example {\n\tmethod() {}\n}\n",
+			language: "typescript",
+		});
+		const expectedSymbol = createSymbol("Example", vscode.SymbolKind.Class, 0, 2);
+		let providerCallCount = 0;
+
+		const regions1 = await getRegions(document, async () => {
+			providerCallCount++;
+			return [expectedSymbol];
+		});
+
+		// Simulate document version change by editing
+		const editResult = await vscode.workspace.openTextDocument({
+			content: "class Example {\n\tmethod() {}\n\tnewMethod() {}\n}\n",
+			language: "typescript",
+		});
+
+		const regions2 = await getRegions(editResult, async () => {
+			providerCallCount++;
+			return [expectedSymbol];
+		});
+
+		// Should call provider twice (version changed, cache miss)
+		assert.strictEqual(providerCallCount, 2);
+		assert.strictEqual(regions1.length, 1);
+		assert.strictEqual(regions2.length, 1);
 	});
 });
 
@@ -146,11 +208,13 @@ suite("Document Symbol Normalisation", () => {
 
 suite("Symbol Kind Mapping", () => {
 	test("keeps callable and member symbol kinds distinct", () => {
+		assert.strictEqual(mapSymbolKind(vscode.SymbolKind.Struct), "struct");
 		assert.strictEqual(mapSymbolKind(vscode.SymbolKind.Function), "function");
 		assert.strictEqual(mapSymbolKind(vscode.SymbolKind.Method), "method");
 		assert.strictEqual(mapSymbolKind(vscode.SymbolKind.Constructor), "constructor");
 		assert.strictEqual(mapSymbolKind(vscode.SymbolKind.Field), "field");
 		assert.strictEqual(mapSymbolKind(vscode.SymbolKind.Property), "property");
+		assert.strictEqual(mapSymbolKind(vscode.SymbolKind.Object), "object");
 	});
 
 	test("preserves provider-exposed callable and member categories during normalisation", () => {
@@ -187,6 +251,8 @@ suite("Command Argument Normalisation", () => {
 					excludeKinds: ["unknown"],
 					exactSymbolDepth: 2,
 					minSymbolDepth: 1,
+					ancestorKinds: ["class"],
+					parentKinds: ["class"],
 					nameRegex: "^handle",
 				},
 				preserveCursorContext: true,
@@ -197,6 +263,8 @@ suite("Command Argument Normalisation", () => {
 					excludeKinds: ["unknown"],
 					exactSymbolDepth: 2,
 					minSymbolDepth: 1,
+					ancestorKinds: ["class"],
+					parentKinds: ["class"],
 					nameRegex: "^handle",
 				},
 				mode: "collapse",
@@ -281,8 +349,73 @@ suite("Command Argument Normalisation", () => {
 	});
 });
 
+suite("Phase 1 Validation Fixtures", () => {
+	test("models nested classes, methods, and functions in document-symbol order", () => {
+		const regions = createPhaseOneFixture();
+		const flattenedRegions = flattenRegions(regions);
+
+		assert.deepStrictEqual(
+			flattenedRegions.map((region) => `${region.name}:${region.kind}:${region.symbolDepth}`),
+			[
+				"Controller:class:1",
+				"constructor:constructor:2",
+				"handle:method:2",
+				"formatPayload:function:3",
+				"ViewModel:class:2",
+				"render:method:3",
+				"bootstrap:function:1",
+			]
+		);
+	});
+
+	test("matches documented Phase 1 command filters against the nested fixture", () => {
+		const regions = createPhaseOneFixture();
+
+		assert.deepStrictEqual(
+			filterRegions(regions, {
+				kinds: ["method"],
+				exactSymbolDepth: 2,
+			}).map((region) => region.name),
+			["handle"]
+		);
+		assert.deepStrictEqual(
+			filterRegions(regions, {
+				kinds: ["class", "function"],
+				exactSymbolDepth: 1,
+			}).map((region) => region.name),
+			["Controller", "bootstrap"]
+		);
+		assert.deepStrictEqual(
+			filterRegions(regions, {
+				kinds: ["method", "function"],
+				minSymbolDepth: 2,
+			}).map((region) => region.name),
+			["handle", "formatPayload", "render"]
+		);
+	});
+
+	test("collects exact method fold targets without recursive child function lines", () => {
+		const regions = createPhaseOneFixture();
+		const foldableRegions = selectFoldableRegions({
+			filter: {
+				kinds: ["method"],
+				minSymbolDepth: 2,
+			},
+		}, regions);
+
+		assert.deepStrictEqual(
+			foldableRegions.map((region) => region.name),
+			["handle", "render"]
+		);
+		assert.deepStrictEqual(
+			collectSelectionLines(foldableRegions),
+			[5, 21]
+		);
+	});
+});
+
 suite("Region Filtering", () => {
-	test("flattens normalized region trees in document order", () => {
+	test("flattens normalised region trees in document order", () => {
 		const regions = createFilterFixture();
 
 		assert.deepStrictEqual(
@@ -434,6 +567,225 @@ suite("Region Filtering", () => {
 			[]
 		);
 	});
+
+	test("does not fabricate parent or ancestor matches for flat fallback symbols", () => {
+		const regions = createFlatFallbackFixture();
+		const flatRegions = flattenRegions(regions);
+
+		assert.ok(flatRegions.every((region) => !hasHierarchy(region)));
+		assert.deepStrictEqual(
+			filterRegions(regions, {
+				kinds: ["method"],
+				parentKinds: ["class"],
+			}).map((region) => region.name),
+			[]
+		);
+		assert.deepStrictEqual(
+			filterRegions(regions, {
+				kinds: ["method"],
+				ancestorKinds: ["class"],
+			}).map((region) => region.name),
+			[]
+		);
+	});
+
+	test("returns regions whose immediate parent kind matches the requested parent kinds", () => {
+		const regions = createPhaseOneFixture();
+
+		assert.deepStrictEqual(
+			filterRegions(regions, { parentKinds: ["class"] }).map((region) => region.name),
+			["constructor", "handle", "ViewModel", "render"]
+		);
+		assert.deepStrictEqual(
+			filterRegions(regions, {
+				kinds: ["method"],
+				parentKinds: ["class"],
+			}).map((region) => region.name),
+			["handle", "render"]
+		);
+	});
+
+	test("keeps top-level helpers visible when filtering methods inside classes", () => {
+		const regions = createPhaseOneFixture();
+
+		assert.deepStrictEqual(
+			filterRegions(regions, {
+				kinds: ["method"],
+				parentKinds: ["class"],
+			}).map((region) => region.name),
+			["handle", "render"]
+		);
+		assert.deepStrictEqual(
+			filterRegions(regions, {
+				kinds: ["function"],
+				parentKinds: ["class"],
+			}).map((region) => region.name),
+			[]
+		);
+	});
+
+	test("combines parent-kind filters with kind and symbol-depth filters", () => {
+		const regions = createPhaseOneFixture();
+
+		assert.deepStrictEqual(
+			filterRegions(regions, {
+				kinds: ["method"],
+				parentKinds: ["class"],
+				exactSymbolDepth: 2,
+			}).map((region) => region.name),
+			["handle"]
+		);
+		assert.deepStrictEqual(
+			filterRegions(regions, {
+				kinds: ["method"],
+				parentKinds: ["class"],
+				exactSymbolDepth: 3,
+			}).map((region) => region.name),
+			["render"]
+		);
+	});
+
+	test("returns regions whose broader ancestor context matches requested kinds", () => {
+		const regions = createPhaseOneFixture();
+
+		assert.deepStrictEqual(
+			filterRegions(regions, { ancestorKinds: ["class"] }).map((region) => region.name),
+			["constructor", "handle", "formatPayload", "ViewModel", "render"]
+		);
+		assert.deepStrictEqual(
+			filterRegions(regions, {
+				kinds: ["function"],
+				ancestorKinds: ["class"],
+			}).map((region) => region.name),
+			["formatPayload"]
+		);
+	});
+
+	test("combines ancestor filters with kind, depth, and parent filters", () => {
+		const regions = createPhaseOneFixture();
+
+		assert.deepStrictEqual(
+			filterRegions(regions, {
+				kinds: ["method"],
+				parentKinds: ["class"],
+				ancestorKinds: ["class"],
+				exactSymbolDepth: 3,
+			}).map((region) => region.name),
+			["render"]
+		);
+		assert.deepStrictEqual(
+			filterRegions(regions, {
+				kinds: ["function"],
+				parentKinds: ["method"],
+				ancestorKinds: ["class"],
+				exactSymbolDepth: 3,
+			}).map((region) => region.name),
+			["formatPayload"]
+		);
+	});
+
+	test("matches convenience command filters for common structural workflows", () => {
+		const regions = createConvenienceCommandFixture();
+
+		assert.deepStrictEqual(
+			collectSelectionLines(selectFoldableRegions({
+				filter: {
+					kinds: ["method"],
+					parentKinds: ["class"],
+				},
+			}, regions)),
+			[5, 21]
+		);
+		assert.deepStrictEqual(
+			collectSelectionLines(selectFoldableRegions({
+				filter: {
+					kinds: ["constructor", "method", "property", "field"],
+					parentKinds: ["class"],
+				},
+			}, regions)),
+			[1, 5, 21]
+		);
+		assert.deepStrictEqual(
+			collectSelectionLines(selectFoldableRegions({
+				filter: {
+					kinds: ["function"],
+					ancestorKinds: ["class"],
+				},
+			}, regions)),
+			[7]
+		);
+		assert.deepStrictEqual(
+			collectSelectionLines(selectFoldableRegions({
+				filter: {
+					kinds: ["struct"],
+				},
+			}, regions)),
+			[40]
+		);
+		assert.deepStrictEqual(
+			collectSelectionLines(selectFoldableRegions({
+				filter: {
+					kinds: ["class", "struct", "interface", "enum"],
+				},
+			}, regions)),
+			[0, 18, 40, 50, 60]
+		);
+		assert.deepStrictEqual(
+			collectSelectionLines(selectFoldableRegions({
+				filter: {
+					kinds: ["variable", "object"],
+				},
+			}, regions)),
+			[70, 86]
+		);
+		assert.deepStrictEqual(
+			collectSelectionLines(selectFoldableRegions({
+				filter: {
+					kinds: ["function", "method"],
+					ancestorKinds: ["variable", "object"],
+				},
+			}, regions)),
+			[72, 78, 88]
+		);
+	});
+
+	test("walks ancestor chains safely when a malformed tree has a parent cycle", () => {
+		const regions = createPhaseOneFixture();
+		const controllerRegion = regions[0];
+		const handleRegion = controllerRegion.children[1];
+
+		controllerRegion.parent = handleRegion;
+
+		assert.deepStrictEqual(
+			getAncestors(handleRegion).map((region) => region.name),
+			["Controller", "handle"]
+		);
+		assert.deepStrictEqual(
+			filterRegions(regions, {
+				kinds: ["function"],
+				ancestorKinds: ["class"],
+			}).map((region) => region.name),
+			["formatPayload"]
+		);
+	});
+
+	test("ignores self-parent links instead of treating them as valid hierarchy", () => {
+		const regions = createFlatFallbackFixture();
+		const runRegion = regions[1];
+
+		runRegion.parent = runRegion;
+
+		assert.strictEqual(hasHierarchy(runRegion), false);
+		assert.deepStrictEqual(getAncestors(runRegion), []);
+		assert.deepStrictEqual(
+			filterRegions(regions, {
+				kinds: ["method"],
+				parentKinds: ["method"],
+				ancestorKinds: ["method"],
+			}).map((region) => region.name),
+			[]
+		);
+	});
 });
 
 suite("Fold Execution Guards", () => {
@@ -480,27 +832,83 @@ suite("Fold Execution Guards", () => {
 	test("executes exact non-recursive fold selection lines", async () => {
 		const regions = createDuplicateSelectionFixture();
 		const executedCommands: ExecutedCommand[] = [];
+		const foldState = new TrackedFoldState();
 
-		await runFoldCommand({}, regions, async (command, args) => {
-			executedCommands.push({ command, selectionLines: args.selectionLines });
-		});
+		await execFoldCommand({}, regions, async (command, args) => {
+			executedCommands.push({
+				command,
+				levels: args.levels,
+				selectionLines: args.selectionLines,
+			});
+		}, foldState, "test://fold");
 
 		assert.deepStrictEqual(executedCommands, [{
 			command: "editor.fold",
+			levels: 1,
 			selectionLines: [2, 6, 12],
 		}]);
 	});
 
-	test("executes exact toggle selection lines for toggle mode", async () => {
+	test("collapses every toggle target when any target is expanded", async () => {
 		const regions = createDuplicateSelectionFixture();
 		const executedCommands: ExecutedCommand[] = [];
+		const foldState = new TrackedFoldState();
 
-		await runFoldCommand({ mode: "toggle" }, regions, async (command, args) => {
-			executedCommands.push({ command, selectionLines: args.selectionLines });
-		});
+		await execFoldCommand({ mode: "toggle" }, regions, async (command, args) => {
+			executedCommands.push({
+				command,
+				levels: args.levels,
+				selectionLines: args.selectionLines,
+			});
+		}, foldState, "test://toggle-collapse");
 
 		assert.deepStrictEqual(executedCommands, [{
-			command: "editor.toggleFold",
+			command: "editor.fold",
+			levels: 1,
+			selectionLines: [2, 6, 12],
+		}]);
+	});
+
+	test("expands every toggle target when all targets are collapsed", async () => {
+		const regions = createDuplicateSelectionFixture();
+		const executedCommands: ExecutedCommand[] = [];
+		const foldState = new TrackedFoldState();
+
+		foldState.markCollapsed("test://toggle-expand", [2, 6, 12]);
+
+		await execFoldCommand({ mode: "toggle" }, regions, async (command, args) => {
+			executedCommands.push({
+				command,
+				levels: args.levels,
+				selectionLines: args.selectionLines,
+			});
+		}, foldState, "test://toggle-expand");
+
+		assert.deepStrictEqual(executedCommands, [{
+			command: "editor.unfold",
+			levels: 1,
+			selectionLines: [2, 6, 12],
+		}]);
+	});
+
+	test("collapses every toggle target when tracked target state is mixed", async () => {
+		const regions = createDuplicateSelectionFixture();
+		const executedCommands: ExecutedCommand[] = [];
+		const foldState = new TrackedFoldState();
+
+		foldState.markCollapsed("test://toggle-mixed", [2]);
+
+		await execFoldCommand({ mode: "toggle" }, regions, async (command, args) => {
+			executedCommands.push({
+				command,
+				levels: args.levels,
+				selectionLines: args.selectionLines,
+			});
+		}, foldState, "test://toggle-mixed");
+
+		assert.deepStrictEqual(executedCommands, [{
+			command: "editor.fold",
+			levels: 1,
 			selectionLines: [2, 6, 12],
 		}]);
 	});
@@ -508,14 +916,40 @@ suite("Fold Execution Guards", () => {
 	test("does not execute any command when no filtered nodes are foldable", async () => {
 		const regions = createDuplicateSelectionFixture();
 		const executedCommands: ExecutedCommand[] = [];
+		const foldState = new TrackedFoldState();
 
-		await runFoldCommand({
+		await execFoldCommand({
 			filter: {
 				kinds: ["property"],
 			},
 		}, regions, async (command, args) => {
-			executedCommands.push({ command, selectionLines: args.selectionLines });
-		});
+			executedCommands.push({
+				command,
+				levels: args.levels,
+				selectionLines: args.selectionLines,
+			});
+		}, foldState, "test://empty");
+
+		assert.deepStrictEqual(executedCommands, []);
+	});
+
+	test("does not execute any command when relationship filters cannot match flat fallback symbols", async () => {
+		const regions = createFlatFallbackFixture();
+		const executedCommands: ExecutedCommand[] = [];
+		const foldState = new TrackedFoldState();
+
+		await execFoldCommand({
+			filter: {
+				kinds: ["method"],
+				parentKinds: ["class"],
+			},
+		}, regions, async (command, args) => {
+			executedCommands.push({
+				command,
+				levels: args.levels,
+				selectionLines: args.selectionLines,
+			});
+		}, foldState, "test://flat-relationship");
 
 		assert.deepStrictEqual(executedCommands, []);
 	});
@@ -523,15 +957,91 @@ suite("Fold Execution Guards", () => {
 	test("executes exact unfold selection lines for expand mode", async () => {
 		const regions = createDuplicateSelectionFixture();
 		const executedCommands: ExecutedCommand[] = [];
+		const foldState = new TrackedFoldState();
 
-		await runFoldCommand({ mode: "expand" }, regions, async (command, args) => {
-			executedCommands.push({ command, selectionLines: args.selectionLines });
-		});
+		await execFoldCommand({ mode: "expand" }, regions, async (command, args) => {
+			executedCommands.push({
+				command,
+				levels: args.levels,
+				selectionLines: args.selectionLines,
+			});
+		}, foldState, "test://expand");
 
 		assert.deepStrictEqual(executedCommands, [{
 			command: "editor.unfold",
+			levels: 1,
 			selectionLines: [2, 6, 12],
 		}]);
+	});
+
+	test("uses the same filter model for collapse, expand, and toggle modes", async () => {
+		const regions = createPhaseOneFixture();
+		const sharedFilter: CollapseFilter = {
+			kinds: ["method"],
+			parentKinds: ["class"],
+		};
+		const executedCommands: ExecutedCommand[] = [];
+		const foldState = new TrackedFoldState();
+		const modeCases = [
+			{
+				documentKey: "test://shared-collapse",
+				expectedCommand: "editor.fold" as const,
+				mode: "collapse" as const,
+			},
+			{
+				documentKey: "test://shared-expand",
+				expectedCommand: "editor.unfold" as const,
+				mode: "expand" as const,
+			},
+			{
+				documentKey: "test://shared-toggle",
+				expectedCommand: "editor.fold" as const,
+				mode: "toggle" as const,
+			},
+		];
+
+		for(const modeCase of modeCases) {
+			await execFoldCommand({
+				filter: sharedFilter,
+				mode: modeCase.mode,
+			}, regions, async (command, args) => {
+				executedCommands.push({
+					command,
+					levels: args.levels,
+					selectionLines: args.selectionLines,
+				});
+			}, foldState, modeCase.documentKey);
+		}
+
+		assert.deepStrictEqual(executedCommands, modeCases.map((modeCase) => ({
+			command: modeCase.expectedCommand,
+			levels: 1,
+			selectionLines: [5, 21],
+		})));
+	});
+
+	test("handles no-match filters cleanly for every fold mode", async () => {
+		const regions = createPhaseOneFixture();
+		const executedCommands: ExecutedCommand[] = [];
+		const foldState = new TrackedFoldState();
+		const modes = ["collapse", "expand", "toggle"] as const;
+
+		for(const mode of modes) {
+			await execFoldCommand({
+				filter: {
+					kinds: ["import"],
+				},
+				mode,
+			}, regions, async (command, args) => {
+				executedCommands.push({
+					command,
+					levels: args.levels,
+					selectionLines: args.selectionLines,
+				});
+			}, foldState, `test://no-match-${mode}`);
+		}
+
+		assert.deepStrictEqual(executedCommands, []);
 	});
 
 	test("selects foldable regions from flat fallback symbols", () => {
@@ -595,6 +1105,56 @@ function createFilterFixture(): ReturnType<typeof normalizeSymbols> {
 	return normalizeSymbols([classSymbol, functionSymbol, unknownSymbol]);
 }
 
+function createPhaseOneFixture(): ReturnType<typeof normalizeSymbols> {
+	const controllerSymbol = createSymbol("Controller", vscode.SymbolKind.Class, 0, 28);
+	const constructorSymbol = createSymbol("constructor", vscode.SymbolKind.Constructor, 1, 3);
+	const handleSymbol = createSymbol("handle", vscode.SymbolKind.Method, 5, 16);
+	const formatPayloadSymbol = createSymbol("formatPayload", vscode.SymbolKind.Function, 7, 10);
+	const viewModelSymbol = createSymbol("ViewModel", vscode.SymbolKind.Class, 18, 25);
+	const renderSymbol = createSymbol("render", vscode.SymbolKind.Method, 21, 24);
+	const bootstrapSymbol = createSymbol("bootstrap", vscode.SymbolKind.Function, 30, 35);
+
+	handleSymbol.children.push(formatPayloadSymbol);
+	viewModelSymbol.children.push(renderSymbol);
+	controllerSymbol.children.push(constructorSymbol, handleSymbol, viewModelSymbol);
+
+	return normalizeSymbols([controllerSymbol, bootstrapSymbol]);
+}
+
+function createConvenienceCommandFixture(): ReturnType<typeof normalizeSymbols> {
+	const controllerSymbol = createSymbol("Controller", vscode.SymbolKind.Class, 0, 28);
+	const constructorSymbol = createSymbol("constructor", vscode.SymbolKind.Constructor, 1, 3);
+	const handleSymbol = createSymbol("handle", vscode.SymbolKind.Method, 5, 16);
+	const formatPayloadSymbol = createSymbol("formatPayload", vscode.SymbolKind.Function, 7, 10);
+	const viewModelSymbol = createSymbol("ViewModel", vscode.SymbolKind.Class, 18, 25);
+	const renderSymbol = createSymbol("render", vscode.SymbolKind.Method, 21, 24);
+	const bootstrapSymbol = createSymbol("bootstrap", vscode.SymbolKind.Function, 32, 36);
+	const dataStructSymbol = createSymbol("DataRecord", vscode.SymbolKind.Struct, 40, 48);
+	const apiInterfaceSymbol = createSymbol("ApiClient", vscode.SymbolKind.Interface, 50, 58);
+	const statusEnumSymbol = createSymbol("Status", vscode.SymbolKind.Enum, 60, 68);
+	const dbVariableSymbol = createSymbol("db", vscode.SymbolKind.Variable, 70, 84);
+	const connectSymbol = createSymbol("connect", vscode.SymbolKind.Method, 72, 76);
+	const buildQuerySymbol = createSymbol("buildQuery", vscode.SymbolKind.Function, 78, 82);
+	const cacheObjectSymbol = createSymbol("cache", vscode.SymbolKind.Object, 86, 96);
+	const hydrateSymbol = createSymbol("hydrate", vscode.SymbolKind.Method, 88, 92);
+
+	handleSymbol.children.push(formatPayloadSymbol);
+	viewModelSymbol.children.push(renderSymbol);
+	controllerSymbol.children.push(constructorSymbol, handleSymbol, viewModelSymbol);
+	dbVariableSymbol.children.push(connectSymbol, buildQuerySymbol);
+	cacheObjectSymbol.children.push(hydrateSymbol);
+
+	return normalizeSymbols([
+		controllerSymbol,
+		bootstrapSymbol,
+		dataStructSymbol,
+		apiInterfaceSymbol,
+		statusEnumSymbol,
+		dbVariableSymbol,
+		cacheObjectSymbol,
+	]);
+}
+
 function createDepthFilterFixture(): ReturnType<typeof normalizeSymbols> {
 	const classSymbol = createSymbol("Example", vscode.SymbolKind.Class, 0, 18);
 	const methodSymbol = createSymbol("run", vscode.SymbolKind.Method, 1, 10);
@@ -636,7 +1196,8 @@ function createDuplicateSelectionFixture(): ReturnType<typeof normalizeSymbols> 
 }
 
 interface ExecutedCommand {
-	command: "editor.fold" | "editor.unfold" | "editor.toggleFold";
+	command: "editor.fold" | "editor.unfold";
+	levels: number;
 	selectionLines: number[];
 }
 
