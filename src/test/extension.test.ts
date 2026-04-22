@@ -72,6 +72,49 @@ suite("Document Region Collection", () => {
 		);
 	});
 
+	test("requests semantic tokens and legend for the supplied document uri", async () => {
+		const document = await vscode.workspace.openTextDocument({
+			content: "const handler = () => {\n\treturn true;\n}\n",
+			language: "typescript",
+		});
+		const weakSymbol = createSymbol("handler", 999 as vscode.SymbolKind, 0, 2);
+		const semanticTokens = createSemanticTokens([{
+			line: 0,
+			startCharacter: 6,
+			length: 7,
+			tokenType: 0,
+		}]);
+		const semanticTokenLegend = new vscode.SemanticTokensLegend(["function"]);
+		let requestedSemanticTokenUri: vscode.Uri | undefined;
+		let requestedSemanticLegendUri: vscode.Uri | undefined;
+
+		const regions = await getRegions(document, async () => {
+			return [weakSymbol];
+		}, async () => {
+			return [];
+		}, async (uri) => {
+			requestedSemanticTokenUri = uri;
+
+			return semanticTokens;
+		}, async (uri) => {
+			requestedSemanticLegendUri = uri;
+
+			return semanticTokenLegend;
+		});
+
+		assert.strictEqual(requestedSemanticTokenUri?.toString(), document.uri.toString());
+		assert.strictEqual(requestedSemanticLegendUri?.toString(), document.uri.toString());
+		assert.strictEqual(regions[0].kind, "unknown");
+		assert.deepStrictEqual(
+			collectSelectionLines(selectFoldableRegions({
+				filter: {
+					kinds: ["unknown"],
+				},
+			}, regions)),
+			[0]
+		);
+	});
+
 	test("returns an empty region tree when the provider fails", async () => {
 		const document = await vscode.workspace.openTextDocument({
 			content: "class Example {}\n",
@@ -103,6 +146,35 @@ suite("Document Region Collection", () => {
 		assert.strictEqual(regions.length, 1);
 		assert.strictEqual(regions[0].name, "Example");
 		assert.strictEqual(regions[0].source, "documentSymbol");
+	});
+
+	test("keeps structural regions when semantic tokens are unavailable", async () => {
+		const document = await vscode.workspace.openTextDocument({
+			content: "const handler = () => {\n\treturn true;\n}\n",
+			language: "typescript",
+		});
+		const weakSymbol = createSymbol("handler", 999 as vscode.SymbolKind, 0, 2);
+
+		const regions = await getRegions(document, async () => {
+			return [weakSymbol];
+		}, async () => {
+			return [];
+		}, async () => {
+			throw new Error("semantic provider failed");
+		}, async () => {
+			return new vscode.SemanticTokensLegend(["function"]);
+		});
+
+		assert.strictEqual(regions.length, 1);
+		assert.strictEqual(regions[0].kind, "unknown");
+		assert.deepStrictEqual(
+			collectSelectionLines(selectFoldableRegions({
+				filter: {
+					kinds: ["unknown"],
+				},
+			}, regions)),
+			[0]
+		);
 	});
 
 	test("keeps folding ranges when symbols are unavailable", async () => {
@@ -1416,7 +1488,7 @@ suite("Region Filtering", () => {
 });
 
 suite("Semantic Token Refinement", () => {
-	test("returns the provider-backed region tree unchanged until semantic refinement is implemented", () => {
+	test("returns the provider-backed region tree unchanged when semantic data is missing", () => {
 		const regions = createMixedSymbolAndFoldingFixture();
 
 		assert.strictEqual(refineWithSemanticTokens(regions), regions);
@@ -1887,6 +1959,38 @@ function createSymbolInformation(
 		"",
 		new vscode.Location(uri, new vscode.Range(startLine, 0, endLine, 1))
 	);
+}
+
+function createSemanticTokens(tokens: Array<{
+	line: number;
+	startCharacter: number;
+	length: number;
+	tokenType: number;
+	tokenModifiers?: number;
+}>): vscode.SemanticTokens {
+	const data: number[] = [];
+	let previousLine = 0;
+	let previousStartCharacter = 0;
+
+	for(const token of tokens) {
+		const deltaLine = token.line - previousLine;
+		const deltaStartCharacter = deltaLine === 0
+			? token.startCharacter - previousStartCharacter
+			: token.startCharacter;
+
+		data.push(
+			deltaLine,
+			deltaStartCharacter,
+			token.length,
+			token.tokenType,
+			token.tokenModifiers ?? 0
+		);
+
+		previousLine = token.line;
+		previousStartCharacter = token.startCharacter;
+	}
+
+	return new vscode.SemanticTokens(new Uint32Array(data));
 }
 
 function createFilterFixture(): ReturnType<typeof normalizeSymbols> {
