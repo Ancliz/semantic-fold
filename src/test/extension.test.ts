@@ -105,10 +105,11 @@ suite("Document Region Collection", () => {
 		assert.strictEqual(requestedSemanticTokenUri?.toString(), document.uri.toString());
 		assert.strictEqual(requestedSemanticLegendUri?.toString(), document.uri.toString());
 		assert.strictEqual(regions[0].kind, "unknown");
+		assert.strictEqual(regions[0].semanticKind, "function");
 		assert.deepStrictEqual(
 			collectSelectionLines(selectFoldableRegions({
 				filter: {
-					kinds: ["unknown"],
+					kinds: ["function"],
 				},
 			}, regions)),
 			[0]
@@ -167,6 +168,7 @@ suite("Document Region Collection", () => {
 
 		assert.strictEqual(regions.length, 1);
 		assert.strictEqual(regions[0].kind, "unknown");
+		assert.strictEqual(regions[0].semanticKind, undefined);
 		assert.deepStrictEqual(
 			collectSelectionLines(selectFoldableRegions({
 				filter: {
@@ -1492,6 +1494,109 @@ suite("Semantic Token Refinement", () => {
 		const regions = createMixedSymbolAndFoldingFixture();
 
 		assert.strictEqual(refineWithSemanticTokens(regions), regions);
+	});
+
+	test("adds semantic kinds to weak symbol regions without replacing structural kinds", async () => {
+		const document = await vscode.workspace.openTextDocument({
+			content: "const handler = () => {\n\treturn true;\n}\n\nfunction run() {\n\treturn true;\n}\n",
+			language: "typescript",
+		});
+		const weakSymbol = createSymbol("handler", 999 as vscode.SymbolKind, 0, 2);
+		const strongSymbol = createSymbol("run", vscode.SymbolKind.Function, 4, 6);
+		const regions = normalizeSymbols([weakSymbol, strongSymbol]);
+		const semanticTokenLegend = new vscode.SemanticTokensLegend(["function", "property"]);
+		const semanticTokens = createSemanticTokens([
+			{
+				line: 0,
+				startCharacter: 6,
+				length: 7,
+				tokenType: 0,
+			},
+			{
+				line: 4,
+				startCharacter: 9,
+				length: 3,
+				tokenType: 1,
+			},
+		]);
+
+		const refinedRegions = refineWithSemanticTokens(regions, {
+			document,
+			semanticTokens,
+			semanticTokenLegend,
+		});
+
+		assert.strictEqual(refinedRegions, regions);
+		assert.strictEqual(regions[0].kind, "unknown");
+		assert.strictEqual(regions[0].semanticKind, "function");
+		assert.strictEqual(regions[1].kind, "function");
+		assert.strictEqual(regions[1].semanticKind, undefined);
+		assert.deepStrictEqual(
+			filterRegions(regions, {
+				kinds: ["function"],
+			}).map((region) => region.name),
+			["handler", "run"]
+		);
+	});
+
+	test("ignores semantic tokens whose text does not match the region name", async () => {
+		const document = await vscode.workspace.openTextDocument({
+			content: "const other = () => {\n\treturn true;\n}\n",
+			language: "typescript",
+		});
+		const weakSymbol = createSymbol("handler", 999 as vscode.SymbolKind, 0, 2);
+		const regions = normalizeSymbols([weakSymbol]);
+
+		refineWithSemanticTokens(regions, {
+			document,
+			semanticTokens: createSemanticTokens([{
+				line: 0,
+				startCharacter: 6,
+				length: 5,
+				tokenType: 0,
+			}]),
+			semanticTokenLegend: new vscode.SemanticTokensLegend(["function"]),
+		});
+
+		assert.strictEqual(regions[0].semanticKind, undefined);
+		assert.deepStrictEqual(
+			filterRegions(regions, {
+				kinds: ["function"],
+			}),
+			[]
+		);
+	});
+
+	test("uses semantic parent classifications in relationship filters", async () => {
+		const document = await vscode.workspace.openTextDocument({
+			content: "class Example {\n\trun() {\n\t\treturn true;\n\t}\n}\n",
+			language: "typescript",
+		});
+		const classSymbol = createSymbol("Example", 999 as vscode.SymbolKind, 0, 4);
+		const methodSymbol = createSymbol("run", vscode.SymbolKind.Method, 1, 3);
+		classSymbol.children.push(methodSymbol);
+		const regions = normalizeSymbols([classSymbol]);
+
+		refineWithSemanticTokens(regions, {
+			document,
+			semanticTokens: createSemanticTokens([{
+				line: 0,
+				startCharacter: 6,
+				length: 7,
+				tokenType: 0,
+			}]),
+			semanticTokenLegend: new vscode.SemanticTokensLegend(["class"]),
+		});
+
+		assert.strictEqual(regions[0].kind, "unknown");
+		assert.strictEqual(regions[0].semanticKind, "class");
+		assert.deepStrictEqual(
+			filterRegions(regions, {
+				kinds: ["method"],
+				parentKinds: ["class"],
+			}).map((region) => region.name),
+			["run"]
+		);
 	});
 });
 
