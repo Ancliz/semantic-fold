@@ -38,8 +38,7 @@ export function attachFoldingOnlyNodes(
 
 		if(parent) {
 			foldingNode.parent = parent;
-			foldingNode.symbolDepth = parent.symbolDepth + 1;
-			foldingNode.foldDepth = (parent.foldDepth ?? 0) + 1;
+			updateFoldingNodeDepths(foldingNode, parent.symbolDepth + 1, (parent.foldDepth ?? 0) + 1);
 			parent.children.push(foldingNode);
 			parent.children.sort(compareRegions);
 			continue;
@@ -187,6 +186,18 @@ function isCoveredBySymbolRegion(
 		return rangesOverlap(symbolNode, foldingNode)
 			&& (hasSameRange(symbolNode, foldingNode) || symbolNode.selectionLine === foldingNode.selectionLine);
 	});
+}
+
+/**
+ * Refreshes folding-only descendant depths after a parent attachment changes
+ */
+function updateFoldingNodeDepths(region: RegionNode, symbolDepth: number, foldDepth: number): void {
+	region.symbolDepth = symbolDepth;
+	region.foldDepth = foldDepth;
+
+	for(const child of region.children) {
+		updateFoldingNodeDepths(child, symbolDepth + 1, foldDepth + 1);
+	}
 }
 
 /**

@@ -586,6 +586,29 @@ suite("Folding Range Refinement", () => {
 		);
 	});
 
+	test("nests folding-only nodes inside symbol parents with separate symbol and fold depths", () => {
+		const classSymbol = createSymbol("Example", vscode.SymbolKind.Class, 0, 30);
+		const methodSymbol = createSymbol("run", vscode.SymbolKind.Method, 4, 25);
+		classSymbol.children.push(methodSymbol);
+
+		const regions = attachFoldingOnlyNodes(normalizeSymbols([classSymbol]), [
+			new vscode.FoldingRange(8, 12, vscode.FoldingRangeKind.Comment),
+			new vscode.FoldingRange(6, 20, vscode.FoldingRangeKind.Region),
+		]);
+
+		assert.deepStrictEqual(
+			flattenRegions(regions).map((region) => {
+				return `${region.name}:${region.kind}:${region.symbolDepth}:${region.foldDepth ?? "none"}`;
+			}),
+			[
+				"Example:class:1:none",
+				"run:method:2:none",
+				"region:region:3:1",
+				"comment:comment:4:2",
+			]
+		);
+	});
+
 	test("supports filtering folding-only nodes after they are attached to symbol parents", () => {
 		const classSymbol = createSymbol("Example", vscode.SymbolKind.Class, 0, 20);
 		const methodSymbol = createSymbol("run", vscode.SymbolKind.Method, 5, 15);
@@ -1243,6 +1266,31 @@ suite("Region Filtering", () => {
 				exactSymbolDepth: 3,
 			}).map((region) => region.name),
 			["formatPayload"]
+		);
+	});
+
+	test("combines symbol depth, parent, and ancestor filters across nested folding ranges", () => {
+		const regions = createMixedSymbolAndFoldingFixture();
+
+		assert.deepStrictEqual(
+			filterRegions(regions, {
+				kinds: ["comment"],
+				parentKinds: ["region"],
+				ancestorKinds: ["method"],
+				exactSymbolDepth: 4,
+			}).map((region) => `${region.kind}:${region.selectionLine}`),
+			["comment:22"]
+		);
+		assert.deepStrictEqual(
+			collectSelectionLines(selectFoldableRegions({
+				filter: {
+					kinds: ["comment"],
+					parentKinds: ["region"],
+					ancestorKinds: ["method"],
+					exactSymbolDepth: 4,
+				},
+			}, regions)),
+			[22]
 		);
 	});
 
