@@ -27,6 +27,26 @@
       {
         "command": "semanticFold.toggleMethodsInClasses",
         "title": "Semantic Fold: Toggle Methods in Classes"
+      },
+      {
+        "command": "semanticFold.toggleClassMembers",
+        "title": "Semantic Fold: Toggle Class Members"
+      },
+      {
+        "command": "semanticFold.toggleFunctionsInClasses",
+        "title": "Semantic Fold: Toggle Functions in Classes"
+      },
+      {
+        "command": "semanticFold.toggleTypes",
+        "title": "Semantic Fold: Toggle Types"
+      },
+      {
+        "command": "semanticFold.toggleVariables",
+        "title": "Semantic Fold: Toggle Variables"
+      },
+      {
+        "command": "semanticFold.toggleFunctionsInVariables",
+        "title": "Semantic Fold: Toggle Functions in Variables"
       }
     ]
   },
