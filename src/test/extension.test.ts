@@ -39,6 +39,15 @@ suite("Semantic Fold Foundation", () => {
 		assert.ok(commands.includes("semanticFold.toggleFunctionsInVariables"));
 		assert.ok(commands.includes("semanticFold.toggleImports"));
 	});
+
+	test("contributes semantic refinement configuration", () => {
+		const extension = getSemanticFoldExtension();
+		const setting = extension.packageJSON.contributes.configuration.properties["semanticFold.semanticRefinement.enabled"];
+
+		assert.strictEqual(setting.type, "boolean");
+		assert.strictEqual(setting.default, true);
+		assert.strictEqual(setting.scope, "resource");
+	});
 });
 
 suite("Document Region Collection", () => {
@@ -114,6 +123,52 @@ suite("Document Region Collection", () => {
 			}, regions)),
 			[0]
 		);
+	});
+
+	test("skips semantic token collection when semantic refinement is disabled", async () => {
+		await withSemanticRefinementEnabled(false, async () => {
+			clearRegionCache();
+
+			const document = await vscode.workspace.openTextDocument({
+				content: "const handler = () => {\n\treturn true;\n}\n",
+				language: "typescript",
+			});
+			const weakSymbol = createSymbol("handler", 999 as vscode.SymbolKind, 0, 2);
+			let semanticTokenCallCount = 0;
+			let semanticLegendCallCount = 0;
+
+			const regions = await getRegions(document, async () => {
+				return [weakSymbol];
+			}, async () => {
+				return [];
+			}, async () => {
+				semanticTokenCallCount++;
+
+				return createSemanticTokens([{
+					line: 0,
+					startCharacter: 6,
+					length: 7,
+					tokenType: 0,
+				}]);
+			}, async () => {
+				semanticLegendCallCount++;
+
+				return new vscode.SemanticTokensLegend(["function"]);
+			});
+
+			assert.strictEqual(semanticTokenCallCount, 0);
+			assert.strictEqual(semanticLegendCallCount, 0);
+			assert.strictEqual(regions[0].kind, "unknown");
+			assert.strictEqual(regions[0].semanticKind, undefined);
+			assert.deepStrictEqual(
+				collectSelectionLines(selectFoldableRegions({
+					filter: {
+						kinds: ["unknown"],
+					},
+				}, regions)),
+				[0]
+			);
+		});
 	});
 
 	test("returns an empty region tree when the provider fails", async () => {
@@ -1496,6 +1551,29 @@ suite("Semantic Token Refinement", () => {
 		assert.strictEqual(refineWithSemanticTokens(regions), regions);
 	});
 
+	test("keeps structural regions when semantic token legend is missing", async () => {
+		const document = await vscode.workspace.openTextDocument({
+			content: "const handler = () => {\n\treturn true;\n}\n",
+			language: "typescript",
+		});
+		const weakSymbol = createSymbol("handler", 999 as vscode.SymbolKind, 0, 2);
+		const regions = normalizeSymbols([weakSymbol]);
+
+		const refinedRegions = refineWithSemanticTokens(regions, {
+			document,
+			semanticTokens: createSemanticTokens([{
+				line: 0,
+				startCharacter: 6,
+				length: 7,
+				tokenType: 0,
+			}]),
+			semanticTokenLegend: undefined,
+		});
+
+		assert.strictEqual(refinedRegions, regions);
+		assert.strictEqual(regions[0].semanticKind, undefined);
+	});
+
 	test("adds semantic kinds to weak symbol regions without replacing structural kinds", async () => {
 		const document = await vscode.workspace.openTextDocument({
 			content: "const handler = () => {\n\treturn true;\n}\n\nfunction run() {\n\treturn true;\n}\n",
@@ -2327,14 +2405,34 @@ interface ExecutedCommand {
 	selectionLines: number[];
 }
 
-async function activateExtension(): Promise<void> {
+function getSemanticFoldExtension(): vscode.Extension<unknown> {
 	const extension = vscode.extensions.all.find((candidate) => {
 		return candidate.packageJSON.name === "semantic-fold";
 	});
 
 	assert.ok(extension);
 
+	return extension;
+}
+
+async function activateExtension(): Promise<void> {
+	const extension = getSemanticFoldExtension();
+
 	await extension.activate();
+}
+
+async function withSemanticRefinementEnabled(enabled: boolean, callback: () => Promise<void>): Promise<void> {
+	const configuration = vscode.workspace.getConfiguration("semanticFold.semanticRefinement");
+	const inspectedValue = configuration.inspect<boolean>("enabled");
+
+	await configuration.update("enabled", enabled, vscode.ConfigurationTarget.Global);
+
+	try {
+		await callback();
+	} finally {
+		await configuration.update("enabled", inspectedValue?.globalValue, vscode.ConfigurationTarget.Global);
+		clearRegionCache();
+	}
 }
 
 async function delay(delayMs: number): Promise<void> {

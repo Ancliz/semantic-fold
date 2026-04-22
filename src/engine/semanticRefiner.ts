@@ -54,7 +54,20 @@ export function refineWithSemanticTokens(
 	rootNodes: RegionNode[],
 	context?: SemanticTokenRefinementContext
 ): RegionNode[] {
-	if(!context || !isSemanticTokens(context.semanticTokens) || !isSemanticTokenLegend(context.semanticTokenLegend)) {
+	if(!context) {
+		console.debug("[semanticFold] Semantic refinement skipped because no semantic context was provided");
+		return rootNodes;
+	}
+
+	const uri = context.document.uri.toString();
+
+	if(!isSemanticTokens(context.semanticTokens)) {
+		console.debug(`[semanticFold] Semantic refinement skipped for ${uri}: semantic tokens unavailable`);
+		return rootNodes;
+	}
+
+	if(!isSemanticTokenLegend(context.semanticTokenLegend)) {
+		console.debug(`[semanticFold] Semantic refinement skipped for ${uri}: semantic token legend unavailable`);
 		return rootNodes;
 	}
 
@@ -62,6 +75,7 @@ export function refineWithSemanticTokens(
 		const semanticTokens = decodeSemanticTokens(context.semanticTokens, context.semanticTokenLegend);
 
 		if(semanticTokens.length === 0) {
+			console.debug(`[semanticFold] Semantic refinement skipped for ${uri}: no semantic tokens returned`);
 			return rootNodes;
 		}
 
@@ -72,7 +86,8 @@ export function refineWithSemanticTokens(
 				region.semanticKind = semanticKind;
 			}
 		}
-	} catch {
+	} catch (error) {
+		console.debug(`[semanticFold] Semantic refinement failed for ${uri}: ${formatError(error)}`);
 		return rootNodes;
 	}
 
@@ -200,4 +215,12 @@ function isSemanticTokenLegend(value: unknown): value is vscode.SemanticTokensLe
 	return semanticTokenLegend !== undefined
 		&& semanticTokenLegend !== null
 		&& Array.isArray(semanticTokenLegend.tokenTypes);
+}
+
+function formatError(error: unknown): string {
+	if(error instanceof Error) {
+		return error.message;
+	}
+
+	return String(error);
 }

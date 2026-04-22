@@ -55,6 +55,8 @@ Semantic-token refinement is additive and best-effort. When semantic tokens and 
 
 Refinement prefers narrower semantic evidence without broadening clear structural categories. For example, a provider-backed `function` may also match `method` when semantic tokens identify it as a method, but a provider-backed `method` is not broadened into `function`.
 
+If semantic data is disabled or unavailable, Semantic Fold keeps using the structural document-symbol and folding-range model unchanged. Semantic fallback decisions are logged with the `[semanticFold]` prefix through `console.debug` for development visibility.
+
 The extension then filters those regions using one or more constraints and folds only the matching lines.
 
 ### Example
@@ -490,15 +492,15 @@ Create overview keybindings to hide implementation details temporarily.
 
 ## Configuration
 
-Planned settings:
+Available settings:
 
 ```json
 {
-  "semanticFold.useSemanticTokens": true,
-  "semanticFold.preferDocumentSymbols": true,
-  "semanticFold.enableFallbackParsing": false
+  "semanticFold.semanticRefinement.enabled": true
 }
 ```
+
+Set `semanticFold.semanticRefinement.enabled` to `false` to disable semantic-token collection and refinement. When disabled, Semantic Fold uses document symbols and folding ranges only, so unsupported or noisy semantic-token providers cannot change command results.
 
 Future settings may include:
 

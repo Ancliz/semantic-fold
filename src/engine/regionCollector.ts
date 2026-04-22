@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 import type { RegionNode } from "../model/region";
 import { getCachedRegions, setCachedRegions } from "../util/cache";
+import { isSemanticRefinementEnabled } from "../util/config";
 import { attachFoldingOnlyNodes } from "./foldingRangeRefiner";
 import { refineWithSemanticTokens } from "./semanticRefiner";
 import { normalizeSymbols } from "./symbolNormaliser";
@@ -49,9 +50,14 @@ export async function getRegions(
 	executeSemanticTokenLegendProvider: SemanticTokenLegendProviderExecutor = defaultSemanticTokenLegendProviderExecutor
 ): Promise<RegionNode[]> {
 	const uri = document.uri.toString();
+	const semanticRefinementEnabled = isSemanticRefinementEnabled(document.uri);
 	const cached = getCachedRegions(uri);
 
-	if(cached && cached.documentVersion === document.version) {
+	if(
+		cached
+		&& cached.documentVersion === document.version
+		&& cached.semanticRefinementEnabled === semanticRefinementEnabled
+	) {
 		return cached.nodes;
 	}
 
@@ -59,20 +65,31 @@ export async function getRegions(
 	const [symbols, foldingRanges, semanticTokens, semanticTokenLegend] = await Promise.all([
 		collectSymbols(document.uri, executeSymbolProvider),
 		collectFoldingRanges(document.uri, executeFoldingRangeProvider),
-		collectSemanticTokens(document.uri, executeSemanticTokenProvider),
-		collectSemanticTokenLegend(document.uri, executeSemanticTokenLegendProvider),
+		semanticRefinementEnabled
+			? collectSemanticTokens(document.uri, executeSemanticTokenProvider)
+			: undefined,
+		semanticRefinementEnabled
+			? collectSemanticTokenLegend(document.uri, executeSemanticTokenLegendProvider)
+			: undefined,
 	]);
-	const nodes = refineWithSemanticTokens(
-		attachFoldingOnlyNodes(normalizeSymbols(symbols), foldingRanges),
-		{
-			document,
-			semanticTokens,
-			semanticTokenLegend,
-		}
-	);
+	
+	const structuralNodes = attachFoldingOnlyNodes(normalizeSymbols(symbols), foldingRanges);
+
+	const nodes = semanticRefinementEnabled
+		? refineWithSemanticTokens(structuralNodes, {
+				document,
+				semanticTokens,
+				semanticTokenLegend,
+			})
+		: structuralNodes;
+
+	if(!semanticRefinementEnabled) {
+		console.debug(`[semanticFold] Semantic refinement disabled for ${uri}`);
+	}
 
 	setCachedRegions(uri, {
 		documentVersion: document.version,
+		semanticRefinementEnabled,
 		nodes,
 	});
 
@@ -116,7 +133,8 @@ async function collectSemanticTokens(
 ): Promise<SemanticTokenProviderResult> {
 	try {
 		return await executeSemanticTokenProvider(uri);
-	} catch {
+	} catch (error) {
+		console.debug(`[semanticFold] Semantic token provider failed for ${uri.toString()}: ${formatError(error)}`);
 		return undefined;
 	}
 }
@@ -130,9 +148,18 @@ async function collectSemanticTokenLegend(
 ): Promise<SemanticTokenLegendProviderResult> {
 	try {
 		return await executeSemanticTokenLegendProvider(uri);
-	} catch {
+	} catch (error) {
+		console.debug(`[semanticFold] Semantic token legend provider failed for ${uri.toString()}: ${formatError(error)}`);
 		return undefined;
 	}
+}
+
+function formatError(error: unknown): string {
+	if(error instanceof Error) {
+		return error.message;
+	}
+
+	return String(error);
 }
 
 /**
