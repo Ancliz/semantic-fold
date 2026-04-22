@@ -1,6 +1,9 @@
 import type { CollapseFilter } from "../model/filters";
 import type { RegionNode } from "../model/region";
 
+/**
+ * Returns regions that satisfy every active filter constraint
+ */
 export function filterRegions(rootNodes: readonly RegionNode[], filter: CollapseFilter = {}): RegionNode[] {
 	const regions = flattenRegions(rootNodes);
 
@@ -13,6 +16,9 @@ export function filterRegions(rootNodes: readonly RegionNode[], filter: Collapse
 	});
 }
 
+/**
+ * Flattens a region tree in pre-order document traversal
+ */
 export function flattenRegions(rootNodes: readonly RegionNode[]): RegionNode[] {
 	const regions: RegionNode[] = [];
 
@@ -23,6 +29,9 @@ export function flattenRegions(rootNodes: readonly RegionNode[]): RegionNode[] {
 	return regions;
 }
 
+/**
+ * Appends the current region before its children to preserve provider order
+ */
 function appendRegion(region: RegionNode, regions: RegionNode[]): void {
 	regions.push(region);
 
@@ -31,6 +40,9 @@ function appendRegion(region: RegionNode, regions: RegionNode[]): void {
 	}
 }
 
+/**
+ * Treats an empty include list as a wildcard
+ */
 function matchesIncludedKind(region: RegionNode, filter: CollapseFilter): boolean {
 	if(!filter.kinds || filter.kinds.length === 0) {
 		return true;
@@ -39,6 +51,9 @@ function matchesIncludedKind(region: RegionNode, filter: CollapseFilter): boolea
 	return filter.kinds.includes(region.kind);
 }
 
+/**
+ * Applies exclusions after inclusion matching
+ */
 function matchesExcludedKind(region: RegionNode, filter: CollapseFilter): boolean {
 	if(!filter.excludeKinds || filter.excludeKinds.length === 0) {
 		return false;
@@ -47,6 +62,9 @@ function matchesExcludedKind(region: RegionNode, filter: CollapseFilter): boolea
 	return filter.excludeKinds.includes(region.kind);
 }
 
+/**
+ * Matches against the immediate parent only
+ */
 function matchesParentKind(region: RegionNode, filter: CollapseFilter): boolean {
 	if(!filter.parentKinds || filter.parentKinds.length === 0) {
 		return true;
@@ -57,6 +75,9 @@ function matchesParentKind(region: RegionNode, filter: CollapseFilter): boolean 
 	return parent !== undefined && filter.parentKinds.includes(parent.kind);
 }
 
+/**
+ * Matches against any valid parent chain ancestor
+ */
 function matchesAncestorKind(region: RegionNode, filter: CollapseFilter): boolean {
 	if(!filter.ancestorKinds || filter.ancestorKinds.length === 0) {
 		return true;
@@ -65,10 +86,16 @@ function matchesAncestorKind(region: RegionNode, filter: CollapseFilter): boolea
 	return getAncestors(region).some((ancestor) => filter.ancestorKinds?.includes(ancestor.kind));
 }
 
+/**
+ * Reports whether a node participates in a usable hierarchy
+ */
 export function hasHierarchy(region: RegionNode): boolean {
 	return getParent(region) !== undefined || region.children.length > 0;
 }
 
+/**
+ * Ignores malformed self-parent links instead of treating them as hierarchy
+ */
 function getParent(region: RegionNode): RegionNode | undefined {
 	if(region.parent === region) {
 		return undefined;
@@ -77,6 +104,9 @@ function getParent(region: RegionNode): RegionNode | undefined {
 	return region.parent;
 }
 
+/**
+ * Walks ancestor links with cycle protection for malformed provider data
+ */
 export function getAncestors(region: RegionNode): RegionNode[] {
 	const ancestors: RegionNode[] = [];
 	const visitedNodes = new Set<RegionNode>();
@@ -91,6 +121,9 @@ export function getAncestors(region: RegionNode): RegionNode[] {
 	return ancestors;
 }
 
+/**
+ * Applies symbol-depth constraints independently from kind filters
+ */
 function matchesSymbolDepth(region: RegionNode, filter: CollapseFilter): boolean {
 	if(filter.exactSymbolDepth !== undefined && region.symbolDepth !== filter.exactSymbolDepth) {
 		return false;

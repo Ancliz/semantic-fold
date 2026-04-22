@@ -1,6 +1,9 @@
 import * as vscode from "vscode";
 import type { RegionKind } from "../model/region";
 
+/**
+ * Maps VS Code document-symbol kinds into Semantic Fold's smaller kind set
+ */
 export function mapSymbolKind(kind: vscode.SymbolKind): RegionKind {
 	switch (kind) {
 	case vscode.SymbolKind.Class:
@@ -34,6 +37,9 @@ export function mapSymbolKind(kind: vscode.SymbolKind): RegionKind {
 	}
 }
 
+/**
+ * Maps VS Code folding-range categories into filterable region kinds
+ */
 export function mapFoldingRangeKind(kind: vscode.FoldingRangeKind | undefined): RegionKind {
 	if(!kind) {
 		return "unknown";

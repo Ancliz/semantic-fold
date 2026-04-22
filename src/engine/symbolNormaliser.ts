@@ -2,6 +2,12 @@ import * as vscode from "vscode";
 import type { RegionNode } from "../model/region";
 import { mapSymbolKind } from "../util/symbolKindMap";
 
+/**
+ * Converts VS Code symbol-provider output into Semantic Fold region nodes
+ *
+ * Hierarchical DocumentSymbol results preserve parent-child relationships,
+ * while flat SymbolInformation results become top-level fallback regions
+ */
 export function normalizeSymbols(
 	symbols: vscode.DocumentSymbol[] | vscode.SymbolInformation[] | null | undefined
 ): RegionNode[] {
@@ -9,21 +15,23 @@ export function normalizeSymbols(
 		return [];
 	}
 
-	return symbols
-		.map((symbol, index) => {
-			if(isDocumentSymbol(symbol)) {
-				return symbolRegionNode(symbol, undefined, 1, `${index}`);
-			}
+	return symbols.map((symbol, index) => {
+		if(isDocumentSymbol(symbol)) {
+			return symbolRegionNode(symbol, undefined, 1, `${index}`);
+		}
 
-			if(isSymbolInformation(symbol)) {
-				return symbolInformationRegionNode(symbol, index);
-			}
+		if(isSymbolInformation(symbol)) {
+			return symbolInformationRegionNode(symbol, index);
+		}
 
-			return undefined;
-		})
-		.filter((region): region is RegionNode => region !== undefined);
+		return undefined;
+	})
+	.filter((region): region is RegionNode => region !== undefined);
 }
 
+/**
+ * Recursively converts a hierarchical DocumentSymbol into a RegionNode tree
+ */
 function symbolRegionNode(
 	symbol: vscode.DocumentSymbol,
 	parent: RegionNode | undefined,
@@ -51,6 +59,9 @@ function symbolRegionNode(
 	return node;
 }
 
+/**
+ * Converts a flat SymbolInformation item into a top-level fallback region
+ */
 function symbolInformationRegionNode(
 	symbol: vscode.SymbolInformation,
 	index: number
@@ -69,6 +80,9 @@ function symbolInformationRegionNode(
 	};
 }
 
+/**
+ * Builds deterministic ids for hierarchical symbols using their path and range
+ */
 function createNodeId(symbol: vscode.DocumentSymbol, path: string): string {
 	return [
 		"documentSymbol",
@@ -81,6 +95,9 @@ function createNodeId(symbol: vscode.DocumentSymbol, path: string): string {
 	].join(":");
 }
 
+/**
+ * Builds deterministic ids for flat symbols using URI, path, and range
+ */
 function symbolInformationNodeId(symbol: vscode.SymbolInformation, path: string): string {
 	return [
 		"symbolInformation",
@@ -93,6 +110,9 @@ function symbolInformationNodeId(symbol: vscode.SymbolInformation, path: string)
 	].join(":");
 }
 
+/**
+ * Validates a provider value before treating it as a DocumentSymbol
+ */
 function isDocumentSymbol(value: unknown): value is vscode.DocumentSymbol {
 	const symbol = value as Partial<vscode.DocumentSymbol>;
 
@@ -104,6 +124,9 @@ function isDocumentSymbol(value: unknown): value is vscode.DocumentSymbol {
 		&& symbol.range.end.line >= symbol.range.start.line;
 }
 
+/**
+ * Validates a provider value before treating it as SymbolInformation
+ */
 function isSymbolInformation(value: unknown): value is vscode.SymbolInformation {
 	const symbol = value as Partial<vscode.SymbolInformation>;
 	const location = symbol.location as Partial<vscode.Location> | undefined;
@@ -116,12 +139,18 @@ function isSymbolInformation(value: unknown): value is vscode.SymbolInformation 
 		&& location.range.end.line >= location.range.start.line;
 }
 
+/**
+ * Validates that a value has VS Code range-like positions
+ */
 function isRange(value: unknown): value is vscode.Range {
 	const range = value as Partial<vscode.Range>;
 
 	return range !== undefined && isPosition(range.start) && isPosition(range.end);
 }
 
+/**
+ * Validates zero-based non-negative editor positions
+ */
 function isPosition(value: unknown): value is vscode.Position {
 	const position = value as Partial<vscode.Position>;
 

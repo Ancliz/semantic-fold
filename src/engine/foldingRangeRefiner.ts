@@ -2,8 +2,17 @@ import * as vscode from "vscode";
 import type { RegionKind, RegionNode } from "../model/region";
 import { mapFoldingRangeKind } from "../util/symbolKindMap";
 
+/**
+ * Folding-range categories that VS Code can identify without semantic tokens
+ */
 const supportedFoldingRangeKinds = new Set<RegionKind>(["import", "comment", "region"]);
 
+/**
+ * Merges supported folding-range-only nodes into the symbol region tree
+ *
+ * Symbol-backed regions stay authoritative, while imports, comments, and region
+ * markers fill gaps that document-symbol providers do not normally expose
+ */
 export function attachFoldingOnlyNodes(
 	rootNodes: RegionNode[],
 	foldingRanges: vscode.FoldingRange[] | null | undefined
@@ -20,6 +29,8 @@ export function attachFoldingOnlyNodes(
 	}
 
 	const mergedRootNodes = [...rootNodes];
+
+	// Include folding nodes as candidates so nested folding ranges can parent each other
 	const candidateParents = [...flattenRegionTree(rootNodes), ...foldingNodes];
 
 	for(const foldingNode of foldingNodes) {
@@ -40,6 +51,9 @@ export function attachFoldingOnlyNodes(
 	return mergedRootNodes.sort(compareRegions);
 }
 
+/**
+ * Converts raw VS Code folding ranges into normalised region nodes
+ */
 export function normaliseFoldingRanges(
 	foldingRanges: vscode.FoldingRange[] | null | undefined
 ): RegionNode[] {
@@ -52,6 +66,9 @@ export function normaliseFoldingRanges(
 		.filter((region): region is RegionNode => region !== undefined);
 }
 
+/**
+ * Builds a region node only for valid and supported folding-range categories
+ */
 function foldingRangeNode(
 	foldingRange: vscode.FoldingRange,
 	index: number
@@ -80,6 +97,9 @@ function foldingRangeNode(
 	};
 }
 
+/**
+ * Creates deterministic ids for folding ranges that do not have provider names
+ */
 function createFoldingRangeNodeId(
 	kind: RegionKind,
 	foldingRange: vscode.FoldingRange,
@@ -94,6 +114,9 @@ function createFoldingRangeNodeId(
 	].join(":");
 }
 
+/**
+ * Sorts regions by source order with deterministic tie-breaking
+ */
 function compareRegions(left: RegionNode, right: RegionNode): number {
 	if(left.rangeStartLine !== right.rangeStartLine) {
 		return left.rangeStartLine - right.rangeStartLine;
@@ -106,6 +129,9 @@ function compareRegions(left: RegionNode, right: RegionNode): number {
 	return left.id.localeCompare(right.id);
 }
 
+/**
+ * Finds the tightest parent range so folding-only nodes attach naturally
+ */
 function findSmallestContainingNode(
 	foldingNode: RegionNode,
 	candidateParents: readonly RegionNode[]
@@ -126,6 +152,9 @@ function findSmallestContainingNode(
 	})[0];
 }
 
+/**
+ * Flattens the tree for relationship checks without mutating it
+ */
 function flattenRegionTree(rootNodes: readonly RegionNode[]): RegionNode[] {
 	const regions: RegionNode[] = [];
 
@@ -136,6 +165,9 @@ function flattenRegionTree(rootNodes: readonly RegionNode[]): RegionNode[] {
 	return regions;
 }
 
+/**
+ * Appends the current region before its children to preserve source order
+ */
 function appendRegion(region: RegionNode, regions: RegionNode[]): void {
 	regions.push(region);
 
@@ -144,6 +176,9 @@ function appendRegion(region: RegionNode, regions: RegionNode[]): void {
 	}
 }
 
+/**
+ * Drops folding ranges already represented by a symbol-backed node
+ */
 function isCoveredBySymbolRegion(
 	foldingNode: RegionNode,
 	symbolNodes: readonly RegionNode[]
@@ -154,22 +189,34 @@ function isCoveredBySymbolRegion(
 	});
 }
 
+/**
+ * Checks strict containment so identical ranges do not become parent-child pairs
+ */
 function containsRange(parent: RegionNode, child: RegionNode): boolean {
 	return parent.rangeStartLine <= child.rangeStartLine
 		&& parent.rangeEndLine >= child.rangeEndLine
 		&& !hasSameRange(parent, child);
 }
 
+/**
+ * Checks exact range equality
+ */
 function hasSameRange(left: RegionNode, right: RegionNode): boolean {
 	return left.rangeStartLine === right.rangeStartLine
 		&& left.rangeEndLine === right.rangeEndLine;
 }
 
+/**
+ * Checks whether two inclusive line ranges overlap
+ */
 function rangesOverlap(left: RegionNode, right: RegionNode): boolean {
 	return left.rangeStartLine <= right.rangeEndLine
 		&& right.rangeStartLine <= left.rangeEndLine;
 }
 
+/**
+ * Guards against malformed provider data before normalisation
+ */
 function isValidFoldingRange(value: unknown): value is vscode.FoldingRange {
 	const foldingRange = value as Partial<vscode.FoldingRange>;
 
