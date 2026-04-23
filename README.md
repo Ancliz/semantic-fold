@@ -509,6 +509,19 @@ Future settings may include:
 - custom presets
 - default filter presets for commands
 
+## Debugging region data
+
+When fold results look odd, contributors can run `semanticFold.inspectRegions` from the Command Palette in the Extension Development Host.
+
+The command collects the same region model used by the folding commands and writes a snapshot to the `Semantic Fold` output channel. Each region line includes:
+
+- provider source, such as `documentSymbol`, `symbolInformation`, or `foldingRange`
+- normalised kind and any additive semantic kind
+- raw VS Code `symbolKind` when available
+- selection line, full range, symbol depth, fold depth, and parent context
+
+This inspection path is optional and only runs when invoked, so normal folding behaviour is unchanged by default.
+
 ## Installation
 
 Not available yet.
