@@ -10,6 +10,11 @@ import {
 	selectFoldableRegions,
 	TrackedFoldState,
 } from "../engine/foldExecutor";
+import {
+	applyLanguageRefinements,
+	type LanguageRefiner,
+} from "../engine/languageRefinement";
+import { formatRegionDiagnostics } from "../engine/regionDiagnostics";
 import { getRegions } from "../engine/regionCollector";
 import { refineWithSemanticTokens } from "../engine/semanticRefiner";
 import { normalizeSymbols } from "../engine/symbolNormaliser";
@@ -32,6 +37,7 @@ suite("Semantic Fold Foundation", () => {
 		assert.ok(commands.includes("semanticFold.collapse"));
 		assert.ok(commands.includes("semanticFold.expand"));
 		assert.ok(commands.includes("semanticFold.toggle"));
+		assert.ok(commands.includes("semanticFold.inspectRegions"));
 		assert.ok(commands.includes("semanticFold.toggleMethodsInClasses"));
 		assert.ok(commands.includes("semanticFold.toggleClassMembers"));
 		assert.ok(commands.includes("semanticFold.toggleTypes"));
@@ -47,6 +53,96 @@ suite("Semantic Fold Foundation", () => {
 		assert.strictEqual(setting.type, "boolean");
 		assert.strictEqual(setting.default, true);
 		assert.strictEqual(setting.scope, "resource");
+	});
+});
+
+suite("Region Diagnostics", () => {
+	test("formats source, normalised kind, semantic kind, depth, and parent details", () => {
+		const regions = createMixedSymbolAndFoldingFixture();
+		const classRegion = regions.find((region) => region.name === "Example");
+
+		assert.ok(classRegion);
+
+		const methodRegion = classRegion.children.find((region) => region.name === "run");
+
+		assert.ok(methodRegion);
+
+		methodRegion.semanticKind = "function";
+
+		const diagnostics = formatRegionDiagnostics("file:///workspace/example.ts", regions);
+
+		assert.ok(diagnostics.includes("Semantic Fold region diagnostics"));
+		assert.ok(diagnostics.includes("Document: file:///workspace/example.ts"));
+		assert.ok(diagnostics.includes("Total regions: 10"));
+		assert.ok(diagnostics.includes("- { Example | source=documentSymbol, normalisedKind=class"));
+		assert.ok(diagnostics.includes("  - { run | source=documentSymbol, normalisedKind=method, semanticKind=function"));
+		assert.ok(diagnostics.includes("parent=Example<class>"));
+		assert.ok(diagnostics.includes("    - { region | source=foldingRange, normalisedKind=region"));
+		assert.ok(diagnostics.includes("foldDepth=1"));
+	});
+
+	test("formats an empty region tree without failing", () => {
+		assert.strictEqual(
+			formatRegionDiagnostics("file:///workspace/empty.ts", []),
+			[
+				"Semantic Fold region diagnostics",
+				"Document: file:///workspace/empty.ts",
+				"Total regions: 0",
+				"",
+				"(no regions)",
+			].join("\n")
+		);
+	});
+});
+
+suite("Language Refinement Boundary", () => {
+	test("applies only refiners matching the active document language", async () => {
+		const document = await vscode.workspace.openTextDocument({
+			content: "class Example {}\n",
+			language: "typescript",
+		});
+		const regions = normalizeSymbols([
+			createSymbol("Example", 999 as vscode.SymbolKind, 0, 0),
+		]);
+		const refiner: LanguageRefiner = {
+			languageIds: ["typescript"],
+			refine(nodes) {
+				nodes[0].semanticKind = "class";
+			},
+		};
+
+		const refinedRegions = applyLanguageRefinements(regions, {
+			document,
+			semanticTokens: [],
+		}, [refiner]);
+
+		assert.strictEqual(refinedRegions, regions);
+		assert.strictEqual(regions[0].kind, "unknown");
+		assert.strictEqual(regions[0].semanticKind, "class");
+	});
+
+	test("keeps regions unchanged when no language refiner matches", async () => {
+		const document = await vscode.workspace.openTextDocument({
+			content: "class Example {}\n",
+			language: "plaintext",
+		});
+		const regions = normalizeSymbols([
+			createSymbol("Example", 999 as vscode.SymbolKind, 0, 0),
+		]);
+		const refiner: LanguageRefiner = {
+			languageIds: ["typescript"],
+			refine(nodes) {
+				nodes[0].semanticKind = "class";
+			},
+		};
+
+		applyLanguageRefinements(regions, {
+			document,
+			semanticTokens: [],
+		}, [refiner]);
+
+		assert.strictEqual(regions[0].kind, "unknown");
+		assert.strictEqual(regions[0].semanticKind, undefined);
 	});
 });
 
@@ -1774,6 +1870,74 @@ suite("Semantic Token Refinement", () => {
 				parentKinds: ["class"],
 			}).map((region) => region.name),
 			["run"]
+		);
+	});
+
+	test("refines TypeScript callable properties as methods", async () => {
+		const document = await vscode.workspace.openTextDocument({
+			content: "const config = {\n\thandler: () => true\n}\n",
+			language: "typescript",
+		});
+		const objectSymbol = createSymbol("config", vscode.SymbolKind.Object, 0, 2);
+		const propertySymbol = createSymbol("handler", vscode.SymbolKind.Property, 1, 1);
+
+		objectSymbol.children.push(propertySymbol);
+
+		const regions = normalizeSymbols([objectSymbol]);
+
+		refineWithSemanticTokens(regions, {
+			document,
+			semanticTokens: createSemanticTokens([{
+				line: 1,
+				startCharacter: 1,
+				length: 7,
+				tokenType: 0,
+			}]),
+			semanticTokenLegend: new vscode.SemanticTokensLegend(["function"]),
+		});
+
+		assert.strictEqual(regions[0].children[0].kind, "property");
+		assert.strictEqual(regions[0].children[0].semanticKind, "method");
+		assert.deepStrictEqual(
+			filterRegions(regions, {
+				kinds: ["method"],
+				parentKinds: ["object"],
+			}).map((region) => region.name),
+			["handler"]
+		);
+	});
+
+	test("keeps callable property rules out of unsupported languages", async () => {
+		const document = await vscode.workspace.openTextDocument({
+			content: "const config = {\n\thandler: () => true\n}\n",
+			language: "plaintext",
+		});
+		const objectSymbol = createSymbol("config", vscode.SymbolKind.Object, 0, 2);
+		const propertySymbol = createSymbol("handler", vscode.SymbolKind.Property, 1, 1);
+
+		objectSymbol.children.push(propertySymbol);
+
+		const regions = normalizeSymbols([objectSymbol]);
+
+		refineWithSemanticTokens(regions, {
+			document,
+			semanticTokens: createSemanticTokens([{
+				line: 1,
+				startCharacter: 1,
+				length: 7,
+				tokenType: 0,
+			}]),
+			semanticTokenLegend: new vscode.SemanticTokensLegend(["function"]),
+		});
+
+		assert.strictEqual(regions[0].children[0].kind, "property");
+		assert.strictEqual(regions[0].children[0].semanticKind, undefined);
+		assert.deepStrictEqual(
+			filterRegions(regions, {
+				kinds: ["property"],
+				parentKinds: ["object"],
+			}).map((region) => region.name),
+			["handler"]
 		);
 	});
 });

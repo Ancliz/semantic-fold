@@ -9,6 +9,7 @@ import {
 	toggleVariablesCommand,
 } from "./commands/collapse";
 import { expandCommand } from "./commands/expand";
+import { inspectRegionsCommand } from "./commands/inspectRegions";
 import { toggleCommand } from "./commands/toggle";
 import { clearRegionCache, invalidateRegionCache, invalidateRegionCacheDebounced } from "./util/cache";
 import { SEMANTIC_REFINEMENT_ENABLED_SETTING } from "./util/config";
@@ -19,10 +20,23 @@ import { SEMANTIC_REFINEMENT_ENABLED_SETTING } from "./util/config";
 const DEBOUNCE_DELAY_MS = 500;
 
 export function activate(context: vscode.ExtensionContext): void {
+	let diagnosticsOutputChannel: vscode.OutputChannel | undefined;
+	const getDiagnosticsOutputChannel = (): vscode.OutputChannel => {
+		if(diagnosticsOutputChannel === undefined) {
+			diagnosticsOutputChannel = vscode.window.createOutputChannel("Semantic Fold");
+			context.subscriptions.push(diagnosticsOutputChannel);
+		}
+
+		return diagnosticsOutputChannel;
+	};
+
 	context.subscriptions.push(
 		vscode.commands.registerCommand("semanticFold.collapse", collapseCommand),
 		vscode.commands.registerCommand("semanticFold.expand", expandCommand),
 		vscode.commands.registerCommand("semanticFold.toggle", toggleCommand),
+		vscode.commands.registerCommand("semanticFold.inspectRegions", async () => {
+			await inspectRegionsCommand(getDiagnosticsOutputChannel());
+		}),
 		vscode.commands.registerCommand(
 			"semanticFold.toggleMethodsInClasses",
 			toggleMethodsInClassesCommand
@@ -56,12 +70,12 @@ export function activate(context: vscode.ExtensionContext): void {
 			const documentUri = document.uri.toString();
 			invalidateRegionCache(documentUri);
 		}),
-			vscode.workspace.onDidChangeConfiguration((event) => {
-				if(event.affectsConfiguration(SEMANTIC_REFINEMENT_ENABLED_SETTING)) {
-					console.debug("[semanticFold] Semantic refinement setting changed, clearing region cache");
-					clearRegionCache();
-				}
-			})
+		vscode.workspace.onDidChangeConfiguration((event) => {
+			if(event.affectsConfiguration(SEMANTIC_REFINEMENT_ENABLED_SETTING)) {
+				console.debug("[semanticFold] Semantic refinement setting changed, clearing region cache");
+				clearRegionCache();
+			}
+		})
 	);
 }
 

@@ -59,6 +59,16 @@ If semantic data is disabled or unavailable, Semantic Fold keeps using the struc
 
 The extension then filters those regions using one or more constraints and folds only the matching lines.
 
+Language-specific quirks live behind the language refinement boundary rather
+than in the core normalisation and filtering model. Generic semantic refinement
+runs first, then adapters can add narrowly scoped classifications for languages
+whose providers expose known structural oddities.
+
+The TypeScript/JavaScript adapter handles callable object members that some
+providers expose as properties or fields. When semantic tokens identify the
+member name as callable, Semantic Fold adds a secondary `method` classification
+without replacing the provider-backed structural kind.
+
 ### Example
 
 Collapse methods inside classes:
@@ -508,6 +518,19 @@ Future settings may include:
 - fallback parser enablement
 - custom presets
 - default filter presets for commands
+
+## Debugging region data
+
+When fold results look odd, contributors can run `semanticFold.inspectRegions` from the Command Palette in the Extension Development Host.
+
+The command collects the same region model used by the folding commands and writes a snapshot to the `Semantic Fold` output channel. Each region line includes:
+
+- provider source, such as `documentSymbol`, `symbolInformation`, or `foldingRange`
+- normalised kind and any additive semantic kind
+- raw VS Code `symbolKind` when available
+- selection line, full range, symbol depth, fold depth, and parent context
+
+This inspection path is optional and only runs when invoked, so normal folding behaviour is unchanged by default.
 
 ## Installation
 
