@@ -45,6 +45,7 @@ jobs:
             const projectOwner = process.env.PROJECT_OWNER || repoOwner;
             const projectNumber = Number(process.env.PROJECT_NUMBER);
             const statusFieldName = process.env.PROJECT_STATUS_FIELD_NAME || "Status";
+            const projectOwnerTypeSetting = (process.env.PROJECT_OWNER_TYPE || "auto").toLowerCase();
 
             const DEV_BRANCH = process.env.DEV_BRANCH || "dev";
             const MASTER_BRANCH = process.env.MASTER_BRANCH || "master";
@@ -87,18 +88,17 @@ jobs:
               return [...numbers];
             }
 
-            async function getProjectMeta() {
-              const data = await github.graphql(
-                `
-                query($login: String!, $number: Int!) {
-                  user(login: $login) {
-                    projectV2(number: $number) { ...ProjectFields }
-                  }
-                  organization(login: $login) {
-                    projectV2(number: $number) { ...ProjectFields }
-                  }
-                }
+            async function detectProjectOwnerType(login) {
+              const { data } = await github.rest.users.getByUsername({
+                username: login,
+              });
 
+              if (data.type === "Organization") return "organization";
+              return "user";
+            }
+
+            async function queryProject(login, number, ownerType) {
+              const projectFieldsFragment = `
                 fragment ProjectFields on ProjectV2 {
                   id
                   fields(first: 50) {
@@ -118,16 +118,62 @@ jobs:
                     }
                   }
                 }
+              `;
+
+              if (ownerType === "organization") {
+                const data = await github.graphql(
+                  `
+                  query($login: String!, $number: Int!) {
+                    organization(login: $login) {
+                      projectV2(number: $number) { ...ProjectFields }
+                    }
+                  }
+                  ${projectFieldsFragment}
+                  `,
+                  {
+                    login,
+                    number,
+                  }
+                );
+
+                return data.organization?.projectV2 ?? null;
+              }
+
+              const data = await github.graphql(
+                `
+                query($login: String!, $number: Int!) {
+                  user(login: $login) {
+                    projectV2(number: $number) { ...ProjectFields }
+                  }
+                }
+                ${projectFieldsFragment}
                 `,
                 {
-                  login: projectOwner,
-                  number: projectNumber,
+                  login,
+                  number,
                 }
               );
 
-              const project = data.user?.projectV2 ?? data.organization?.projectV2;
+              return data.user?.projectV2 ?? null;
+            }
+
+            async function getProjectMeta() {
+              const ownerType =
+                projectOwnerTypeSetting === "auto"
+                  ? await detectProjectOwnerType(projectOwner)
+                  : projectOwnerTypeSetting;
+
+              if (ownerType !== "user" && ownerType !== "organization") {
+                throw new Error(
+                  `Invalid PROJECT_OWNER_TYPE "${projectOwnerTypeSetting}". Use "auto", "user", or "organization"`
+                );
+              }
+
+              const project = await queryProject(projectOwner, projectNumber, ownerType);
               if (!project) {
-                throw new Error(`Could not find project ${projectOwner} / #${projectNumber}`);
+                throw new Error(
+                  `Could not find ${ownerType} project ${projectOwner} / #${projectNumber}`
+                );
               }
 
               const statusField = project.fields.nodes.find(
