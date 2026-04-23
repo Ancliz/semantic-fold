@@ -70,7 +70,7 @@ export async function getRegions(
 			: undefined,
 		semanticRefinementEnabled
 			? collectSemanticTokenLegend(document.uri, executeSemanticTokenLegendProvider)
-			: undefined,
+			: undefined
 	]);
 	
 	const structuralNodes = attachFoldingOnlyNodes(normalizeSymbols(symbols), foldingRanges);
@@ -79,7 +79,7 @@ export async function getRegions(
 		? refineWithSemanticTokens(structuralNodes, {
 				document,
 				semanticTokens,
-				semanticTokenLegend,
+				semanticTokenLegend
 			})
 		: structuralNodes;
 
@@ -90,7 +90,7 @@ export async function getRegions(
 	setCachedRegions(uri, {
 		documentVersion: document.version,
 		semanticRefinementEnabled,
-		nodes,
+		nodes
 	});
 
 	return nodes;

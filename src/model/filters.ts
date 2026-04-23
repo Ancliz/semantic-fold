@@ -97,14 +97,14 @@ const depthFilterKeys: DepthFilterKey[] = [
 	"maxSymbolDepth",
 	"exactFoldDepth",
 	"minFoldDepth",
-	"maxFoldDepth",
+	"maxFoldDepth"
 ];
 
 const kindFilterKeys: KindFilterKey[] = [
 	"kinds",
 	"excludeKinds",
 	"parentKinds",
-	"ancestorKinds",
+	"ancestorKinds"
 ];
 
 const regionKinds = new Set<string>(REGION_KINDS);

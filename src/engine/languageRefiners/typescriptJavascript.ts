@@ -3,7 +3,7 @@ import type { RegionNode } from "../../model/region";
 import type {
 	DecodedSemanticToken,
 	LanguageRefinementContext,
-	LanguageRefiner,
+	LanguageRefiner
 } from "../languageRefinement";
 
 /*
@@ -17,7 +17,7 @@ const languageIds = [
 	"javascript",
 	"javascriptreact",
 	"typescript",
-	"typescriptreact",
+	"typescriptreact"
 ];
 
 const memberContainers = new Set<RegionNode["kind"]>([
@@ -25,7 +25,7 @@ const memberContainers = new Set<RegionNode["kind"]>([
 	"interface",
 	"struct",
 	"object",
-	"variable",
+	"variable"
 ]);
 
 export const typescriptJavascriptRefiner: LanguageRefiner = {
@@ -40,7 +40,7 @@ export const typescriptJavascriptRefiner: LanguageRefiner = {
 				region.semanticKind = "method";
 			}
 		}
-	},
+	}
 };
 
 function canRefineCallableMember(region: RegionNode): boolean {

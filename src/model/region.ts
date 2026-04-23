@@ -20,7 +20,7 @@ export const REGION_KINDS = [
 	"import",
 	"comment",
 	"region",
-	"unknown",
+	"unknown"
 ] as const;
 
 /**

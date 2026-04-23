@@ -8,11 +8,11 @@ import {
 	collectSelectionLines,
 	execFoldCommand,
 	selectFoldableRegions,
-	TrackedFoldState,
+	TrackedFoldState
 } from "../engine/foldExecutor";
 import {
 	applyLanguageRefinements,
-	type LanguageRefiner,
+	type LanguageRefiner
 } from "../engine/languageRefinement";
 import { formatRegionDiagnostics } from "../engine/regionDiagnostics";
 import { getRegions } from "../engine/regionCollector";
@@ -24,7 +24,7 @@ import {
 	getCachedRegions,
 	invalidateRegionCache,
 	invalidateRegionCacheDebounced,
-	setCachedRegions,
+	setCachedRegions
 } from "../util/cache";
 import { mapFoldingRangeKind, mapSymbolKind } from "../util/symbolKindMap";
 
@@ -90,7 +90,7 @@ suite("Region Diagnostics", () => {
 				"Document: file:///workspace/empty.ts",
 				"Total regions: 0",
 				"",
-				"(no regions)",
+				"(no regions)"
 			].join("\n")
 		);
 	});
@@ -100,21 +100,21 @@ suite("Language Refinement Boundary", () => {
 	test("applies only refiners matching the active document language", async () => {
 		const document = await vscode.workspace.openTextDocument({
 			content: "class Example {}\n",
-			language: "typescript",
+			language: "typescript"
 		});
 		const regions = normalizeSymbols([
-			createSymbol("Example", 999 as vscode.SymbolKind, 0, 0),
+			createSymbol("Example", 999 as vscode.SymbolKind, 0, 0)
 		]);
 		const refiner: LanguageRefiner = {
 			languageIds: ["typescript"],
 			refine(nodes) {
 				nodes[0].semanticKind = "class";
-			},
+			}
 		};
 
 		const refinedRegions = applyLanguageRefinements(regions, {
 			document,
-			semanticTokens: [],
+			semanticTokens: []
 		}, [refiner]);
 
 		assert.strictEqual(refinedRegions, regions);
@@ -125,21 +125,21 @@ suite("Language Refinement Boundary", () => {
 	test("keeps regions unchanged when no language refiner matches", async () => {
 		const document = await vscode.workspace.openTextDocument({
 			content: "class Example {}\n",
-			language: "plaintext",
+			language: "plaintext"
 		});
 		const regions = normalizeSymbols([
-			createSymbol("Example", 999 as vscode.SymbolKind, 0, 0),
+			createSymbol("Example", 999 as vscode.SymbolKind, 0, 0)
 		]);
 		const refiner: LanguageRefiner = {
 			languageIds: ["typescript"],
 			refine(nodes) {
 				nodes[0].semanticKind = "class";
-			},
+			}
 		};
 
 		applyLanguageRefinements(regions, {
 			document,
-			semanticTokens: [],
+			semanticTokens: []
 		}, [refiner]);
 
 		assert.strictEqual(regions[0].kind, "unknown");
@@ -151,7 +151,7 @@ suite("Document Region Collection", () => {
 	test("requests document symbols and folding ranges for the supplied document uri", async () => {
 		const document = await vscode.workspace.openTextDocument({
 			content: "import value from \"module\";\nimport other from \"other\";\n\nclass Example {\n\tmethod() {}\n}\n",
-			language: "typescript",
+			language: "typescript"
 		});
 		const expectedSymbol = createSymbol("Example", vscode.SymbolKind.Class, 3, 5);
 		let requestedSymbolUri: vscode.Uri | undefined;
@@ -173,7 +173,7 @@ suite("Document Region Collection", () => {
 			regions.map((region) => `${region.kind}:${region.source}:${region.selectionLine}`),
 			[
 				"import:foldingRange:0",
-				"class:documentSymbol:3",
+				"class:documentSymbol:3"
 			]
 		);
 	});
@@ -181,14 +181,14 @@ suite("Document Region Collection", () => {
 	test("requests semantic tokens and legend for the supplied document uri", async () => {
 		const document = await vscode.workspace.openTextDocument({
 			content: "const handler = () => {\n\treturn true;\n}\n",
-			language: "typescript",
+			language: "typescript"
 		});
 		const weakSymbol = createSymbol("handler", 999 as vscode.SymbolKind, 0, 2);
 		const semanticTokens = createSemanticTokens([{
 			line: 0,
 			startCharacter: 6,
 			length: 7,
-			tokenType: 0,
+			tokenType: 0
 		}]);
 		const semanticTokenLegend = new vscode.SemanticTokensLegend(["function"]);
 		let requestedSemanticTokenUri: vscode.Uri | undefined;
@@ -215,8 +215,8 @@ suite("Document Region Collection", () => {
 		assert.deepStrictEqual(
 			collectSelectionLines(selectFoldableRegions({
 				filter: {
-					kinds: ["function"],
-				},
+					kinds: ["function"]
+				}
 			}, regions)),
 			[0]
 		);
@@ -228,7 +228,7 @@ suite("Document Region Collection", () => {
 
 			const document = await vscode.workspace.openTextDocument({
 				content: "const handler = () => {\n\treturn true;\n}\n",
-				language: "typescript",
+				language: "typescript"
 			});
 			const weakSymbol = createSymbol("handler", 999 as vscode.SymbolKind, 0, 2);
 			let semanticTokenCallCount = 0;
@@ -245,7 +245,7 @@ suite("Document Region Collection", () => {
 					line: 0,
 					startCharacter: 6,
 					length: 7,
-					tokenType: 0,
+					tokenType: 0
 				}]);
 			}, async () => {
 				semanticLegendCallCount++;
@@ -260,8 +260,8 @@ suite("Document Region Collection", () => {
 			assert.deepStrictEqual(
 				collectSelectionLines(selectFoldableRegions({
 					filter: {
-						kinds: ["unknown"],
-					},
+						kinds: ["unknown"]
+					}
 				}, regions)),
 				[0]
 			);
@@ -271,7 +271,7 @@ suite("Document Region Collection", () => {
 	test("returns an empty region tree when the provider fails", async () => {
 		const document = await vscode.workspace.openTextDocument({
 			content: "class Example {}\n",
-			language: "typescript",
+			language: "typescript"
 		});
 
 		const regions = await getRegions(document, async () => {
@@ -286,7 +286,7 @@ suite("Document Region Collection", () => {
 	test("keeps symbol regions when folding ranges are unavailable", async () => {
 		const document = await vscode.workspace.openTextDocument({
 			content: "class Example {\n\tmethod() {}\n}\n",
-			language: "typescript",
+			language: "typescript"
 		});
 		const expectedSymbol = createSymbol("Example", vscode.SymbolKind.Class, 0, 2);
 
@@ -304,7 +304,7 @@ suite("Document Region Collection", () => {
 	test("keeps structural regions when semantic tokens are unavailable", async () => {
 		const document = await vscode.workspace.openTextDocument({
 			content: "const handler = () => {\n\treturn true;\n}\n",
-			language: "typescript",
+			language: "typescript"
 		});
 		const weakSymbol = createSymbol("handler", 999 as vscode.SymbolKind, 0, 2);
 
@@ -324,8 +324,8 @@ suite("Document Region Collection", () => {
 		assert.deepStrictEqual(
 			collectSelectionLines(selectFoldableRegions({
 				filter: {
-					kinds: ["unknown"],
-				},
+					kinds: ["unknown"]
+				}
 			}, regions)),
 			[0]
 		);
@@ -334,7 +334,7 @@ suite("Document Region Collection", () => {
 	test("keeps folding ranges when symbols are unavailable", async () => {
 		const document = await vscode.workspace.openTextDocument({
 			content: "import value from \"module\";\nimport other from \"other\";\n\n// first\n// second\n",
-			language: "typescript",
+			language: "typescript"
 		});
 
 		const regions = await getRegions(document, async () => {
@@ -342,7 +342,7 @@ suite("Document Region Collection", () => {
 		}, async () => {
 			return [
 				new vscode.FoldingRange(0, 1, vscode.FoldingRangeKind.Imports),
-				new vscode.FoldingRange(3, 4, vscode.FoldingRangeKind.Comment),
+				new vscode.FoldingRange(3, 4, vscode.FoldingRangeKind.Comment)
 			];
 		});
 
@@ -350,7 +350,7 @@ suite("Document Region Collection", () => {
 			regions.map((region) => `${region.kind}:${region.source}:${region.selectionLine}`),
 			[
 				"import:foldingRange:0",
-				"comment:foldingRange:3",
+				"comment:foldingRange:3"
 			]
 		);
 	});
@@ -358,7 +358,7 @@ suite("Document Region Collection", () => {
 	test("accepts flat symbol information provider results", async () => {
 		const document = await vscode.workspace.openTextDocument({
 			content: "function helper() {\n\treturn true;\n}\n",
-			language: "typescript",
+			language: "typescript"
 		});
 		const helperSymbol = createSymbolInformation(
 			"helper",
@@ -382,7 +382,7 @@ suite("Document Region Collection", () => {
 	test("caches regions per document URI and version", async () => {
 		const document = await vscode.workspace.openTextDocument({
 			content: "class Example {\n\tmethod() {}\n}\n",
-			language: "typescript",
+			language: "typescript"
 		});
 		const expectedSymbol = createSymbol("Example", vscode.SymbolKind.Class, 0, 2);
 		let providerCallCount = 0;
@@ -407,7 +407,7 @@ suite("Document Region Collection", () => {
 	test("invalidates cache on document version change", async () => {
 		const document = await vscode.workspace.openTextDocument({
 			content: "class Example {\n\tmethod() {}\n}\n",
-			language: "typescript",
+			language: "typescript"
 		});
 		const expectedSymbol = createSymbol("Example", vscode.SymbolKind.Class, 0, 2);
 		let providerCallCount = 0;
@@ -420,7 +420,7 @@ suite("Document Region Collection", () => {
 		// Simulate document version change by editing
 		const editResult = await vscode.workspace.openTextDocument({
 			content: "class Example {\n\tmethod() {}\n\tnewMethod() {}\n}\n",
-			language: "typescript",
+			language: "typescript"
 		});
 
 		const regions2 = await getRegions(editResult, async () => {
@@ -437,7 +437,7 @@ suite("Document Region Collection", () => {
 	test("caches merged symbol and folding-range results for the same document version", async () => {
 		const document = await vscode.workspace.openTextDocument({
 			content: "import value from \"module\";\nimport other from \"other\";\n\nclass Example {}\n",
-			language: "typescript",
+			language: "typescript"
 		});
 		const expectedSymbol = createSymbol("Example", vscode.SymbolKind.Class, 3, 3);
 		let symbolProviderCallCount = 0;
@@ -526,7 +526,7 @@ suite("Document Symbol Normalisation", () => {
 			classRegion.children.map((region) => `${region.name}:${region.kind}:${region.symbolDepth}`),
 			[
 				"run:method:2",
-				"name:property:2",
+				"name:property:2"
 			]
 		);
 		assert.ok(classRegion.children.every((region) => region.parent === classRegion));
@@ -537,7 +537,7 @@ suite("Document Symbol Normalisation", () => {
 		const symbols = [
 			createSymbolInformation("Example", vscode.SymbolKind.Class, uri, 0, 10),
 			createSymbolInformation("run", vscode.SymbolKind.Method, uri, 2, 5),
-			createSymbolInformation("helper", vscode.SymbolKind.Function, uri, 12, 14),
+			createSymbolInformation("helper", vscode.SymbolKind.Function, uri, 12, 14)
 		];
 
 		const regions = normalizeSymbols(symbols);
@@ -615,7 +615,7 @@ suite("Region Cache", () => {
 		clearRegionCache();
 		setCachedRegions(documentUri, {
 			documentVersion: 3,
-			nodes,
+			nodes
 		});
 
 		assert.strictEqual(getCachedRegions(documentUri)?.documentVersion, 3);
@@ -626,7 +626,7 @@ suite("Region Cache", () => {
 
 		setCachedRegions(documentUri, {
 			documentVersion: 4,
-			nodes,
+			nodes
 		});
 		clearRegionCache();
 		assert.strictEqual(getCachedRegions(documentUri), undefined);
@@ -639,7 +639,7 @@ suite("Region Cache", () => {
 		clearRegionCache();
 		setCachedRegions(documentUri, {
 			documentVersion: 1,
-			nodes,
+			nodes
 		});
 		invalidateRegionCacheDebounced(documentUri, 20);
 
@@ -657,7 +657,7 @@ suite("Folding Range Refinement", () => {
 		const regions = normaliseFoldingRanges([
 			new vscode.FoldingRange(0, 2, vscode.FoldingRangeKind.Imports),
 			new vscode.FoldingRange(4, 8, vscode.FoldingRangeKind.Comment),
-			new vscode.FoldingRange(10, 20, vscode.FoldingRangeKind.Region),
+			new vscode.FoldingRange(10, 20, vscode.FoldingRangeKind.Region)
 		]);
 
 		assert.deepStrictEqual(
@@ -665,7 +665,7 @@ suite("Folding Range Refinement", () => {
 			[
 				"import:0:2",
 				"comment:4:8",
-				"region:10:20",
+				"region:10:20"
 			]
 		);
 		assert.ok(regions.every((region) => region.source === "foldingRange"));
@@ -678,7 +678,7 @@ suite("Folding Range Refinement", () => {
 			normaliseFoldingRanges([
 				new vscode.FoldingRange(4, 6),
 				new vscode.FoldingRange(7.5, 9, vscode.FoldingRangeKind.Imports),
-				{ start: 10, end: 8, kind: vscode.FoldingRangeKind.Imports } as vscode.FoldingRange,
+				{ start: 10, end: 8, kind: vscode.FoldingRangeKind.Imports } as vscode.FoldingRange
 			]),
 			[]
 		);
@@ -687,14 +687,14 @@ suite("Folding Range Refinement", () => {
 	test("adds import nodes in document order with symbol nodes", () => {
 		const classSymbol = createSymbol("Example", vscode.SymbolKind.Class, 4, 10);
 		const regions = attachFoldingOnlyNodes(normalizeSymbols([classSymbol]), [
-			new vscode.FoldingRange(0, 2, vscode.FoldingRangeKind.Imports),
+			new vscode.FoldingRange(0, 2, vscode.FoldingRangeKind.Imports)
 		]);
 
 		assert.deepStrictEqual(
 			regions.map((region) => `${region.kind}:${region.selectionLine}`),
 			[
 				"import:0",
-				"class:4",
+				"class:4"
 			]
 		);
 	});
@@ -705,7 +705,7 @@ suite("Folding Range Refinement", () => {
 		classSymbol.children.push(methodSymbol);
 
 		const regions = attachFoldingOnlyNodes(normalizeSymbols([classSymbol]), [
-			new vscode.FoldingRange(7, 9, vscode.FoldingRangeKind.Comment),
+			new vscode.FoldingRange(7, 9, vscode.FoldingRangeKind.Comment)
 		]);
 		const methodRegion = regions[0].children[0];
 		const commentRegion = methodRegion.children[0];
@@ -718,7 +718,7 @@ suite("Folding Range Refinement", () => {
 			[
 				"Example:class",
 				"run:method",
-				"comment:comment",
+				"comment:comment"
 			]
 		);
 	});
@@ -726,7 +726,7 @@ suite("Folding Range Refinement", () => {
 	test("attaches nested folding-only nodes regardless of provider order", () => {
 		const regions = attachFoldingOnlyNodes([], [
 			new vscode.FoldingRange(4, 8, vscode.FoldingRangeKind.Comment),
-			new vscode.FoldingRange(0, 12, vscode.FoldingRangeKind.Region),
+			new vscode.FoldingRange(0, 12, vscode.FoldingRangeKind.Region)
 		]);
 		const regionNode = regions[0];
 		const commentNode = regionNode.children[0];
@@ -738,7 +738,7 @@ suite("Folding Range Refinement", () => {
 			flattenRegions(regions).map((region) => `${region.kind}:${region.symbolDepth}:${region.foldDepth}`),
 			[
 				"region:1:1",
-				"comment:2:2",
+				"comment:2:2"
 			]
 		);
 	});
@@ -747,7 +747,7 @@ suite("Folding Range Refinement", () => {
 		const classSymbol = createSymbol("Example", vscode.SymbolKind.Class, 4, 10);
 		const regions = attachFoldingOnlyNodes(normalizeSymbols([classSymbol]), [
 			new vscode.FoldingRange(0, 2, vscode.FoldingRangeKind.Imports),
-			new vscode.FoldingRange(12, 16, vscode.FoldingRangeKind.Region),
+			new vscode.FoldingRange(12, 16, vscode.FoldingRangeKind.Region)
 		]);
 
 		assert.deepStrictEqual(
@@ -755,7 +755,7 @@ suite("Folding Range Refinement", () => {
 			[
 				"import:0",
 				"class:4",
-				"region:12",
+				"region:12"
 			]
 		);
 		assert.ok(regions.every((region) => region.parent === undefined));
@@ -764,7 +764,7 @@ suite("Folding Range Refinement", () => {
 	test("does not duplicate folding ranges already covered by symbol-backed regions", () => {
 		const classSymbol = createSymbol("Example", vscode.SymbolKind.Class, 0, 10);
 		const regions = attachFoldingOnlyNodes(normalizeSymbols([classSymbol]), [
-			new vscode.FoldingRange(0, 10, vscode.FoldingRangeKind.Region),
+			new vscode.FoldingRange(0, 10, vscode.FoldingRangeKind.Region)
 		]);
 
 		assert.deepStrictEqual(
@@ -780,7 +780,7 @@ suite("Folding Range Refinement", () => {
 	test("does not duplicate folding ranges that share a symbol selection line", () => {
 		const classSymbol = createSymbol("Example", vscode.SymbolKind.Class, 4, 12);
 		const regions = attachFoldingOnlyNodes(normalizeSymbols([classSymbol]), [
-			new vscode.FoldingRange(4, 14, vscode.FoldingRangeKind.Region),
+			new vscode.FoldingRange(4, 14, vscode.FoldingRangeKind.Region)
 		]);
 
 		assert.deepStrictEqual(
@@ -796,14 +796,14 @@ suite("Folding Range Refinement", () => {
 	test("keeps partially overlapping folding ranges that are not symbol duplicates", () => {
 		const methodSymbol = createSymbol("run", vscode.SymbolKind.Method, 4, 12);
 		const regions = attachFoldingOnlyNodes(normalizeSymbols([methodSymbol]), [
-			new vscode.FoldingRange(2, 6, vscode.FoldingRangeKind.Comment),
+			new vscode.FoldingRange(2, 6, vscode.FoldingRangeKind.Comment)
 		]);
 
 		assert.deepStrictEqual(
 			flattenRegions(regions).map((region) => `${region.kind}:${region.selectionLine}`),
 			[
 				"comment:2",
-				"method:4",
+				"method:4"
 			]
 		);
 		assert.deepStrictEqual(
@@ -819,7 +819,7 @@ suite("Folding Range Refinement", () => {
 
 		const regions = attachFoldingOnlyNodes(normalizeSymbols([classSymbol]), [
 			new vscode.FoldingRange(8, 12, vscode.FoldingRangeKind.Comment),
-			new vscode.FoldingRange(6, 20, vscode.FoldingRangeKind.Region),
+			new vscode.FoldingRange(6, 20, vscode.FoldingRangeKind.Region)
 		]);
 
 		assert.deepStrictEqual(
@@ -830,7 +830,7 @@ suite("Folding Range Refinement", () => {
 				"Example:class:1:none",
 				"run:method:2:none",
 				"region:region:3:1",
-				"comment:comment:4:2",
+				"comment:comment:4:2"
 			]
 		);
 	});
@@ -841,13 +841,13 @@ suite("Folding Range Refinement", () => {
 		classSymbol.children.push(methodSymbol);
 
 		const regions = attachFoldingOnlyNodes(normalizeSymbols([classSymbol]), [
-			new vscode.FoldingRange(7, 9, vscode.FoldingRangeKind.Comment),
+			new vscode.FoldingRange(7, 9, vscode.FoldingRangeKind.Comment)
 		]);
 
 		assert.deepStrictEqual(
 			filterRegions(regions, {
 				kinds: ["comment"],
-				ancestorKinds: ["class"],
+				ancestorKinds: ["class"]
 			}).map((region) => `${region.kind}:${region.selectionLine}`),
 			["comment:7"]
 		);
@@ -855,8 +855,8 @@ suite("Folding Range Refinement", () => {
 			collectSelectionLines(selectFoldableRegions({
 				filter: {
 					kinds: ["comment"],
-					parentKinds: ["method"],
-				},
+					parentKinds: ["method"]
+				}
 			}, regions)),
 			[7]
 		);
@@ -865,13 +865,13 @@ suite("Folding Range Refinement", () => {
 	test("selects foldable import ranges through the generic command filter", () => {
 		const classSymbol = createSymbol("Example", vscode.SymbolKind.Class, 4, 10);
 		const regions = attachFoldingOnlyNodes(normalizeSymbols([classSymbol]), [
-			new vscode.FoldingRange(0, 2, vscode.FoldingRangeKind.Imports),
+			new vscode.FoldingRange(0, 2, vscode.FoldingRangeKind.Imports)
 		]);
 
 		const foldableRegions = selectFoldableRegions({
 			filter: {
-				kinds: ["import"],
-			},
+				kinds: ["import"]
+			}
 		}, regions);
 
 		assert.deepStrictEqual(
@@ -884,13 +884,13 @@ suite("Folding Range Refinement", () => {
 	test("selects foldable comment ranges through the generic command filter", () => {
 		const classSymbol = createSymbol("Example", vscode.SymbolKind.Class, 8, 14);
 		const regions = attachFoldingOnlyNodes(normalizeSymbols([classSymbol]), [
-			new vscode.FoldingRange(0, 5, vscode.FoldingRangeKind.Comment),
+			new vscode.FoldingRange(0, 5, vscode.FoldingRangeKind.Comment)
 		]);
 
 		const foldableRegions = selectFoldableRegions({
 			filter: {
-				kinds: ["comment"],
-			},
+				kinds: ["comment"]
+			}
 		}, regions);
 
 		assert.deepStrictEqual(
@@ -903,13 +903,13 @@ suite("Folding Range Refinement", () => {
 	test("selects foldable region marker ranges through the generic command filter", () => {
 		const classSymbol = createSymbol("Example", vscode.SymbolKind.Class, 8, 14);
 		const regions = attachFoldingOnlyNodes(normalizeSymbols([classSymbol]), [
-			new vscode.FoldingRange(0, 5, vscode.FoldingRangeKind.Region),
+			new vscode.FoldingRange(0, 5, vscode.FoldingRangeKind.Region)
 		]);
 
 		const foldableRegions = selectFoldableRegions({
 			filter: {
-				kinds: ["region"],
-			},
+				kinds: ["region"]
+			}
 		}, regions);
 
 		assert.deepStrictEqual(
@@ -921,25 +921,25 @@ suite("Folding Range Refinement", () => {
 
 	test("treats unsupported folding-range categories as soft no-match results", async () => {
 		const regions = attachFoldingOnlyNodes([], [
-			new vscode.FoldingRange(0, 2, vscode.FoldingRangeKind.Imports),
+			new vscode.FoldingRange(0, 2, vscode.FoldingRangeKind.Imports)
 		]);
 		const executedCommands: ExecutedCommand[] = [];
 
 		const commentRegions = selectFoldableRegions({
 			filter: {
-				kinds: ["comment"],
-			},
+				kinds: ["comment"]
+			}
 		}, regions);
 
 		await execFoldCommand({
 			filter: {
-				kinds: ["comment"],
-			},
+				kinds: ["comment"]
+			}
 		}, regions, async (command, args) => {
 			executedCommands.push({
 				command,
 				levels: args.levels,
-				selectionLines: args.selectionLines,
+				selectionLines: args.selectionLines
 			});
 		}, new TrackedFoldState(), "test://missing-comment-category");
 
@@ -949,22 +949,22 @@ suite("Folding Range Refinement", () => {
 
 	test("keeps present folding-range categories available when another category is absent", () => {
 		const regions = attachFoldingOnlyNodes([], [
-			new vscode.FoldingRange(0, 2, vscode.FoldingRangeKind.Imports),
+			new vscode.FoldingRange(0, 2, vscode.FoldingRangeKind.Imports)
 		]);
 
 		assert.deepStrictEqual(
 			collectSelectionLines(selectFoldableRegions({
 				filter: {
-					kinds: ["import"],
-				},
+					kinds: ["import"]
+				}
 			}, regions)),
 			[0]
 		);
 		assert.deepStrictEqual(
 			collectSelectionLines(selectFoldableRegions({
 				filter: {
-					kinds: ["region"],
-				},
+					kinds: ["region"]
+				}
 			}, regions)),
 			[]
 		);
@@ -977,24 +977,24 @@ suite("Folding Range Refinement", () => {
 
 		const regions = attachFoldingOnlyNodes(normalizeSymbols([classSymbol]), [
 			new vscode.FoldingRange(0, 2, vscode.FoldingRangeKind.Imports),
-			new vscode.FoldingRange(7, 8, vscode.FoldingRangeKind.Comment),
+			new vscode.FoldingRange(7, 8, vscode.FoldingRangeKind.Comment)
 		]);
 
 		assert.deepStrictEqual(
 			filterRegions(regions, {
-				kinds: ["import", "class", "comment"],
+				kinds: ["import", "class", "comment"]
 			}).map((region) => `${region.kind}:${region.selectionLine}`),
 			[
 				"import:0",
 				"class:4",
-				"comment:7",
+				"comment:7"
 			]
 		);
 		assert.deepStrictEqual(
 			collectSelectionLines(selectFoldableRegions({
 				filter: {
-					kinds: ["import", "class", "comment"],
-				},
+					kinds: ["import", "class", "comment"]
+				}
 			}, regions)),
 			[0, 4, 7]
 		);
@@ -1007,25 +1007,25 @@ suite("Folding Range Refinement", () => {
 
 		const regions = attachFoldingOnlyNodes(normalizeSymbols([classSymbol]), [
 			new vscode.FoldingRange(7, 9, vscode.FoldingRangeKind.Comment),
-			new vscode.FoldingRange(22, 24, vscode.FoldingRangeKind.Imports),
+			new vscode.FoldingRange(22, 24, vscode.FoldingRangeKind.Imports)
 		]);
 
 		assert.deepStrictEqual(
 			filterRegions(regions, {
 				kinds: ["comment", "method"],
-				ancestorKinds: ["class"],
+				ancestorKinds: ["class"]
 			}).map((region) => `${region.kind}:${region.selectionLine}`),
 			[
 				"method:5",
-				"comment:7",
+				"comment:7"
 			]
 		);
 		assert.deepStrictEqual(
 			collectSelectionLines(selectFoldableRegions({
 				filter: {
 					kinds: ["comment", "method"],
-					ancestorKinds: ["class"],
-				},
+					ancestorKinds: ["class"]
+				}
 			}, regions)),
 			[5, 7]
 		);
@@ -1043,9 +1043,9 @@ suite("Command Argument Normalisation", () => {
 					minSymbolDepth: 1,
 					ancestorKinds: ["class"],
 					parentKinds: ["class"],
-					nameRegex: "^handle",
+					nameRegex: "^handle"
 				},
-				preserveCursorContext: true,
+				preserveCursorContext: true
 			}, "collapse"),
 			{
 				filter: {
@@ -1055,10 +1055,10 @@ suite("Command Argument Normalisation", () => {
 					minSymbolDepth: 1,
 					ancestorKinds: ["class"],
 					parentKinds: ["class"],
-					nameRegex: "^handle",
+					nameRegex: "^handle"
 				},
 				mode: "collapse",
-				preserveCursorContext: true,
+				preserveCursorContext: true
 			}
 		);
 	});
@@ -1071,7 +1071,7 @@ suite("Command Argument Normalisation", () => {
 				maxSymbolDepth: 4,
 				exactFoldDepth: 3,
 				minFoldDepth: 2,
-				maxFoldDepth: 5,
+				maxFoldDepth: 5
 			}),
 			{
 				exactSymbolDepth: 2,
@@ -1079,7 +1079,7 @@ suite("Command Argument Normalisation", () => {
 				maxSymbolDepth: 4,
 				exactFoldDepth: 3,
 				minFoldDepth: 2,
-				maxFoldDepth: 5,
+				maxFoldDepth: 5
 			}
 		);
 	});
@@ -1088,21 +1088,21 @@ suite("Command Argument Normalisation", () => {
 		assert.deepStrictEqual(
 			normaliseCollapseFilter({
 				kinds: ["method", "method", "not-a-kind", 42],
-				excludeKinds: ["property", "also-bad"],
+				excludeKinds: ["property", "also-bad"]
 			}),
 			{
 				kinds: ["method"],
-				excludeKinds: ["property"],
+				excludeKinds: ["property"]
 			}
 		);
 	});
 
 	test("ignores invalid or incomplete payload fields without throwing", () => {
 		assert.deepStrictEqual(normaliseArgs(undefined, "collapse"), {
-			mode: "collapse",
+			mode: "collapse"
 		});
 		assert.deepStrictEqual(normaliseArgs("bad", "collapse"), {
-			mode: "collapse",
+			mode: "collapse"
 		});
 		assert.deepStrictEqual(
 			normaliseArgs({
@@ -1111,11 +1111,11 @@ suite("Command Argument Normalisation", () => {
 					exactSymbolDepth: 0,
 					minSymbolDepth: 2.5,
 					maxSymbolDepth: "3",
-					nameRegex: "[",
-				},
+					nameRegex: "["
+				}
 			}, "collapse"),
 			{
-				mode: "collapse",
+				mode: "collapse"
 			}
 		);
 	});
@@ -1125,27 +1125,27 @@ suite("Command Argument Normalisation", () => {
 			normaliseArgs({
 				mode: "expand",
 				filter: {
-					kinds: ["method"],
-				},
+					kinds: ["method"]
+				}
 			}, "collapse"),
 			{
 				filter: {
-					kinds: ["method"],
+					kinds: ["method"]
 				},
-				mode: "expand",
+				mode: "expand"
 			}
 		);
 		assert.deepStrictEqual(normaliseArgs({ mode: "toggle" }, "collapse"), {
-			mode: "toggle",
+			mode: "toggle"
 		});
 		assert.deepStrictEqual(normaliseArgs({ mode: "collapse" }, "toggle"), {
-			mode: "collapse",
+			mode: "collapse"
 		});
 		assert.deepStrictEqual(normaliseArgs({ mode: "bad" }, "collapse"), {
-			mode: "collapse",
+			mode: "collapse"
 		});
 		assert.deepStrictEqual(normaliseArgs({}, "expand"), {
-			mode: "expand",
+			mode: "expand"
 		});
 	});
 
@@ -1154,8 +1154,8 @@ suite("Command Argument Normalisation", () => {
 		assert.strictEqual(getDefaultCollapseMode({}), "toggle");
 		assert.strictEqual(getDefaultCollapseMode({
 			filter: {
-				kinds: ["method"],
-			},
+				kinds: ["method"]
+			}
 		}), "toggle");
 	});
 });
@@ -1174,7 +1174,7 @@ suite("Phase 1 Validation Fixtures", () => {
 				"formatPayload:function:3",
 				"ViewModel:class:2",
 				"render:method:3",
-				"bootstrap:function:1",
+				"bootstrap:function:1"
 			]
 		);
 	});
@@ -1185,21 +1185,21 @@ suite("Phase 1 Validation Fixtures", () => {
 		assert.deepStrictEqual(
 			filterRegions(regions, {
 				kinds: ["method"],
-				exactSymbolDepth: 2,
+				exactSymbolDepth: 2
 			}).map((region) => region.name),
 			["handle"]
 		);
 		assert.deepStrictEqual(
 			filterRegions(regions, {
 				kinds: ["class", "function"],
-				exactSymbolDepth: 1,
+				exactSymbolDepth: 1
 			}).map((region) => region.name),
 			["Controller", "bootstrap"]
 		);
 		assert.deepStrictEqual(
 			filterRegions(regions, {
 				kinds: ["method", "function"],
-				minSymbolDepth: 2,
+				minSymbolDepth: 2
 			}).map((region) => region.name),
 			["handle", "formatPayload", "render"]
 		);
@@ -1210,8 +1210,8 @@ suite("Phase 1 Validation Fixtures", () => {
 		const foldableRegions = selectFoldableRegions({
 			filter: {
 				kinds: ["method"],
-				minSymbolDepth: 2,
-			},
+				minSymbolDepth: 2
+			}
 		}, regions);
 
 		assert.deepStrictEqual(
@@ -1271,7 +1271,7 @@ suite("Region Filtering", () => {
 		assert.deepStrictEqual(
 			filterRegions(regions, {
 				kinds: ["method", "property", "field"],
-				excludeKinds: ["property"],
+				excludeKinds: ["property"]
 			}).map((region) => region.name),
 			["value", "run"]
 		);
@@ -1313,7 +1313,7 @@ suite("Region Filtering", () => {
 		assert.deepStrictEqual(
 			filterRegions(regions, {
 				minSymbolDepth: 2,
-				maxSymbolDepth: 3,
+				maxSymbolDepth: 3
 			}).map((region) => region.name),
 			["run", "inner", "stop"]
 		);
@@ -1338,7 +1338,7 @@ suite("Region Filtering", () => {
 		assert.deepStrictEqual(
 			filterRegions(regions, {
 				kinds: ["function"],
-				exactSymbolDepth: 3,
+				exactSymbolDepth: 3
 			}).map((region) => region.name),
 			["inner"]
 		);
@@ -1350,14 +1350,14 @@ suite("Region Filtering", () => {
 		assert.deepStrictEqual(
 			filterRegions(regions, {
 				kinds: ["method"],
-				exactSymbolDepth: 2,
+				exactSymbolDepth: 2
 			}).map((region) => region.name),
 			["run", "stop"]
 		);
 		assert.deepStrictEqual(
 			filterRegions(regions, {
 				kinds: ["method"],
-				exactSymbolDepth: 1,
+				exactSymbolDepth: 1
 			}).map((region) => region.name),
 			[]
 		);
@@ -1369,7 +1369,7 @@ suite("Region Filtering", () => {
 		assert.deepStrictEqual(
 			filterRegions(regions, {
 				kinds: ["method"],
-				exactSymbolDepth: 1,
+				exactSymbolDepth: 1
 			}).map((region) => region.name),
 			["run", "stop"]
 		);
@@ -1387,14 +1387,14 @@ suite("Region Filtering", () => {
 		assert.deepStrictEqual(
 			filterRegions(regions, {
 				kinds: ["method"],
-				parentKinds: ["class"],
+				parentKinds: ["class"]
 			}).map((region) => region.name),
 			[]
 		);
 		assert.deepStrictEqual(
 			filterRegions(regions, {
 				kinds: ["method"],
-				ancestorKinds: ["class"],
+				ancestorKinds: ["class"]
 			}).map((region) => region.name),
 			[]
 		);
@@ -1410,7 +1410,7 @@ suite("Region Filtering", () => {
 		assert.deepStrictEqual(
 			filterRegions(regions, {
 				kinds: ["method"],
-				parentKinds: ["class"],
+				parentKinds: ["class"]
 			}).map((region) => region.name),
 			["handle", "render"]
 		);
@@ -1422,14 +1422,14 @@ suite("Region Filtering", () => {
 		assert.deepStrictEqual(
 			filterRegions(regions, {
 				kinds: ["method"],
-				parentKinds: ["class"],
+				parentKinds: ["class"]
 			}).map((region) => region.name),
 			["handle", "render"]
 		);
 		assert.deepStrictEqual(
 			filterRegions(regions, {
 				kinds: ["function"],
-				parentKinds: ["class"],
+				parentKinds: ["class"]
 			}).map((region) => region.name),
 			[]
 		);
@@ -1442,7 +1442,7 @@ suite("Region Filtering", () => {
 			filterRegions(regions, {
 				kinds: ["method"],
 				parentKinds: ["class"],
-				exactSymbolDepth: 2,
+				exactSymbolDepth: 2
 			}).map((region) => region.name),
 			["handle"]
 		);
@@ -1450,7 +1450,7 @@ suite("Region Filtering", () => {
 			filterRegions(regions, {
 				kinds: ["method"],
 				parentKinds: ["class"],
-				exactSymbolDepth: 3,
+				exactSymbolDepth: 3
 			}).map((region) => region.name),
 			["render"]
 		);
@@ -1466,7 +1466,7 @@ suite("Region Filtering", () => {
 		assert.deepStrictEqual(
 			filterRegions(regions, {
 				kinds: ["function"],
-				ancestorKinds: ["class"],
+				ancestorKinds: ["class"]
 			}).map((region) => region.name),
 			["formatPayload"]
 		);
@@ -1480,7 +1480,7 @@ suite("Region Filtering", () => {
 				kinds: ["method"],
 				parentKinds: ["class"],
 				ancestorKinds: ["class"],
-				exactSymbolDepth: 3,
+				exactSymbolDepth: 3
 			}).map((region) => region.name),
 			["render"]
 		);
@@ -1489,7 +1489,7 @@ suite("Region Filtering", () => {
 				kinds: ["function"],
 				parentKinds: ["method"],
 				ancestorKinds: ["class"],
-				exactSymbolDepth: 3,
+				exactSymbolDepth: 3
 			}).map((region) => region.name),
 			["formatPayload"]
 		);
@@ -1503,7 +1503,7 @@ suite("Region Filtering", () => {
 				kinds: ["comment"],
 				parentKinds: ["region"],
 				ancestorKinds: ["method"],
-				exactSymbolDepth: 4,
+				exactSymbolDepth: 4
 			}).map((region) => `${region.kind}:${region.selectionLine}`),
 			["comment:22"]
 		);
@@ -1513,8 +1513,8 @@ suite("Region Filtering", () => {
 					kinds: ["comment"],
 					parentKinds: ["region"],
 					ancestorKinds: ["method"],
-					exactSymbolDepth: 4,
-				},
+					exactSymbolDepth: 4
+				}
 			}, regions)),
 			[22]
 		);
@@ -1528,11 +1528,11 @@ suite("Region Filtering", () => {
 				kinds: ["import", "method", "comment"],
 				excludeKinds: ["comment"],
 				minSymbolDepth: 1,
-				maxSymbolDepth: 2,
+				maxSymbolDepth: 2
 			}).map((region) => `${region.kind}:${region.selectionLine}`),
 			[
 				"import:0",
-				"method:10",
+				"method:10"
 			]
 		);
 	});
@@ -1544,8 +1544,8 @@ suite("Region Filtering", () => {
 			collectSelectionLines(selectFoldableRegions({
 				filter: {
 					kinds: ["method"],
-					parentKinds: ["class"],
-				},
+					parentKinds: ["class"]
+				}
 			}, regions)),
 			[5, 21]
 		);
@@ -1553,8 +1553,8 @@ suite("Region Filtering", () => {
 			collectSelectionLines(selectFoldableRegions({
 				filter: {
 					kinds: ["constructor", "method", "property", "field"],
-					parentKinds: ["class"],
-				},
+					parentKinds: ["class"]
+				}
 			}, regions)),
 			[1, 5, 21]
 		);
@@ -1562,32 +1562,32 @@ suite("Region Filtering", () => {
 			collectSelectionLines(selectFoldableRegions({
 				filter: {
 					kinds: ["function"],
-					ancestorKinds: ["class"],
-				},
+					ancestorKinds: ["class"]
+				}
 			}, regions)),
 			[7]
 		);
 		assert.deepStrictEqual(
 			collectSelectionLines(selectFoldableRegions({
 				filter: {
-					kinds: ["struct"],
-				},
+					kinds: ["struct"]
+				}
 			}, regions)),
 			[40]
 		);
 		assert.deepStrictEqual(
 			collectSelectionLines(selectFoldableRegions({
 				filter: {
-					kinds: ["class", "struct", "interface", "enum"],
-				},
+					kinds: ["class", "struct", "interface", "enum"]
+				}
 			}, regions)),
 			[0, 18, 40, 50, 60]
 		);
 		assert.deepStrictEqual(
 			collectSelectionLines(selectFoldableRegions({
 				filter: {
-					kinds: ["variable", "object"],
-				},
+					kinds: ["variable", "object"]
+				}
 			}, regions)),
 			[70, 86]
 		);
@@ -1595,8 +1595,8 @@ suite("Region Filtering", () => {
 			collectSelectionLines(selectFoldableRegions({
 				filter: {
 					kinds: ["function", "method"],
-					ancestorKinds: ["variable", "object"],
-				},
+					ancestorKinds: ["variable", "object"]
+				}
 			}, regions)),
 			[72, 78, 88]
 		);
@@ -1613,9 +1613,9 @@ suite("Region Filtering", () => {
 						"property",
 						"field",
 						"variable",
-						"object",
-					],
-				},
+						"object"
+					]
+				}
 			}, regions)),
 			[1, 5, 7, 21, 32, 70, 72, 78, 86, 88]
 		);
@@ -1637,9 +1637,9 @@ suite("Region Filtering", () => {
 						"property",
 						"field",
 						"variable",
-						"object",
-					],
-				},
+						"object"
+					]
+				}
 			}, regions)),
 			[0, 5, 10, 12, 14, 20, 22, 40]
 		);
@@ -1659,7 +1659,7 @@ suite("Region Filtering", () => {
 		assert.deepStrictEqual(
 			filterRegions(regions, {
 				kinds: ["function"],
-				ancestorKinds: ["class"],
+				ancestorKinds: ["class"]
 			}).map((region) => region.name),
 			["formatPayload"]
 		);
@@ -1677,7 +1677,7 @@ suite("Region Filtering", () => {
 			filterRegions(regions, {
 				kinds: ["method"],
 				parentKinds: ["method"],
-				ancestorKinds: ["method"],
+				ancestorKinds: ["method"]
 			}).map((region) => region.name),
 			[]
 		);
@@ -1694,7 +1694,7 @@ suite("Semantic Token Refinement", () => {
 	test("keeps structural regions when semantic token legend is missing", async () => {
 		const document = await vscode.workspace.openTextDocument({
 			content: "const handler = () => {\n\treturn true;\n}\n",
-			language: "typescript",
+			language: "typescript"
 		});
 		const weakSymbol = createSymbol("handler", 999 as vscode.SymbolKind, 0, 2);
 		const regions = normalizeSymbols([weakSymbol]);
@@ -1705,9 +1705,9 @@ suite("Semantic Token Refinement", () => {
 				line: 0,
 				startCharacter: 6,
 				length: 7,
-				tokenType: 0,
+				tokenType: 0
 			}]),
-			semanticTokenLegend: undefined,
+			semanticTokenLegend: undefined
 		});
 
 		assert.strictEqual(refinedRegions, regions);
@@ -1717,7 +1717,7 @@ suite("Semantic Token Refinement", () => {
 	test("adds semantic kinds to weak symbol regions without replacing structural kinds", async () => {
 		const document = await vscode.workspace.openTextDocument({
 			content: "const handler = () => {\n\treturn true;\n}\n\nfunction run() {\n\treturn true;\n}\n",
-			language: "typescript",
+			language: "typescript"
 		});
 		const weakSymbol = createSymbol("handler", 999 as vscode.SymbolKind, 0, 2);
 		const strongSymbol = createSymbol("run", vscode.SymbolKind.Function, 4, 6);
@@ -1728,20 +1728,20 @@ suite("Semantic Token Refinement", () => {
 				line: 0,
 				startCharacter: 6,
 				length: 7,
-				tokenType: 0,
+				tokenType: 0
 			},
 			{
 				line: 4,
 				startCharacter: 9,
 				length: 3,
-				tokenType: 1,
-			},
+				tokenType: 1
+			}
 		]);
 
 		const refinedRegions = refineWithSemanticTokens(regions, {
 			document,
 			semanticTokens,
-			semanticTokenLegend,
+			semanticTokenLegend
 		});
 
 		assert.strictEqual(refinedRegions, regions);
@@ -1751,7 +1751,7 @@ suite("Semantic Token Refinement", () => {
 		assert.strictEqual(regions[1].semanticKind, undefined);
 		assert.deepStrictEqual(
 			filterRegions(regions, {
-				kinds: ["function"],
+				kinds: ["function"]
 			}).map((region) => region.name),
 			["handler", "run"]
 		);
@@ -1760,7 +1760,7 @@ suite("Semantic Token Refinement", () => {
 	test("refines ambiguous callable symbols without changing clear method symbols", async () => {
 		const document = await vscode.workspace.openTextDocument({
 			content: "class Example {\n\trun() {\n\t\treturn true;\n\t}\n\tstop() {\n\t\treturn true;\n\t}\n}\n",
-			language: "typescript",
+			language: "typescript"
 		});
 		const classSymbol = createSymbol("Example", vscode.SymbolKind.Class, 0, 7);
 		const functionSymbol = createSymbol("run", vscode.SymbolKind.Function, 1, 3);
@@ -1775,16 +1775,16 @@ suite("Semantic Token Refinement", () => {
 					line: 1,
 					startCharacter: 1,
 					length: 3,
-					tokenType: 0,
+					tokenType: 0
 				},
 				{
 					line: 4,
 					startCharacter: 1,
 					length: 4,
-					tokenType: 1,
-				},
+					tokenType: 1
+				}
 			]),
-			semanticTokenLegend: new vscode.SemanticTokensLegend(["method", "function"]),
+			semanticTokenLegend: new vscode.SemanticTokensLegend(["method", "function"])
 		});
 
 		assert.strictEqual(regions[0].children[0].kind, "function");
@@ -1794,14 +1794,14 @@ suite("Semantic Token Refinement", () => {
 		assert.deepStrictEqual(
 			filterRegions(regions, {
 				kinds: ["method"],
-				parentKinds: ["class"],
+				parentKinds: ["class"]
 			}).map((region) => region.name),
 			["run", "stop"]
 		);
 		assert.deepStrictEqual(
 			filterRegions(regions, {
 				kinds: ["function"],
-				parentKinds: ["class"],
+				parentKinds: ["class"]
 			}).map((region) => region.name),
 			["run"]
 		);
@@ -1810,7 +1810,7 @@ suite("Semantic Token Refinement", () => {
 	test("refines property and field ambiguity in both filter directions", async () => {
 		const document = await vscode.workspace.openTextDocument({
 			content: "class Example {\n\tcount = 1;\n\ttitle = \"\";\n}\n",
-			language: "typescript",
+			language: "typescript"
 		});
 		const classSymbol = createSymbol("Example", vscode.SymbolKind.Class, 0, 3);
 		const propertySymbol = createSymbol("count", vscode.SymbolKind.Property, 1, 1);
@@ -1825,16 +1825,16 @@ suite("Semantic Token Refinement", () => {
 					line: 1,
 					startCharacter: 1,
 					length: 5,
-					tokenType: 0,
+					tokenType: 0
 				},
 				{
 					line: 2,
 					startCharacter: 1,
 					length: 5,
-					tokenType: 1,
-				},
+					tokenType: 1
+				}
 			]),
-			semanticTokenLegend: new vscode.SemanticTokensLegend(["field", "property"]),
+			semanticTokenLegend: new vscode.SemanticTokensLegend(["field", "property"])
 		});
 
 		assert.strictEqual(regions[0].children[0].kind, "property");
@@ -1844,14 +1844,14 @@ suite("Semantic Token Refinement", () => {
 		assert.deepStrictEqual(
 			filterRegions(regions, {
 				kinds: ["field"],
-				parentKinds: ["class"],
+				parentKinds: ["class"]
 			}).map((region) => region.name),
 			["count", "title"]
 		);
 		assert.deepStrictEqual(
 			filterRegions(regions, {
 				kinds: ["property"],
-				parentKinds: ["class"],
+				parentKinds: ["class"]
 			}).map((region) => region.name),
 			["count", "title"]
 		);
@@ -1860,7 +1860,7 @@ suite("Semantic Token Refinement", () => {
 	test("ignores semantic tokens whose text does not match the region name", async () => {
 		const document = await vscode.workspace.openTextDocument({
 			content: "const other = () => {\n\treturn true;\n}\n",
-			language: "typescript",
+			language: "typescript"
 		});
 		const weakSymbol = createSymbol("handler", 999 as vscode.SymbolKind, 0, 2);
 		const regions = normalizeSymbols([weakSymbol]);
@@ -1871,15 +1871,15 @@ suite("Semantic Token Refinement", () => {
 				line: 0,
 				startCharacter: 6,
 				length: 5,
-				tokenType: 0,
+				tokenType: 0
 			}]),
-			semanticTokenLegend: new vscode.SemanticTokensLegend(["function"]),
+			semanticTokenLegend: new vscode.SemanticTokensLegend(["function"])
 		});
 
 		assert.strictEqual(regions[0].semanticKind, undefined);
 		assert.deepStrictEqual(
 			filterRegions(regions, {
-				kinds: ["function"],
+				kinds: ["function"]
 			}),
 			[]
 		);
@@ -1888,7 +1888,7 @@ suite("Semantic Token Refinement", () => {
 	test("uses semantic parent classifications in relationship filters", async () => {
 		const document = await vscode.workspace.openTextDocument({
 			content: "class Example {\n\trun() {\n\t\treturn true;\n\t}\n}\n",
-			language: "typescript",
+			language: "typescript"
 		});
 		const classSymbol = createSymbol("Example", 999 as vscode.SymbolKind, 0, 4);
 		const methodSymbol = createSymbol("run", vscode.SymbolKind.Method, 1, 3);
@@ -1901,9 +1901,9 @@ suite("Semantic Token Refinement", () => {
 				line: 0,
 				startCharacter: 6,
 				length: 7,
-				tokenType: 0,
+				tokenType: 0
 			}]),
-			semanticTokenLegend: new vscode.SemanticTokensLegend(["class"]),
+			semanticTokenLegend: new vscode.SemanticTokensLegend(["class"])
 		});
 
 		assert.strictEqual(regions[0].kind, "unknown");
@@ -1911,7 +1911,7 @@ suite("Semantic Token Refinement", () => {
 		assert.deepStrictEqual(
 			filterRegions(regions, {
 				kinds: ["method"],
-				parentKinds: ["class"],
+				parentKinds: ["class"]
 			}).map((region) => region.name),
 			["run"]
 		);
@@ -1920,7 +1920,7 @@ suite("Semantic Token Refinement", () => {
 	test("refines TypeScript callable properties as methods", async () => {
 		const document = await vscode.workspace.openTextDocument({
 			content: "const config = {\n\thandler: () => true\n}\n",
-			language: "typescript",
+			language: "typescript"
 		});
 		const objectSymbol = createSymbol("config", vscode.SymbolKind.Object, 0, 2);
 		const propertySymbol = createSymbol("handler", vscode.SymbolKind.Property, 1, 1);
@@ -1935,9 +1935,9 @@ suite("Semantic Token Refinement", () => {
 				line: 1,
 				startCharacter: 1,
 				length: 7,
-				tokenType: 0,
+				tokenType: 0
 			}]),
-			semanticTokenLegend: new vscode.SemanticTokensLegend(["function"]),
+			semanticTokenLegend: new vscode.SemanticTokensLegend(["function"])
 		});
 
 		assert.strictEqual(regions[0].children[0].kind, "property");
@@ -1945,7 +1945,7 @@ suite("Semantic Token Refinement", () => {
 		assert.deepStrictEqual(
 			filterRegions(regions, {
 				kinds: ["method"],
-				parentKinds: ["object"],
+				parentKinds: ["object"]
 			}).map((region) => region.name),
 			["handler"]
 		);
@@ -1954,7 +1954,7 @@ suite("Semantic Token Refinement", () => {
 	test("keeps callable property rules out of unsupported languages", async () => {
 		const document = await vscode.workspace.openTextDocument({
 			content: "const config = {\n\thandler: () => true\n}\n",
-			language: "plaintext",
+			language: "plaintext"
 		});
 		const objectSymbol = createSymbol("config", vscode.SymbolKind.Object, 0, 2);
 		const propertySymbol = createSymbol("handler", vscode.SymbolKind.Property, 1, 1);
@@ -1969,9 +1969,9 @@ suite("Semantic Token Refinement", () => {
 				line: 1,
 				startCharacter: 1,
 				length: 7,
-				tokenType: 0,
+				tokenType: 0
 			}]),
-			semanticTokenLegend: new vscode.SemanticTokensLegend(["function"]),
+			semanticTokenLegend: new vscode.SemanticTokensLegend(["function"])
 		});
 
 		assert.strictEqual(regions[0].children[0].kind, "property");
@@ -1979,7 +1979,7 @@ suite("Semantic Token Refinement", () => {
 		assert.deepStrictEqual(
 			filterRegions(regions, {
 				kinds: ["property"],
-				parentKinds: ["object"],
+				parentKinds: ["object"]
 			}).map((region) => region.name),
 			["handler"]
 		);
@@ -2008,8 +2008,8 @@ suite("Fold Execution Guards", () => {
 		const foldableRegions = selectFoldableRegions({
 			filter: {
 				kinds: ["method"],
-				exactSymbolDepth: 2,
-			},
+				exactSymbolDepth: 2
+			}
 		}, regions);
 
 		assert.deepStrictEqual(
@@ -2035,14 +2035,14 @@ suite("Fold Execution Guards", () => {
 		const regions = attachFoldingOnlyNodes(normalizeSymbols([classSymbol]), [
 			new vscode.FoldingRange(0, 2, vscode.FoldingRangeKind.Imports),
 			new vscode.FoldingRange(7, 8, vscode.FoldingRangeKind.Comment),
-			new vscode.FoldingRange(4, 12, vscode.FoldingRangeKind.Region),
+			new vscode.FoldingRange(4, 12, vscode.FoldingRangeKind.Region)
 		]);
 
 		assert.deepStrictEqual(
 			collectSelectionLines(selectFoldableRegions({
 				filter: {
-					kinds: ["import", "class", "comment", "region"],
-				},
+					kinds: ["import", "class", "comment", "region"]
+				}
 			}, regions)),
 			[0, 4, 7]
 		);
@@ -2057,14 +2057,14 @@ suite("Fold Execution Guards", () => {
 			executedCommands.push({
 				command,
 				levels: args.levels,
-				selectionLines: args.selectionLines,
+				selectionLines: args.selectionLines
 			});
 		}, foldState, "test://fold");
 
 		assert.deepStrictEqual(executedCommands, [{
 			command: "editor.fold",
 			levels: 1,
-			selectionLines: [2, 6, 12],
+			selectionLines: [2, 6, 12]
 		}]);
 	});
 
@@ -2076,26 +2076,26 @@ suite("Fold Execution Guards", () => {
 		const regions = attachFoldingOnlyNodes(normalizeSymbols([classSymbol]), [
 			new vscode.FoldingRange(0, 2, vscode.FoldingRangeKind.Imports),
 			new vscode.FoldingRange(7, 8, vscode.FoldingRangeKind.Comment),
-			new vscode.FoldingRange(4, 12, vscode.FoldingRangeKind.Region),
+			new vscode.FoldingRange(4, 12, vscode.FoldingRangeKind.Region)
 		]);
 		const executedCommands: ExecutedCommand[] = [];
 
 		await execFoldCommand({
 			filter: {
-				kinds: ["import", "class", "comment", "region"],
-			},
+				kinds: ["import", "class", "comment", "region"]
+			}
 		}, regions, async (command, args) => {
 			executedCommands.push({
 				command,
 				levels: args.levels,
-				selectionLines: args.selectionLines,
+				selectionLines: args.selectionLines
 			});
 		}, new TrackedFoldState(), "test://mixed-sources");
 
 		assert.deepStrictEqual(executedCommands, [{
 			command: "editor.fold",
 			levels: 1,
-			selectionLines: [0, 4, 7],
+			selectionLines: [0, 4, 7]
 		}]);
 	});
 
@@ -2108,20 +2108,20 @@ suite("Fold Execution Guards", () => {
 				kinds: ["import", "method", "comment"],
 				excludeKinds: ["comment"],
 				minSymbolDepth: 1,
-				maxSymbolDepth: 2,
-			},
+				maxSymbolDepth: 2
+			}
 		}, regions, async (command, args) => {
 			executedCommands.push({
 				command,
 				levels: args.levels,
-				selectionLines: args.selectionLines,
+				selectionLines: args.selectionLines
 			});
 		}, new TrackedFoldState(), "test://multifaceted");
 
 		assert.deepStrictEqual(executedCommands, [{
 			command: "editor.fold",
 			levels: 1,
-			selectionLines: [0, 10],
+			selectionLines: [0, 10]
 		}]);
 	});
 
@@ -2134,14 +2134,14 @@ suite("Fold Execution Guards", () => {
 			executedCommands.push({
 				command,
 				levels: args.levels,
-				selectionLines: args.selectionLines,
+				selectionLines: args.selectionLines
 			});
 		}, foldState, "test://toggle-collapse");
 
 		assert.deepStrictEqual(executedCommands, [{
 			command: "editor.fold",
 			levels: 1,
-			selectionLines: [2, 6, 12],
+			selectionLines: [2, 6, 12]
 		}]);
 	});
 
@@ -2156,14 +2156,14 @@ suite("Fold Execution Guards", () => {
 			executedCommands.push({
 				command,
 				levels: args.levels,
-				selectionLines: args.selectionLines,
+				selectionLines: args.selectionLines
 			});
 		}, foldState, "test://toggle-expand");
 
 		assert.deepStrictEqual(executedCommands, [{
 			command: "editor.unfold",
 			levels: 1,
-			selectionLines: [2, 6, 12],
+			selectionLines: [2, 6, 12]
 		}]);
 	});
 
@@ -2178,14 +2178,14 @@ suite("Fold Execution Guards", () => {
 			executedCommands.push({
 				command,
 				levels: args.levels,
-				selectionLines: args.selectionLines,
+				selectionLines: args.selectionLines
 			});
 		}, foldState, "test://toggle-mixed");
 
 		assert.deepStrictEqual(executedCommands, [{
 			command: "editor.fold",
 			levels: 1,
-			selectionLines: [2, 6, 12],
+			selectionLines: [2, 6, 12]
 		}]);
 	});
 
@@ -2198,7 +2198,7 @@ suite("Fold Execution Guards", () => {
 			executedCommands.push({
 				command,
 				levels: args.levels,
-				selectionLines: args.selectionLines,
+				selectionLines: args.selectionLines
 			});
 		}, foldState, "test://toggle-after-expand");
 
@@ -2206,7 +2206,7 @@ suite("Fold Execution Guards", () => {
 			executedCommands.push({
 				command,
 				levels: args.levels,
-				selectionLines: args.selectionLines,
+				selectionLines: args.selectionLines
 			});
 		}, foldState, "test://toggle-after-expand");
 
@@ -2214,7 +2214,7 @@ suite("Fold Execution Guards", () => {
 			executedCommands.push({
 				command,
 				levels: args.levels,
-				selectionLines: args.selectionLines,
+				selectionLines: args.selectionLines
 			});
 		}, foldState, "test://toggle-after-expand");
 
@@ -2222,18 +2222,18 @@ suite("Fold Execution Guards", () => {
 			{
 				command: "editor.fold",
 				levels: 1,
-				selectionLines: [2, 6, 12],
+				selectionLines: [2, 6, 12]
 			},
 			{
 				command: "editor.unfold",
 				levels: 1,
-				selectionLines: [2, 6, 12],
+				selectionLines: [2, 6, 12]
 			},
 			{
 				command: "editor.fold",
 				levels: 1,
-				selectionLines: [2, 6, 12],
-			},
+				selectionLines: [2, 6, 12]
+			}
 		]);
 	});
 
@@ -2248,7 +2248,7 @@ suite("Fold Execution Guards", () => {
 			executedCommands.push({
 				command,
 				levels: args.levels,
-				selectionLines: args.selectionLines,
+				selectionLines: args.selectionLines
 			});
 		}, foldState, "test://document-b");
 
@@ -2256,7 +2256,7 @@ suite("Fold Execution Guards", () => {
 			executedCommands.push({
 				command,
 				levels: args.levels,
-				selectionLines: args.selectionLines,
+				selectionLines: args.selectionLines
 			});
 		}, foldState, "test://document-a");
 
@@ -2264,13 +2264,13 @@ suite("Fold Execution Guards", () => {
 			{
 				command: "editor.fold",
 				levels: 1,
-				selectionLines: [2, 6, 12],
+				selectionLines: [2, 6, 12]
 			},
 			{
 				command: "editor.unfold",
 				levels: 1,
-				selectionLines: [2, 6, 12],
-			},
+				selectionLines: [2, 6, 12]
+			}
 		]);
 	});
 
@@ -2281,13 +2281,13 @@ suite("Fold Execution Guards", () => {
 
 		await execFoldCommand({
 			filter: {
-				kinds: ["property"],
-			},
+				kinds: ["property"]
+			}
 		}, regions, async (command, args) => {
 			executedCommands.push({
 				command,
 				levels: args.levels,
-				selectionLines: args.selectionLines,
+				selectionLines: args.selectionLines
 			});
 		}, foldState, "test://empty");
 
@@ -2302,13 +2302,13 @@ suite("Fold Execution Guards", () => {
 		await execFoldCommand({
 			filter: {
 				kinds: ["method"],
-				parentKinds: ["class"],
-			},
+				parentKinds: ["class"]
+			}
 		}, regions, async (command, args) => {
 			executedCommands.push({
 				command,
 				levels: args.levels,
-				selectionLines: args.selectionLines,
+				selectionLines: args.selectionLines
 			});
 		}, foldState, "test://flat-relationship");
 
@@ -2324,14 +2324,14 @@ suite("Fold Execution Guards", () => {
 			executedCommands.push({
 				command,
 				levels: args.levels,
-				selectionLines: args.selectionLines,
+				selectionLines: args.selectionLines
 			});
 		}, foldState, "test://expand");
 
 		assert.deepStrictEqual(executedCommands, [{
 			command: "editor.unfold",
 			levels: 1,
-			selectionLines: [2, 6, 12],
+			selectionLines: [2, 6, 12]
 		}]);
 	});
 
@@ -2339,7 +2339,7 @@ suite("Fold Execution Guards", () => {
 		const regions = createPhaseOneFixture();
 		const sharedFilter: CollapseFilter = {
 			kinds: ["method"],
-			parentKinds: ["class"],
+			parentKinds: ["class"]
 		};
 		const executedCommands: ExecutedCommand[] = [];
 		const foldState = new TrackedFoldState();
@@ -2347,29 +2347,29 @@ suite("Fold Execution Guards", () => {
 			{
 				documentKey: "test://shared-collapse",
 				expectedCommand: "editor.fold" as const,
-				mode: "collapse" as const,
+				mode: "collapse" as const
 			},
 			{
 				documentKey: "test://shared-expand",
 				expectedCommand: "editor.unfold" as const,
-				mode: "expand" as const,
+				mode: "expand" as const
 			},
 			{
 				documentKey: "test://shared-toggle",
 				expectedCommand: "editor.fold" as const,
-				mode: "toggle" as const,
-			},
+				mode: "toggle" as const
+			}
 		];
 
 		for(const modeCase of modeCases) {
 			await execFoldCommand({
 				filter: sharedFilter,
-				mode: modeCase.mode,
+				mode: modeCase.mode
 			}, regions, async (command, args) => {
 				executedCommands.push({
 					command,
 					levels: args.levels,
-					selectionLines: args.selectionLines,
+					selectionLines: args.selectionLines
 				});
 			}, foldState, modeCase.documentKey);
 		}
@@ -2377,7 +2377,7 @@ suite("Fold Execution Guards", () => {
 		assert.deepStrictEqual(executedCommands, modeCases.map((modeCase) => ({
 			command: modeCase.expectedCommand,
 			levels: 1,
-			selectionLines: [5, 21],
+			selectionLines: [5, 21]
 		})));
 	});
 
@@ -2390,14 +2390,14 @@ suite("Fold Execution Guards", () => {
 		for(const mode of modes) {
 			await execFoldCommand({
 				filter: {
-					kinds: ["import"],
+					kinds: ["import"]
 				},
-				mode,
+				mode
 			}, regions, async (command, args) => {
 				executedCommands.push({
 					command,
 					levels: args.levels,
-					selectionLines: args.selectionLines,
+					selectionLines: args.selectionLines
 				});
 			}, foldState, `test://no-match-${mode}`);
 		}
@@ -2411,8 +2411,8 @@ suite("Fold Execution Guards", () => {
 		const foldableRegions = selectFoldableRegions({
 			filter: {
 				kinds: ["method"],
-				exactSymbolDepth: 1,
-			},
+				exactSymbolDepth: 1
+			}
 		}, regions);
 
 		assert.deepStrictEqual(
@@ -2544,7 +2544,7 @@ function createConvenienceCommandFixture(): ReturnType<typeof normalizeSymbols> 
 		apiInterfaceSymbol,
 		statusEnumSymbol,
 		dbVariableSymbol,
-		cacheObjectSymbol,
+		cacheObjectSymbol
 	]);
 }
 
@@ -2576,7 +2576,7 @@ function createMixedSymbolAndFoldingFixture(): ReturnType<typeof attachFoldingOn
 		new vscode.FoldingRange(0, 1, vscode.FoldingRangeKind.Imports),
 		new vscode.FoldingRange(12, 13, vscode.FoldingRangeKind.Comment),
 		new vscode.FoldingRange(22, 23, vscode.FoldingRangeKind.Comment),
-		new vscode.FoldingRange(20, 26, vscode.FoldingRangeKind.Region),
+		new vscode.FoldingRange(20, 26, vscode.FoldingRangeKind.Region)
 	]);
 }
 
@@ -2587,7 +2587,7 @@ function createFlatFallbackFixture(): ReturnType<typeof normalizeSymbols> {
 		createSymbolInformation("Example", vscode.SymbolKind.Class, uri, 0, 18),
 		createSymbolInformation("run", vscode.SymbolKind.Method, uri, 1, 10),
 		createSymbolInformation("stop", vscode.SymbolKind.Method, uri, 11, 16),
-		createSymbolInformation("name", vscode.SymbolKind.Property, uri, 18, 18),
+		createSymbolInformation("name", vscode.SymbolKind.Property, uri, 18, 18)
 	]);
 }
 
@@ -2603,7 +2603,7 @@ function createDuplicateSelectionFixture(): ReturnType<typeof normalizeSymbols> 
 		duplicateLineMethodSymbol,
 		earlierMethodSymbol,
 		laterMethodSymbol,
-		propertySymbol,
+		propertySymbol
 	]);
 }
 

@@ -7,7 +7,7 @@ import {
 	toggleMethodsInClassesCommand,
 	toggleReaderModeCommand,
 	toggleTypesCommand,
-	toggleVariablesCommand,
+	toggleVariablesCommand
 } from "./commands/collapse";
 import { expandCommand } from "./commands/expand";
 import { inspectRegionsCommand } from "./commands/inspectRegions";
