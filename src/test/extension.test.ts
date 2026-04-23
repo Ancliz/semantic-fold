@@ -1,7 +1,11 @@
 import * as assert from "assert";
 import * as vscode from "vscode";
 import { getDefaultCollapseMode } from "../commands/collapse";
-import { apiOverviewFilters, readerModeArgs } from "../commands/presets";
+import {
+	apiOverviewFilters,
+	commentsArgs,
+	readerModeArgs,
+} from "../commands/presets";
 import { filterRegions, flattenRegions, getAncestors, hasHierarchy } from "../engine/filterEngine";
 import { attachFoldingOnlyNodes, normaliseFoldingRanges } from "../engine/foldingRangeRefiner";
 import {
@@ -53,6 +57,7 @@ suite("Semantic Fold Foundation", () => {
 		assert.ok(commands.includes("semanticFold.toggleVariables"));
 		assert.ok(commands.includes("semanticFold.toggleFunctionsInVariables"));
 		assert.ok(commands.includes("semanticFold.toggleImports"));
+		assert.ok(commands.includes("semanticFold.toggleComments"));
 		assert.ok(commands.includes("semanticFold.toggleReaderMode"));
 		assert.ok(commands.includes("semanticFold.toggleApiOverview"));
 	});
@@ -64,6 +69,34 @@ suite("Semantic Fold Foundation", () => {
 		assert.strictEqual(setting.type, "boolean");
 		assert.strictEqual(setting.default, true);
 		assert.strictEqual(setting.scope, "resource");
+	});
+
+	test("uses a consistent command-palette naming pattern for flagship presets", () => {
+		const extension = getSemanticFoldExtension();
+		const commands = extension.packageJSON.contributes.commands as Array<{
+			command: string;
+			title: string;
+		}>;
+		const commandTitleById = new Map(commands.map((entry) => {
+			return [entry.command, entry.title] as const;
+		}));
+
+		assert.strictEqual(
+			commandTitleById.get("semanticFold.toggleImports"),
+			"Semantic Fold: Toggle Imports"
+		);
+		assert.strictEqual(
+			commandTitleById.get("semanticFold.toggleComments"),
+			"Semantic Fold: Toggle Comments"
+		);
+		assert.strictEqual(
+			commandTitleById.get("semanticFold.toggleReaderMode"),
+			"Semantic Fold: Toggle Reader Mode"
+		);
+		assert.strictEqual(
+			commandTitleById.get("semanticFold.toggleApiOverview"),
+			"Semantic Fold: Toggle API Overview"
+		);
 	});
 });
 
@@ -1684,6 +1717,15 @@ suite("Region Filtering", () => {
 		);
 	});
 
+	test("applies comments preset categories across symbol and folding ranges", () => {
+		const regions = createMixedSymbolAndFoldingFixture();
+
+		assert.deepStrictEqual(
+			collectSelectionLines(selectFoldableRegions(commentsArgs, regions)),
+			[12, 22]
+		);
+	});
+
 	test("applies API overview preset categories across symbol and folding ranges", () => {
 		const regions = createMixedSymbolAndFoldingFixture();
 
@@ -1699,6 +1741,19 @@ suite("Region Filtering", () => {
 		assert.deepStrictEqual(
 			collectSelectionLines(selectFoldableRegionsForFilters(apiOverviewFilters, regions)),
 			[0, 12, 20, 22, 28]
+		);
+	});
+
+	test("fails soft when preset categories are absent for the active provider", () => {
+		const regions = createPhaseOneFixture();
+
+		assert.deepStrictEqual(
+			collectSelectionLines(selectFoldableRegions(commentsArgs, regions)),
+			[]
+		);
+		assert.deepStrictEqual(
+			collectSelectionLines(selectFoldableRegionsForFilters(apiOverviewFilters, regions)),
+			[]
 		);
 	});
 

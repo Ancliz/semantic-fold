@@ -5,13 +5,13 @@ import { type RegionKind } from "../model/region";
  * Reusable filter groups used by overview-style preset commands
  */
 
-const structuralNoiseKinds: readonly RegionKind[] = [
+export const structuralNoiseKinds: readonly RegionKind[] = [
 	"import",
 	"comment",
 	"region",
 ];
 
-const callableAndMemberKinds: readonly RegionKind[] = [
+export const callableAndMemberKinds: readonly RegionKind[] = [
 	"constructor",
 	"method",
 	"function",
@@ -19,7 +19,7 @@ const callableAndMemberKinds: readonly RegionKind[] = [
 	"field",
 ];
 
-const implementationContainerKinds: readonly RegionKind[] = [
+export const implementationContainerKinds: readonly RegionKind[] = [
 	"variable",
 	"object",
 ];
@@ -46,12 +46,14 @@ const overviewKinds = composeKinds(
 );
 
 export const readerModeArgs: CollapseArgs = createTogglePreset(overviewKinds);
+export const importsArgs: CollapseArgs = createTogglePreset(["import"]);
+export const commentsArgs: CollapseArgs = createTogglePreset(["comment"]);
 export const apiOverviewFilters: CollapseFilter[] = [
 	{
-		kinds: ["import", "comment", "region"],
+		kinds: [...structuralNoiseKinds],
 	},
 	{
-		kinds: ["variable", "object"],
-		exactSymbolDepth: 2,
+		kinds: [...implementationContainerKinds],
+		minSymbolDepth: 2,
 	},
 ];

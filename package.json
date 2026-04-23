@@ -61,6 +61,10 @@
         "title": "Semantic Fold: Toggle Imports"
       },
       {
+        "command": "semanticFold.toggleComments",
+        "title": "Semantic Fold: Toggle Comments"
+      },
+      {
         "command": "semanticFold.toggleReaderMode",
         "title": "Semantic Fold: Toggle Reader Mode"
       },

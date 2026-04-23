@@ -3,6 +3,7 @@ import {
 	collapseCommand,
 	toggleApiOverviewCommand,
 	toggleClassMembersCommand,
+	toggleCommentsCommand,
 	toggleFunctionsInVariablesCommand,
 	toggleImportsCommand,
 	toggleMethodsInClassesCommand,
@@ -63,6 +64,10 @@ export function activate(context: vscode.ExtensionContext): void {
 		vscode.commands.registerCommand(
 			"semanticFold.toggleImports",
 			toggleImportsCommand
+		),
+		vscode.commands.registerCommand(
+			"semanticFold.toggleComments",
+			toggleCommentsCommand
 		),
 		vscode.commands.registerCommand(
 			"semanticFold.toggleReaderMode",

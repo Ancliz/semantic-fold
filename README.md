@@ -188,9 +188,12 @@ These commands are available from the Command Palette and use the same filter pi
 | `semanticFold.toggleVariables` | Toggle variable, constant, and object regions that have foldable symbol ranges. |
 | `semanticFold.toggleFunctionsInVariables` | Toggle function and method regions anywhere inside a variable or object ancestor context, such as functions inside an object literal assigned to a variable. |
 | `semanticFold.toggleImports` | Toggle provider-exposed import folding ranges. |
+| `semanticFold.toggleComments` | Toggle provider-exposed comment folding ranges. |
 | `semanticFold.toggleReaderMode` | Toggle the Reader Mode preset that collapses imports, comments, regions, callable/member implementation blocks, and variable/object implementation detail while leaving top-level type structure visible. |
 | `semanticFold.toggleApiOverview` | Toggle API Overview by collapsing structural noise plus nested variable/object containers while keeping callable/member signatures visible. |
 | `semanticFold.runComposite` | Run one collapse/expand/toggle request across a union of multiple filter queries supplied via `args.filters`. |
+
+For quick discovery in Command Palette, search `Semantic Fold` and pick the workflow you want.
 
 Toggle methods whose immediate parent is a class:
 
@@ -300,6 +303,29 @@ The generic command equivalent is:
 }
 ```
 
+Toggle comments:
+
+```json
+{
+  "key": "ctrl+alt+shift+c",
+  "command": "semanticFold.toggleComments"
+}
+```
+
+The generic command equivalent is:
+
+```json
+{
+  "key": "ctrl+alt+shift+c",
+  "command": "semanticFold.toggle",
+  "args": {
+    "filter": {
+      "kinds": ["comment"]
+    }
+  }
+}
+```
+
 Toggle Reader Mode:
 
 ```json
@@ -331,6 +357,66 @@ Reader Mode folds this category set:
 }
 ```
 
+The generic command equivalent is:
+
+```json
+{
+  "key": "ctrl+alt+shift+r",
+  "command": "semanticFold.toggle",
+  "args": {
+    "filter": {
+      "kinds": [
+        "import",
+        "comment",
+        "region",
+        "constructor",
+        "method",
+        "function",
+        "property",
+        "field",
+        "variable",
+        "object"
+      ]
+    },
+    "mode": "toggle"
+  }
+}
+```
+
+Top-level-only view via composite command:
+
+```json
+{
+  "key": "ctrl+alt+shift+t",
+  "command": "semanticFold.runComposite",
+  "args": {
+    "mode": "toggle",
+    "filters": [
+      {
+        "kinds": ["import", "comment", "region"]
+      },
+      {
+        "kinds": [
+          "class",
+          "struct",
+          "interface",
+          "enum",
+          "namespace",
+          "constructor",
+          "method",
+          "function",
+          "property",
+          "field",
+          "variable",
+          "object"
+        ],
+        "minSymbolDepth": 2
+      }
+    ]
+  }
+}
+```
+
 Toggle API Overview:
 
 ```json
@@ -354,6 +440,27 @@ API Overview combines these composite filters:
     }
   ],
   "mode": "toggle"
+}
+```
+
+The generic command equivalent is:
+
+```json
+{
+  "key": "ctrl+alt+shift+a",
+  "command": "semanticFold.runComposite",
+  "args": {
+    "mode": "toggle",
+    "filters": [
+      {
+        "kinds": ["import", "comment", "region"]
+      },
+      {
+        "kinds": ["variable", "object"],
+        "minSymbolDepth": 2
+      }
+    ]
+  }
 }
 ```
 
@@ -466,6 +573,7 @@ Use a file with a top-level class, methods inside that class, a nested function 
 - Run `semanticFold.toggleVariables`; confirm foldable variable, constant, and object regions toggle.
 - Run `semanticFold.toggleFunctionsInVariables`; confirm function and method regions inside variable or object contexts toggle when the provider exposes that hierarchy.
 - Run `semanticFold.toggleImports`; confirm provider-exposed import folding ranges toggle together.
+- Run `semanticFold.toggleComments`; confirm provider-exposed comment folding ranges toggle together.
 - Run `semanticFold.toggleReaderMode`; confirm imports/comments/regions and implementation-heavy callable/member blocks collapse while top-level type declarations remain visible.
 - Run `semanticFold.toggleApiOverview`; confirm it collapses imports/comments/regions and nested variable or object containers while methods/functions/properties/fields remain visible.
 - Run `semanticFold.runComposite` with two filters; confirm both filter queries contribute to one deduplicated target set.
@@ -662,11 +770,11 @@ Open the workspace in VS Code and launch the extension host from the debugger.
 - [x] Add filter engine
 - [x] Add targeted collapse execution
 - [x] Add keybinding-ready generic command
-- [ ] Add convenience commands
+- [x] Add convenience commands
 - [x] Add imports support
 - [x] Add comments/regions support
-- [ ] Add semantic-token refinement
-- [ ] Add presets
+- [x] Add semantic-token refinement
+- [x] Add presets
 - [ ] Publish extension
 
 ## Summary

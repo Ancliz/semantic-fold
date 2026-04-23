@@ -1,6 +1,11 @@
 import { type CollapseArgs } from "../model/filters";
 import { runCompositeFoldCommand, runFoldCommand } from "./foldCommand";
-import { apiOverviewFilters, readerModeArgs } from "./presets";
+import {
+	apiOverviewFilters,
+	commentsArgs,
+	importsArgs,
+	readerModeArgs,
+} from "./presets";
 
 /*
  * Filters for contributed commands, provider-backed categories only
@@ -44,13 +49,6 @@ const functionsInVariablesArgs: CollapseArgs = {
 	mode: "toggle",
 };
 
-const importsArgs: CollapseArgs = {
-	filter: {
-		kinds: ["import"],
-	},
-	mode: "toggle",
-};
-
 /**
  * Base collapse command used by the command palette and keybinding payloads
  */
@@ -60,6 +58,10 @@ export async function collapseCommand(args?: unknown): Promise<void> {
 
 export async function toggleReaderModeCommand(): Promise<void> {
 	await collapseCommand(readerModeArgs);
+}
+
+export async function toggleCommentsCommand(): Promise<void> {
+	await collapseCommand(commentsArgs);
 }
 
 export async function toggleApiOverviewCommand(): Promise<void> {
