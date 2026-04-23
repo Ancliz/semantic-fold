@@ -81,6 +81,96 @@
           "default": true,
           "scope": "resource",
           "description": "Enable semantic-token refinement for weak or ambiguous symbol classifications. When disabled, Semantic Fold uses only document symbols and folding ranges."
+        },
+        "semanticFold.presets.imports": {
+          "type": "object",
+          "default": {},
+          "scope": "resource",
+          "description": "Override the imports preset. Use enabled:false to disable the preset command for this scope.",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Enable or disable the imports preset command."
+            },
+            "filter": {
+              "type": "object",
+              "description": "Filter override for the imports preset. Supports the same fields as generic command filters."
+            }
+          }
+        },
+        "semanticFold.presets.comments": {
+          "type": "object",
+          "default": {},
+          "scope": "resource",
+          "description": "Override the comments preset. Use enabled:false to disable the preset command for this scope.",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Enable or disable the comments preset command."
+            },
+            "filter": {
+              "type": "object",
+              "description": "Filter override for the comments preset. Supports the same fields as generic command filters."
+            }
+          }
+        },
+        "semanticFold.presets.readerMode": {
+          "type": "object",
+          "default": {},
+          "scope": "resource",
+          "description": "Override the Reader Mode preset. Use enabled:false to disable the preset command for this scope.",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Enable or disable the Reader Mode preset command."
+            },
+            "filter": {
+              "type": "object",
+              "description": "Filter override for Reader Mode. Supports the same fields as generic command filters."
+            }
+          }
+        },
+        "semanticFold.presets.apiOverview": {
+          "type": "object",
+          "default": {},
+          "scope": "resource",
+          "description": "Override the API Overview preset. Use enabled:false to disable the preset command for this scope.",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Enable or disable the API Overview preset command."
+            },
+            "filters": {
+              "type": "array",
+              "description": "Composite filter overrides for API Overview. Each entry supports the same fields as generic command filters.",
+              "items": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "semanticFold.presets.languageOverrides": {
+          "type": "object",
+          "default": {},
+          "scope": "resource",
+          "description": "Per-language preset overrides keyed by language id (for example typescript, javascript, python).",
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "imports": {
+                "type": "object"
+              },
+              "comments": {
+                "type": "object"
+              },
+              "readerMode": {
+                "type": "object"
+              },
+              "apiOverview": {
+                "type": "object"
+              }
+            }
+          }
         }
       }
     }
