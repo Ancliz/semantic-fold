@@ -51,7 +51,23 @@ It primarily uses:
 - folding ranges for extra foldable spans such as comments/imports/regions
 - semantic tokens as a refinement layer, not the main source of structure
 
+Semantic-token refinement is additive and best-effort. When semantic tokens and their legend are available, Semantic Fold can add a secondary classification to weak or ambiguous symbol regions such as `unknown`, `variable`, `object`, `function`, `property`, or `field` without replacing the original provider kind. This can make callable and member filters behave more consistently when language servers disagree about `function` versus `method`, or `property` versus `field`. If semantic data is missing, incomplete, or provider-dependent in a different way, the structural symbol and folding-range model is used unchanged.
+
+Refinement prefers narrower semantic evidence without broadening clear structural categories. For example, a provider-backed `function` may also match `method` when semantic tokens identify it as a method, but a provider-backed `method` is not broadened into `function`.
+
+If semantic data is disabled or unavailable, Semantic Fold keeps using the structural document-symbol and folding-range model unchanged. Semantic fallback decisions are logged with the `[semanticFold]` prefix through `console.debug` for development visibility.
+
 The extension then filters those regions using one or more constraints and folds only the matching lines.
+
+Language-specific quirks live behind the language refinement boundary rather
+than in the core normalisation and filtering model. Generic semantic refinement
+runs first, then adapters can add narrowly scoped classifications for languages
+whose providers expose known structural oddities.
+
+The TypeScript/JavaScript adapter handles callable object members that some
+providers expose as properties or fields. When semantic tokens identify the
+member name as callable, Semantic Fold adds a secondary `method` classification
+without replacing the provider-backed structural kind.
 
 ### Example
 
@@ -84,7 +100,7 @@ The normalised semantic category of a region, such as:
 - `comment`
 - `region`
 
-Semantic Fold preserves distinctions such as `struct`, `function`, `method`, `constructor`, `property`, `field`, `variable`, and `object` when the active language extension exposes them through VS Code's document-symbol provider. Provider quality varies by language and extension, so weak providers may report less precise kinds or fall back to unknown categories.
+Semantic Fold preserves distinctions such as `struct`, `function`, `method`, `constructor`, `property`, `field`, `variable`, and `object` when the active language extension exposes them through VS Code's document-symbol provider. Provider quality varies by language and extension, so weak providers may report less precise kinds or fall back to unknown categories. Semantic tokens can refine some of those ambiguous categories, but the result remains provider-dependent rather than a full parser.
 
 ### Symbol depth
 
@@ -486,15 +502,15 @@ Create overview keybindings to hide implementation details temporarily.
 
 ## Configuration
 
-Planned settings:
+Available settings:
 
 ```json
 {
-  "semanticFold.useSemanticTokens": true,
-  "semanticFold.preferDocumentSymbols": true,
-  "semanticFold.enableFallbackParsing": false
+  "semanticFold.semanticRefinement.enabled": true
 }
 ```
+
+Set `semanticFold.semanticRefinement.enabled` to `false` to disable semantic-token collection and refinement. When disabled, Semantic Fold uses document symbols and folding ranges only, so unsupported or noisy semantic-token providers cannot change command results.
 
 Future settings may include:
 
@@ -502,6 +518,19 @@ Future settings may include:
 - fallback parser enablement
 - custom presets
 - default filter presets for commands
+
+## Debugging region data
+
+When fold results look odd, contributors can run `semanticFold.inspectRegions` from the Command Palette in the Extension Development Host.
+
+The command collects the same region model used by the folding commands and writes a snapshot to the `Semantic Fold` output channel. Each region line includes:
+
+- provider source, such as `documentSymbol`, `symbolInformation`, or `foldingRange`
+- normalised kind and any additive semantic kind
+- raw VS Code `symbolKind` when available
+- selection line, full range, symbol depth, fold depth, and parent context
+
+This inspection path is optional and only runs when invoked, so normal folding behaviour is unchanged by default.
 
 ## Installation
 
