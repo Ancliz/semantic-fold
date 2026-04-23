@@ -25,6 +25,10 @@
         "title": "Semantic Fold: Toggle"
       },
       {
+        "command": "semanticFold.inspectRegions",
+        "title": "Semantic Fold: Inspect Regions"
+      },
+      {
         "command": "semanticFold.toggleMethodsInClasses",
         "title": "Semantic Fold: Toggle Methods in Classes"
       },

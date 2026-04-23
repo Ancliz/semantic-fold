@@ -10,6 +10,7 @@ import {
 	selectFoldableRegions,
 	TrackedFoldState,
 } from "../engine/foldExecutor";
+import { formatRegionDiagnostics } from "../engine/regionDiagnostics";
 import { getRegions } from "../engine/regionCollector";
 import { refineWithSemanticTokens } from "../engine/semanticRefiner";
 import { normalizeSymbols } from "../engine/symbolNormaliser";
@@ -32,6 +33,7 @@ suite("Semantic Fold Foundation", () => {
 		assert.ok(commands.includes("semanticFold.collapse"));
 		assert.ok(commands.includes("semanticFold.expand"));
 		assert.ok(commands.includes("semanticFold.toggle"));
+		assert.ok(commands.includes("semanticFold.inspectRegions"));
 		assert.ok(commands.includes("semanticFold.toggleMethodsInClasses"));
 		assert.ok(commands.includes("semanticFold.toggleClassMembers"));
 		assert.ok(commands.includes("semanticFold.toggleTypes"));
@@ -47,6 +49,45 @@ suite("Semantic Fold Foundation", () => {
 		assert.strictEqual(setting.type, "boolean");
 		assert.strictEqual(setting.default, true);
 		assert.strictEqual(setting.scope, "resource");
+	});
+});
+
+suite("Region Diagnostics", () => {
+	test("formats source, normalised kind, semantic kind, depth, and parent details", () => {
+		const regions = createMixedSymbolAndFoldingFixture();
+		const classRegion = regions.find((region) => region.name === "Example");
+
+		assert.ok(classRegion);
+
+		const methodRegion = classRegion.children.find((region) => region.name === "run");
+
+		assert.ok(methodRegion);
+
+		methodRegion.semanticKind = "function";
+
+		const diagnostics = formatRegionDiagnostics("file:///workspace/example.ts", regions);
+
+		assert.ok(diagnostics.includes("Semantic Fold region diagnostics"));
+		assert.ok(diagnostics.includes("Document: file:///workspace/example.ts"));
+		assert.ok(diagnostics.includes("Total regions: 10"));
+		assert.ok(diagnostics.includes("- Example | source=documentSymbol | normalisedKind=class"));
+		assert.ok(diagnostics.includes("  - run | source=documentSymbol | normalisedKind=method | semanticKind=function"));
+		assert.ok(diagnostics.includes("parent=Example<class>"));
+		assert.ok(diagnostics.includes("    - region | source=foldingRange | normalisedKind=region"));
+		assert.ok(diagnostics.includes("foldDepth=1"));
+	});
+
+	test("formats an empty region tree without failing", () => {
+		assert.strictEqual(
+			formatRegionDiagnostics("file:///workspace/empty.ts", []),
+			[
+				"Semantic Fold region diagnostics",
+				"Document: file:///workspace/empty.ts",
+				"Total regions: 0",
+				"",
+				"(no regions)",
+			].join("\n")
+		);
 	});
 });
 
