@@ -70,10 +70,10 @@ suite("Region Diagnostics", () => {
 		assert.ok(diagnostics.includes("Semantic Fold region diagnostics"));
 		assert.ok(diagnostics.includes("Document: file:///workspace/example.ts"));
 		assert.ok(diagnostics.includes("Total regions: 10"));
-		assert.ok(diagnostics.includes("- Example | source=documentSymbol | normalisedKind=class"));
-		assert.ok(diagnostics.includes("  - run | source=documentSymbol | normalisedKind=method | semanticKind=function"));
+		assert.ok(diagnostics.includes("- { Example | source=documentSymbol, normalisedKind=class"));
+		assert.ok(diagnostics.includes("  - { run | source=documentSymbol, normalisedKind=method, semanticKind=function"));
 		assert.ok(diagnostics.includes("parent=Example<class>"));
-		assert.ok(diagnostics.includes("    - region | source=foldingRange | normalisedKind=region"));
+		assert.ok(diagnostics.includes("    - { region | source=foldingRange, normalisedKind=region"));
 		assert.ok(diagnostics.includes("foldDepth=1"));
 	});
 
