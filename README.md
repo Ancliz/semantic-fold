@@ -586,6 +586,46 @@ Use a file with a top-level class, methods inside that class, a nested function 
 - Use `filter.kinds: ["import", "class", "comment"]`; confirm symbol and folding-range categories toggle together.
 - Use a filter with no matches; confirm the command leaves the editor unchanged.
 
+### Release Regression Checklist
+
+Run these before tagging a release candidate.
+
+- Run `npm test` and confirm all suites pass
+- Confirm `Release Workflow Regressions` passes for:
+  - flagship generic workflows
+  - preset workflows (`toggleImports`, `toggleComments`, `toggleReaderMode`, `toggleApiOverview`)
+  - composite workflow toggling (`semanticFold.runComposite`)
+- Confirm `Release Provider Matrix` passes for:
+  - hierarchical symbols with folding categories
+  - missing folding provider data
+  - missing symbol provider data
+  - flat `SymbolInformation` fallback behaviour
+
+Manual smoke checks in Extension Development Host:
+
+- Open a TypeScript file with imports, a class with methods, and nested object literal helpers
+- Run `semanticFold.toggleMethodsInClasses`, `semanticFold.toggleReaderMode`, `semanticFold.toggleApiOverview`, and `semanticFold.runComposite`
+- Verify unsupported provider categories are no-op outcomes rather than incorrect folds
+- Run `semanticFold.inspectRegions` if any result looks wrong and confirm provider source/kind/depth metadata
+
+### Representative Language and Provider Matrix
+
+- TypeScript or JavaScript
+  - Expected provider shape: hierarchical symbols + folding ranges + semantic tokens
+  - Coverage: automated release suites plus manual smoke checks
+- Java, C#, or Go
+  - Expected provider shape: hierarchical symbols, folding-range category support varies by extension
+  - Coverage: manual smoke checks focused on category no-match behaviour
+- Python and other languages with variable provider quality
+  - Expected provider shape: partial hierarchy or weaker kind precision
+  - Coverage: manual smoke checks with `inspectRegions` for quick diagnosis
+- Flat-symbol providers (`SymbolInformation` fallback)
+  - Expected provider shape: top-level symbols only, no inferred parent/ancestor relationships
+  - Coverage: automated `Release Provider Matrix` fallback checks
+- Folding-only fallback cases
+  - Expected provider shape: symbols unavailable, folding categories still present
+  - Coverage: automated `Release Provider Matrix` symbol-failure checks
+
 ### Targeted Folding Versus Recursive Folding
 
 Recursive level folding starts from a broad location or depth and can fold child ranges inside the selected region. That is useful for quickly hiding everything below a level, but it is not precise enough for workflows such as reviewing only method signatures.
