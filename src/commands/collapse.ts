@@ -1,11 +1,13 @@
+import * as vscode from "vscode";
 import { type CollapseArgs } from "../model/filters";
 import { runCompositeFoldCommand, runFoldCommand } from "./foldCommand";
 import {
-	apiOverviewFilters,
+	apiOverviewArgs,
 	commentsArgs,
 	importsArgs,
 	readerModeArgs,
 } from "./presets";
+import { resolveCompositePresetArgs, resolveTogglePresetArgs } from "../util/config";
 
 /*
  * Filters for contributed commands, provider-backed categories only
@@ -57,18 +59,33 @@ export async function collapseCommand(args?: unknown): Promise<void> {
 }
 
 export async function toggleReaderModeCommand(): Promise<void> {
-	await collapseCommand(readerModeArgs);
+	const args = resolveTogglePresetArgs("readerMode", readerModeArgs, vscode.window.activeTextEditor?.document);
+
+	if(args === undefined) {
+		return;
+	}
+
+	await collapseCommand(args);
 }
 
 export async function toggleCommentsCommand(): Promise<void> {
-	await collapseCommand(commentsArgs);
+	const args = resolveTogglePresetArgs("comments", commentsArgs, vscode.window.activeTextEditor?.document);
+
+	if(args === undefined) {
+		return;
+	}
+
+	await collapseCommand(args);
 }
 
 export async function toggleApiOverviewCommand(): Promise<void> {
-	await runCompositeFoldCommand({
-		filters: apiOverviewFilters,
-		mode: "toggle",
-	}, "toggle");
+	const args = resolveCompositePresetArgs("apiOverview", apiOverviewArgs, vscode.window.activeTextEditor?.document);
+
+	if(args === undefined) {
+		return;
+	}
+
+	await runCompositeFoldCommand(args, "toggle");
 }
 
 export async function toggleMethodsInClassesCommand(): Promise<void> {
@@ -92,7 +109,13 @@ export async function toggleFunctionsInVariablesCommand(): Promise<void> {
 }
 
 export async function toggleImportsCommand(): Promise<void> {
-	await collapseCommand(importsArgs);
+	const args = resolveTogglePresetArgs("imports", importsArgs, vscode.window.activeTextEditor?.document);
+
+	if(args === undefined) {
+		return;
+	}
+
+	await collapseCommand(args);
 }
 
 /**

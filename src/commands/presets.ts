@@ -1,4 +1,4 @@
-import { type CollapseArgs, type CollapseFilter } from "../model/filters";
+import { type CollapseArgs, type CollapseFilter, type CompositeCollapseArgs } from "../model/filters";
 import { type RegionKind } from "../model/region";
 
 /*
@@ -57,3 +57,7 @@ export const apiOverviewFilters: CollapseFilter[] = [
 		minSymbolDepth: 2,
 	},
 ];
+export const apiOverviewArgs: CompositeCollapseArgs = {
+	filters: apiOverviewFilters,
+	mode: "toggle"
+};
