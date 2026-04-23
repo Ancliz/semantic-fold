@@ -14,39 +14,39 @@ import {
 const methodsInClassesArgs: CollapseArgs = {
 	filter: {
 		kinds: ["method", "function"],
-		parentKinds: ["class"],
+		parentKinds: ["class"]
 	},
-	mode: "toggle",
+	mode: "toggle"
 };
 
 const classMembersArgs: CollapseArgs = {
 	filter: {
 		kinds: ["constructor", "method", "property", "field"],
-		parentKinds: ["class"],
+		parentKinds: ["class"]
 	},
-	mode: "toggle",
+	mode: "toggle"
 };
 
 const typesArgs: CollapseArgs = {
 	filter: {
-		kinds: ["class", "struct", "interface", "enum"],
+		kinds: ["class", "struct", "interface", "enum"]
 	},
-	mode: "toggle",
+	mode: "toggle"
 };
 
 const variablesArgs: CollapseArgs = {
 	filter: {
-		kinds: ["variable", "object"],
+		kinds: ["variable", "object"]
 	},
-	mode: "toggle",
+	mode: "toggle"
 };
 
 const functionsInVariablesArgs: CollapseArgs = {
 	filter: {
 		kinds: ["function", "method"],
-		ancestorKinds: ["variable", "object"],
+		ancestorKinds: ["variable", "object"]
 	},
-	mode: "toggle",
+	mode: "toggle"
 };
 
 /**

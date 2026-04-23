@@ -22,7 +22,7 @@ const semanticTokenKinds = new Map<string, RegionKind>([
 	["method", "method"],
 	["property", "property"],
 	["field", "field"],
-	["variable", "variable"],
+	["variable", "variable"]
 ]);
 
 const broadSemanticRegionKinds   = new Set<RegionKind>(["unknown", "object", "variable"]);
@@ -36,7 +36,7 @@ const broadSemanticRegionKinds   = new Set<RegionKind>(["unknown", "object", "va
 const ambiguousRegionRefinements = new Map<RegionKind, ReadonlySet<RegionKind>>([
 	["function", new Set<RegionKind>(["method"])],
 	["property", new Set<RegionKind>(["field"])],
-	["field", new Set<RegionKind>(["property"])],
+	["field", new Set<RegionKind>(["property"])]
 ]);
 
 /**
@@ -84,7 +84,7 @@ export function refineWithSemanticTokens(
 
 		applyLanguageRefinements(rootNodes, {
 			document: context.document,
-			semanticTokens,
+			semanticTokens
 		}, languageRefiners);
 	} catch (error) {
 		console.debug(`[semanticFold] Semantic refinement failed for ${uri}: ${formatError(error)}`);
@@ -120,7 +120,7 @@ function decodeSemanticTokens(
 				line,
 				startCharacter,
 				length,
-				tokenType,
+				tokenType
 			});
 		}
 	}

@@ -92,7 +92,7 @@ function foldingRangeNode(
 		symbolDepth: 1,
 		foldDepth: 1,
 		children: [],
-		source: "foldingRange",
+		source: "foldingRange"
 	};
 }
 
@@ -109,7 +109,7 @@ function createFoldingRangeNodeId(
 		path,
 		kind,
 		foldingRange.start,
-		foldingRange.end,
+		foldingRange.end
 	].join(":");
 }
 

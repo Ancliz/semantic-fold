@@ -9,7 +9,7 @@ import {
 	toggleMethodsInClassesCommand,
 	toggleReaderModeCommand,
 	toggleTypesCommand,
-	toggleVariablesCommand,
+	toggleVariablesCommand
 } from "./commands/collapse";
 import { runCompositeCommand } from "./commands/composite";
 import { expandCommand } from "./commands/expand";

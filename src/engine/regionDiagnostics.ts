@@ -11,7 +11,7 @@ export function formatRegionDiagnostics(
 		"Semantic Fold region diagnostics",
 		`Document: ${documentUri}`,
 		`Total regions: ${countRegions(rootNodes)}`,
-		"",
+		""
 	];
 	const visitedRegions = new Set<RegionNode>();
 
@@ -60,7 +60,7 @@ function formatRegionDetails(region: RegionNode): string {
 		`range=${region.rangeStartLine}-${region.rangeEndLine}`,
 		`symbolDepth=${region.symbolDepth}`,
 		`foldDepth=${region.foldDepth ?? "none"}`,
-		`parent=${formatParent(region.parent)}`,
+		`parent=${formatParent(region.parent)}`
 	].join(", ");
 }
 

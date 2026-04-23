@@ -8,5 +8,5 @@ import { typescriptJavascriptRefiner } from "./languageRefiners/typescriptJavasc
  * and unaware of individual language rules and provider quirks
  */
 export const languageRefiners: readonly LanguageRefiner[] = [
-	typescriptJavascriptRefiner,
+	typescriptJavascriptRefiner
 ];

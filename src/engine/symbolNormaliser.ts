@@ -49,7 +49,7 @@ function symbolRegionNode(
 		parent,
 		children: [],
 		source: "documentSymbol",
-		symbolKind: symbol.kind,
+		symbolKind: symbol.kind
 	};
 
 	node.children = symbol.children
@@ -76,7 +76,7 @@ function symbolInformationRegionNode(
 		symbolDepth: 1,
 		children: [],
 		source: "symbolInformation",
-		symbolKind: symbol.kind,
+		symbolKind: symbol.kind
 	};
 }
 
@@ -91,7 +91,7 @@ function createNodeId(symbol: vscode.DocumentSymbol, path: string): string {
 		symbol.range.end.line,
 		symbol.selectionRange.start.line,
 		symbol.kind,
-		symbol.name,
+		symbol.name
 	].join(":");
 }
 
@@ -106,7 +106,7 @@ function symbolInformationNodeId(symbol: vscode.SymbolInformation, path: string)
 		symbol.location.range.start.line,
 		symbol.location.range.end.line,
 		symbol.kind,
-		symbol.name,
+		symbol.name
 	].join(":");
 }
 
