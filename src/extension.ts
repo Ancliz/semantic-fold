@@ -5,6 +5,7 @@ import {
 	toggleFunctionsInVariablesCommand,
 	toggleImportsCommand,
 	toggleMethodsInClassesCommand,
+	toggleReaderModeCommand,
 	toggleTypesCommand,
 	toggleVariablesCommand,
 } from "./commands/collapse";
@@ -60,6 +61,10 @@ export function activate(context: vscode.ExtensionContext): void {
 		vscode.commands.registerCommand(
 			"semanticFold.toggleImports",
 			toggleImportsCommand
+		),
+		vscode.commands.registerCommand(
+			"semanticFold.toggleReaderMode",
+			toggleReaderModeCommand
 		),
 		// Text changes use debounce because providers can be expensive
 		vscode.workspace.onDidChangeTextDocument((event) => {

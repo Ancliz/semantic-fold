@@ -5,6 +5,24 @@ import { runFoldCommand } from "./foldCommand";
  * Filters for contributed commands, provider-backed categories only
  */
 
+const readerModeArgs: CollapseArgs = {
+	filter: {
+		kinds: [
+			"import",
+			"comment",
+			"region",
+			"constructor",
+			"method",
+			"function",
+			"property",
+			"field",
+			"variable",
+			"object",
+		],
+	},
+	mode: "toggle",
+};
+
 const methodsInClassesArgs: CollapseArgs = {
 	filter: {
 		kinds: ["method", "function"],
@@ -55,6 +73,10 @@ const importsArgs: CollapseArgs = {
  */
 export async function collapseCommand(args?: unknown): Promise<void> {
 	await runFoldCommand(args, getDefaultCollapseMode(args));
+}
+
+export async function toggleReaderModeCommand(): Promise<void> {
+	await collapseCommand(readerModeArgs);
 }
 
 export async function toggleMethodsInClassesCommand(): Promise<void> {
