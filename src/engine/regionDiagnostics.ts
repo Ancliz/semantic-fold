@@ -43,7 +43,7 @@ function appendRegionDiagnostic(
 	}
 
 	visitedRegions.add(region);
-	lines.push(`${indent}- ${formatRegionName(region)} | ${formatRegionDetails(region)}`);
+	lines.push(`${indent}- { ${formatRegionName(region)} | ${formatRegionDetails(region)} }`);
 
 	for(const child of region.children) {
 		appendRegionDiagnostic(lines, child, depth + 1, visitedRegions);
@@ -61,7 +61,7 @@ function formatRegionDetails(region: RegionNode): string {
 		`symbolDepth=${region.symbolDepth}`,
 		`foldDepth=${region.foldDepth ?? "none"}`,
 		`parent=${formatParent(region.parent)}`,
-	].join(" | ");
+	].join(", ");
 }
 
 function formatRegionName(region: RegionNode): string {
