@@ -757,18 +757,82 @@ Available settings:
 
 ```json
 {
-  "semanticFold.semanticRefinement.enabled": true
+  "semanticFold.semanticRefinement.enabled": true,
+  "semanticFold.presets.readerMode": {
+    "enabled": true
+  },
+  "semanticFold.presets.apiOverview": {
+    "enabled": true
+  }
 }
 ```
 
 Set `semanticFold.semanticRefinement.enabled` to `false` to disable semantic-token collection and refinement. When disabled, Semantic Fold uses document symbols and folding ranges only, so unsupported or noisy semantic-token providers cannot change command results.
 
-Future settings may include:
+Preset settings support global overrides for built-in overview commands:
 
-- per-language kind mappings
-- fallback parser enablement
-- custom presets
-- default filter presets for commands
+- `semanticFold.presets.imports`
+- `semanticFold.presets.comments`
+- `semanticFold.presets.readerMode`
+- `semanticFold.presets.apiOverview`
+
+Toggle-style presets (`imports`, `comments`, `readerMode`) accept:
+
+- `enabled`: boolean
+- `filter`: same shape as generic command `filter` payloads
+
+Composite presets (`apiOverview`) accept:
+
+- `enabled`: boolean
+- `filters`: array of generic command filter payloads
+
+Use `enabled: false` to disable a preset command without removing keybindings.
+Malformed override payloads are ignored and defaults stay active.
+
+Per-language overrides use `semanticFold.presets.languageOverrides` and are keyed by VS Code language id.
+
+```json
+{
+  "semanticFold.presets.readerMode": {
+    "filter": {
+      "kinds": ["comment", "region", "method", "function"]
+    }
+  },
+  "semanticFold.presets.apiOverview": {
+    "filters": [
+      {
+        "kinds": ["import", "comment", "region"]
+      },
+      {
+        "kinds": ["variable", "object"],
+        "minSymbolDepth": 2
+      }
+    ]
+  },
+  "semanticFold.presets.languageOverrides": {
+    "typescript": {
+      "apiOverview": {
+        "filters": [
+          {
+            "kinds": ["import", "comment", "region"]
+          },
+          {
+            "kinds": ["variable", "object"],
+            "minSymbolDepth": 3
+          }
+        ]
+      }
+    },
+    "python": {
+      "readerMode": {
+        "enabled": false
+      }
+    }
+  }
+}
+```
+
+When both global and language-specific overrides exist, language overrides win for the active document.
 
 ## Debugging region data
 
