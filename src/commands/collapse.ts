@@ -1,27 +1,15 @@
 import { type CollapseArgs } from "../model/filters";
-import { runFoldCommand } from "./foldCommand";
+import { runCompositeFoldCommand, runFoldCommand } from "./foldCommand";
+import {
+	apiOverviewFilters,
+	commentsArgs,
+	importsArgs,
+	readerModeArgs,
+} from "./presets";
 
 /*
  * Filters for contributed commands, provider-backed categories only
  */
-
-const readerModeArgs: CollapseArgs = {
-	filter: {
-		kinds: [
-			"import",
-			"comment",
-			"region",
-			"constructor",
-			"method",
-			"function",
-			"property",
-			"field",
-			"variable",
-			"object",
-		],
-	},
-	mode: "toggle",
-};
 
 const methodsInClassesArgs: CollapseArgs = {
 	filter: {
@@ -61,13 +49,6 @@ const functionsInVariablesArgs: CollapseArgs = {
 	mode: "toggle",
 };
 
-const importsArgs: CollapseArgs = {
-	filter: {
-		kinds: ["import"],
-	},
-	mode: "toggle",
-};
-
 /**
  * Base collapse command used by the command palette and keybinding payloads
  */
@@ -77,6 +58,17 @@ export async function collapseCommand(args?: unknown): Promise<void> {
 
 export async function toggleReaderModeCommand(): Promise<void> {
 	await collapseCommand(readerModeArgs);
+}
+
+export async function toggleCommentsCommand(): Promise<void> {
+	await collapseCommand(commentsArgs);
+}
+
+export async function toggleApiOverviewCommand(): Promise<void> {
+	await runCompositeFoldCommand({
+		filters: apiOverviewFilters,
+		mode: "toggle",
+	}, "toggle");
 }
 
 export async function toggleMethodsInClassesCommand(): Promise<void> {

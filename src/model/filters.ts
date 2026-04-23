@@ -80,6 +80,26 @@ export interface CollapseArgs {
 	preserveCursorContext?: boolean;
 }
 
+/**
+ * Command arguments for multi-filter fold execution
+ */
+export interface CompositeCollapseArgs {
+	/**
+	 * Structural filters applied independently then unioned
+	 */
+	filters?: CollapseFilter[];
+
+	/**
+	 * Requested fold behaviour
+	 */
+	mode?: "collapse" | "expand" | "toggle";
+
+	/**
+	 * Option for future cursor-aware command behaviour
+	 */
+	preserveCursorContext?: boolean;
+}
+
 type DepthFilterKey =
 	| "exactSymbolDepth"
 	| "minSymbolDepth"
@@ -119,6 +139,28 @@ export function normaliseArgs(args: unknown, mode: CollapseArgs["mode"] = "colla
 
 	if(filter !== undefined) {
 		normalisedArgs.filter = filter;
+	}
+
+	if(typeof payload.preserveCursorContext === "boolean") {
+		normalisedArgs.preserveCursorContext = payload.preserveCursorContext;
+	}
+
+	return normalisedArgs;
+}
+
+/**
+ * Converts arbitrary payloads into the safe internal multi-filter command shape
+ */
+export function normaliseCompositeArgs(
+	args: unknown,
+	mode: CompositeCollapseArgs["mode"] = "toggle"
+): CompositeCollapseArgs {
+	const payload = isRecord(args) ? args : {};
+	const normalisedArgs: CompositeCollapseArgs = { mode: normaliseMode(payload.mode) ?? mode };
+	const filters = normaliseCollapseFilters(payload.filters);
+
+	if(filters.length > 0) {
+		normalisedArgs.filters = filters;
 	}
 
 	if(typeof payload.preserveCursorContext === "boolean") {
@@ -174,6 +216,21 @@ export function normaliseCollapseFilter(filter: unknown): CollapseFilter | undef
 	}
 
 	return normalisedFilter;
+}
+
+/**
+ * Sanitises an array of filter objects while dropping invalid entries
+ */
+export function normaliseCollapseFilters(filters: unknown): CollapseFilter[] {
+	if(!Array.isArray(filters)) {
+		return [];
+	}
+
+	return filters.map((filter) => {
+		return normaliseCollapseFilter(filter);
+	}).filter((filter): filter is CollapseFilter => {
+		return filter !== undefined;
+	});
 }
 
 /**

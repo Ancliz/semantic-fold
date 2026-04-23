@@ -1,7 +1,9 @@
 import * as vscode from "vscode";
 import {
 	collapseCommand,
+	toggleApiOverviewCommand,
 	toggleClassMembersCommand,
+	toggleCommentsCommand,
 	toggleFunctionsInVariablesCommand,
 	toggleImportsCommand,
 	toggleMethodsInClassesCommand,
@@ -9,6 +11,7 @@ import {
 	toggleTypesCommand,
 	toggleVariablesCommand,
 } from "./commands/collapse";
+import { runCompositeCommand } from "./commands/composite";
 import { expandCommand } from "./commands/expand";
 import { inspectRegionsCommand } from "./commands/inspectRegions";
 import { toggleCommand } from "./commands/toggle";
@@ -63,8 +66,20 @@ export function activate(context: vscode.ExtensionContext): void {
 			toggleImportsCommand
 		),
 		vscode.commands.registerCommand(
+			"semanticFold.toggleComments",
+			toggleCommentsCommand
+		),
+		vscode.commands.registerCommand(
 			"semanticFold.toggleReaderMode",
 			toggleReaderModeCommand
+		),
+		vscode.commands.registerCommand(
+			"semanticFold.toggleApiOverview",
+			toggleApiOverviewCommand
+		),
+		vscode.commands.registerCommand(
+			"semanticFold.runComposite",
+			runCompositeCommand
 		),
 		// Text changes use debounce because providers can be expensive
 		vscode.workspace.onDidChangeTextDocument((event) => {

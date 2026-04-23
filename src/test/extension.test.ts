@@ -1,12 +1,19 @@
 import * as assert from "assert";
 import * as vscode from "vscode";
 import { getDefaultCollapseMode } from "../commands/collapse";
+import {
+	apiOverviewFilters,
+	commentsArgs,
+	readerModeArgs,
+} from "../commands/presets";
 import { filterRegions, flattenRegions, getAncestors, hasHierarchy } from "../engine/filterEngine";
 import { attachFoldingOnlyNodes, normaliseFoldingRanges } from "../engine/foldingRangeRefiner";
 import {
 	collectFoldableRegions,
 	collectSelectionLines,
+	execCompositeFoldCommand,
 	execFoldCommand,
+	selectFoldableRegionsForFilters,
 	selectFoldableRegions,
 	TrackedFoldState,
 } from "../engine/foldExecutor";
@@ -18,7 +25,12 @@ import { formatRegionDiagnostics } from "../engine/regionDiagnostics";
 import { getRegions } from "../engine/regionCollector";
 import { refineWithSemanticTokens } from "../engine/semanticRefiner";
 import { normalizeSymbols } from "../engine/symbolNormaliser";
-import { type CollapseFilter, normaliseArgs, normaliseCollapseFilter } from "../model/filters";
+import {
+	type CollapseFilter,
+	normaliseArgs,
+	normaliseCollapseFilter,
+	normaliseCompositeArgs,
+} from "../model/filters";
 import {
 	clearRegionCache,
 	getCachedRegions,
@@ -37,6 +49,7 @@ suite("Semantic Fold Foundation", () => {
 		assert.ok(commands.includes("semanticFold.collapse"));
 		assert.ok(commands.includes("semanticFold.expand"));
 		assert.ok(commands.includes("semanticFold.toggle"));
+		assert.ok(commands.includes("semanticFold.runComposite"));
 		assert.ok(commands.includes("semanticFold.inspectRegions"));
 		assert.ok(commands.includes("semanticFold.toggleMethodsInClasses"));
 		assert.ok(commands.includes("semanticFold.toggleClassMembers"));
@@ -44,7 +57,9 @@ suite("Semantic Fold Foundation", () => {
 		assert.ok(commands.includes("semanticFold.toggleVariables"));
 		assert.ok(commands.includes("semanticFold.toggleFunctionsInVariables"));
 		assert.ok(commands.includes("semanticFold.toggleImports"));
+		assert.ok(commands.includes("semanticFold.toggleComments"));
 		assert.ok(commands.includes("semanticFold.toggleReaderMode"));
+		assert.ok(commands.includes("semanticFold.toggleApiOverview"));
 	});
 
 	test("contributes semantic refinement configuration", () => {
@@ -54,6 +69,34 @@ suite("Semantic Fold Foundation", () => {
 		assert.strictEqual(setting.type, "boolean");
 		assert.strictEqual(setting.default, true);
 		assert.strictEqual(setting.scope, "resource");
+	});
+
+	test("uses a consistent command-palette naming pattern for flagship presets", () => {
+		const extension = getSemanticFoldExtension();
+		const commands = extension.packageJSON.contributes.commands as Array<{
+			command: string;
+			title: string;
+		}>;
+		const commandTitleById = new Map(commands.map((entry) => {
+			return [entry.command, entry.title] as const;
+		}));
+
+		assert.strictEqual(
+			commandTitleById.get("semanticFold.toggleImports"),
+			"Semantic Fold: Toggle Imports"
+		);
+		assert.strictEqual(
+			commandTitleById.get("semanticFold.toggleComments"),
+			"Semantic Fold: Toggle Comments"
+		);
+		assert.strictEqual(
+			commandTitleById.get("semanticFold.toggleReaderMode"),
+			"Semantic Fold: Toggle Reader Mode"
+		);
+		assert.strictEqual(
+			commandTitleById.get("semanticFold.toggleApiOverview"),
+			"Semantic Fold: Toggle API Overview"
+		);
 	});
 });
 
@@ -1149,6 +1192,50 @@ suite("Command Argument Normalisation", () => {
 		});
 	});
 
+	test("normalises composite command payloads and drops invalid filters", () => {
+		assert.deepStrictEqual(
+			normaliseCompositeArgs({
+				mode: "collapse",
+				filters: [
+					{
+						kinds: ["method", "function"],
+						parentKinds: ["class"],
+					},
+					{
+						kinds: "method",
+					},
+					{
+						minSymbolDepth: 2,
+					},
+					"bad",
+				],
+				preserveCursorContext: true,
+			}),
+			{
+				mode: "collapse",
+				filters: [
+					{
+						kinds: ["method", "function"],
+						parentKinds: ["class"],
+					},
+					{
+						minSymbolDepth: 2,
+					},
+				],
+				preserveCursorContext: true,
+			}
+		);
+		assert.deepStrictEqual(normaliseCompositeArgs(undefined), {
+			mode: "toggle",
+		});
+		assert.deepStrictEqual(normaliseCompositeArgs({
+			mode: "expand",
+			filters: [{ kinds: "bad" }],
+		}), {
+			mode: "expand",
+		});
+	});
+
 	test("defaults collapse keybinding payloads to toggle mode", () => {
 		assert.strictEqual(getDefaultCollapseMode(undefined), "collapse");
 		assert.strictEqual(getDefaultCollapseMode({}), "toggle");
@@ -1625,23 +1712,48 @@ suite("Region Filtering", () => {
 		const regions = createMixedSymbolAndFoldingFixture();
 
 		assert.deepStrictEqual(
-			collectSelectionLines(selectFoldableRegions({
-				filter: {
-					kinds: [
-						"import",
-						"comment",
-						"region",
-						"constructor",
-						"method",
-						"function",
-						"property",
-						"field",
-						"variable",
-						"object",
-					],
-				},
-			}, regions)),
+			collectSelectionLines(selectFoldableRegions(readerModeArgs, regions)),
 			[0, 5, 10, 12, 14, 20, 22, 40]
+		);
+	});
+
+	test("applies comments preset categories across symbol and folding ranges", () => {
+		const regions = createMixedSymbolAndFoldingFixture();
+
+		assert.deepStrictEqual(
+			collectSelectionLines(selectFoldableRegions(commentsArgs, regions)),
+			[12, 22]
+		);
+	});
+
+	test("applies API overview preset categories across symbol and folding ranges", () => {
+		const regions = createMixedSymbolAndFoldingFixture();
+
+		assert.deepStrictEqual(
+			collectSelectionLines(selectFoldableRegionsForFilters(apiOverviewFilters, regions)),
+			[0, 12, 20, 22]
+		);
+	});
+
+	test("keeps callable and top-level containers visible in API overview", () => {
+		const regions = createApiOverviewFixture();
+
+		assert.deepStrictEqual(
+			collectSelectionLines(selectFoldableRegionsForFilters(apiOverviewFilters, regions)),
+			[0, 12, 20, 22, 28]
+		);
+	});
+
+	test("fails soft when preset categories are absent for the active provider", () => {
+		const regions = createPhaseOneFixture();
+
+		assert.deepStrictEqual(
+			collectSelectionLines(selectFoldableRegions(commentsArgs, regions)),
+			[]
+		);
+		assert.deepStrictEqual(
+			collectSelectionLines(selectFoldableRegionsForFilters(apiOverviewFilters, regions)),
+			[]
 		);
 	});
 
@@ -2381,6 +2493,165 @@ suite("Fold Execution Guards", () => {
 		})));
 	});
 
+	test("unions composite filter targets with deduplicated sorted lines", async () => {
+		const regions = createConvenienceCommandFixture();
+		const executedCommands: ExecutedCommand[] = [];
+		const foldState = new TrackedFoldState();
+
+		await execCompositeFoldCommand({
+			mode: "collapse",
+			filters: [
+				{
+					kinds: ["method"],
+					parentKinds: ["class"],
+				},
+				{
+					kinds: ["constructor", "method", "property", "field"],
+					parentKinds: ["class"],
+				},
+			],
+		}, regions, async (command, args) => {
+			executedCommands.push({
+				command,
+				levels: args.levels,
+				selectionLines: args.selectionLines,
+			});
+		}, foldState, "test://composite-union");
+
+		assert.deepStrictEqual(executedCommands, [{
+			command: "editor.fold",
+			levels: 1,
+			selectionLines: [1, 5, 21],
+		}]);
+	});
+
+	test("uses the requested mode for composite fold execution", async () => {
+		const regions = createConvenienceCommandFixture();
+		const executedCommands: ExecutedCommand[] = [];
+		const foldState = new TrackedFoldState();
+		const modeCases = [
+			{
+				documentKey: "test://composite-collapse",
+				expectedCommand: "editor.fold" as const,
+				mode: "collapse" as const,
+			},
+			{
+				documentKey: "test://composite-expand",
+				expectedCommand: "editor.unfold" as const,
+				mode: "expand" as const,
+			},
+			{
+				documentKey: "test://composite-toggle",
+				expectedCommand: "editor.fold" as const,
+				mode: "toggle" as const,
+			},
+		];
+
+		for(const modeCase of modeCases) {
+			await execCompositeFoldCommand({
+				mode: modeCase.mode,
+				filters: [{
+					kinds: ["constructor", "method", "property", "field"],
+					parentKinds: ["class"],
+				}],
+			}, regions, async (command, args) => {
+				executedCommands.push({
+					command,
+					levels: args.levels,
+					selectionLines: args.selectionLines,
+				});
+			}, foldState, modeCase.documentKey);
+		}
+
+		assert.deepStrictEqual(executedCommands, modeCases.map((modeCase) => ({
+			command: modeCase.expectedCommand,
+			levels: 1,
+			selectionLines: [1, 5, 21],
+		})));
+	});
+
+	test("toggles composite targets as one union set", async () => {
+		const regions = createConvenienceCommandFixture();
+		const executedCommands: ExecutedCommand[] = [];
+		const foldState = new TrackedFoldState();
+		const filters: CollapseFilter[] = [
+			{
+				kinds: ["method"],
+				parentKinds: ["class"],
+			},
+			{
+				kinds: ["constructor", "method", "property", "field"],
+				parentKinds: ["class"],
+			},
+		];
+
+		await execCompositeFoldCommand({
+			mode: "toggle",
+			filters,
+		}, regions, async (command, args) => {
+			executedCommands.push({
+				command,
+				levels: args.levels,
+				selectionLines: args.selectionLines,
+			});
+		}, foldState, "test://composite-toggle-union");
+
+		await execCompositeFoldCommand({
+			mode: "toggle",
+			filters,
+		}, regions, async (command, args) => {
+			executedCommands.push({
+				command,
+				levels: args.levels,
+				selectionLines: args.selectionLines,
+			});
+		}, foldState, "test://composite-toggle-union");
+
+		assert.deepStrictEqual(executedCommands, [
+			{
+				command: "editor.fold",
+				levels: 1,
+				selectionLines: [1, 5, 21],
+			},
+			{
+				command: "editor.unfold",
+				levels: 1,
+				selectionLines: [1, 5, 21],
+			},
+		]);
+	});
+
+	test("does not execute composite commands when filters are absent or no-op", async () => {
+		const regions = createPhaseOneFixture();
+		const executedCommands: ExecutedCommand[] = [];
+		const foldState = new TrackedFoldState();
+
+		await execCompositeFoldCommand({
+			mode: "toggle",
+		}, regions, async (command, args) => {
+			executedCommands.push({
+				command,
+				levels: args.levels,
+				selectionLines: args.selectionLines,
+			});
+		}, foldState, "test://composite-empty");
+
+		await execCompositeFoldCommand({
+			mode: "toggle",
+			filters: [{
+				kinds: ["import"],
+			}],
+		}, regions, async (command, args) => {
+			executedCommands.push({
+				command,
+				levels: args.levels,
+				selectionLines: args.selectionLines,
+			});
+		}, foldState, "test://composite-no-match");
+
+		assert.deepStrictEqual(executedCommands, []);
+	});
+
 	test("handles no-match filters cleanly for every fold mode", async () => {
 		const regions = createPhaseOneFixture();
 		const executedCommands: ExecutedCommand[] = [];
@@ -2577,6 +2848,25 @@ function createMixedSymbolAndFoldingFixture(): ReturnType<typeof attachFoldingOn
 		new vscode.FoldingRange(12, 13, vscode.FoldingRangeKind.Comment),
 		new vscode.FoldingRange(22, 23, vscode.FoldingRangeKind.Comment),
 		new vscode.FoldingRange(20, 26, vscode.FoldingRangeKind.Region),
+	]);
+}
+
+function createApiOverviewFixture(): ReturnType<typeof attachFoldingOnlyNodes> {
+	const topLevelObjectSymbol = createSymbol("registry", vscode.SymbolKind.Object, 2, 40);
+	const nestedObjectSymbol = createSymbol("routes", vscode.SymbolKind.Object, 12, 24);
+	const nestedVariableSymbol = createSymbol("cache", vscode.SymbolKind.Variable, 28, 34);
+	const methodSymbol = createSymbol("bootstrap", vscode.SymbolKind.Method, 36, 38);
+	const topLevelVariableSymbol = createSymbol("settings", vscode.SymbolKind.Variable, 42, 52);
+
+	topLevelObjectSymbol.children.push(nestedObjectSymbol, nestedVariableSymbol, methodSymbol);
+
+	return attachFoldingOnlyNodes(normalizeSymbols([
+		topLevelObjectSymbol,
+		topLevelVariableSymbol,
+	]), [
+		new vscode.FoldingRange(0, 1, vscode.FoldingRangeKind.Imports),
+		new vscode.FoldingRange(20, 23, vscode.FoldingRangeKind.Comment),
+		new vscode.FoldingRange(22, 26, vscode.FoldingRangeKind.Region),
 	]);
 }
 

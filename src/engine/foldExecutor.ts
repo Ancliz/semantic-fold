@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import type { CollapseArgs } from "../model/filters";
+import type { CollapseArgs, CollapseFilter, CompositeCollapseArgs } from "../model/filters";
 import type { RegionNode } from "../model/region";
 import { filterRegions } from "./filterEngine";
 
@@ -134,6 +134,32 @@ export function selectFoldableRegions(
 }
 
 /**
+ * Applies each filter independently then unions targets by selection line
+ */
+export function selectFoldableRegionsForFilters(
+	filters: readonly CollapseFilter[],
+	rootNodes: readonly RegionNode[]
+): RegionNode[] {
+	const selectedRegionsByLine = new Map<number, RegionNode>();
+
+	for(const filter of filters) {
+		const regions = selectFoldableRegions({ filter }, rootNodes);
+
+		for(const region of regions) {
+			if(selectedRegionsByLine.has(region.selectionLine)) {
+				continue;
+			}
+
+			selectedRegionsByLine.set(region.selectionLine, region);
+		}
+	}
+
+	return [...selectedRegionsByLine.values()].sort((left, right) => {
+		return left.selectionLine - right.selectionLine;
+	});
+}
+
+/**
  * Converts selected regions into the exact start lines sent to VS Code
  *
  * The Set removes duplicated targets from overlapping symbol and folding-range
@@ -170,6 +196,35 @@ export async function execFoldCommand(
 }
 
 /**
+ * Executes a fold request using the union of multiple structural filters
+ */
+export async function execCompositeFoldCommand(
+	args: CompositeCollapseArgs,
+	rootNodes: readonly RegionNode[] = [],
+	executeCommand: FoldCommandExecutor = defaultFoldCommandExecutor,
+	foldState: TrackedFoldState = defaultFoldState,
+	documentKey: string = getActiveDocumentKey()
+): Promise<void> {
+	if(!args.filters || args.filters.length === 0) {
+		return;
+	}
+
+	const selectionLines = collectSelectionLines(
+		selectFoldableRegionsForFilters(args.filters, rootNodes)
+	);
+
+	if(selectionLines.length === 0) {
+		return;
+	}
+
+	const command = getFoldCommand(args, selectionLines, foldState, documentKey);
+
+	// levels: 1 keeps Semantic Fold targeted instead of recursively folding children
+	await executeCommand(command, { selectionLines, levels: 1 });
+	updateTrackedFoldState(command, selectionLines, foldState, documentKey);
+}
+
+/**
  * Recursive helper for collecting foldable nodes without flattening the tree first
  */
 function collectFoldableRegion(region: RegionNode, foldableRegions: RegionNode[]): void {
@@ -186,7 +241,7 @@ function collectFoldableRegion(region: RegionNode, foldableRegions: RegionNode[]
  * Resolves the VS Code command to execute for the requested fold mode
  */
 function getFoldCommand(
-	args: CollapseArgs,
+	args: Pick<CollapseArgs, "mode">,
 	selectionLines: readonly number[],
 	foldState: TrackedFoldState,
 	documentKey: string
