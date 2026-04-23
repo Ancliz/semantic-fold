@@ -169,6 +169,7 @@ These commands are available from the Command Palette and use the same filter pi
 | `semanticFold.toggleVariables` | Toggle variable, constant, and object regions that have foldable symbol ranges. |
 | `semanticFold.toggleFunctionsInVariables` | Toggle function and method regions anywhere inside a variable or object ancestor context, such as functions inside an object literal assigned to a variable. |
 | `semanticFold.toggleImports` | Toggle provider-exposed import folding ranges. |
+| `semanticFold.toggleReaderMode` | Toggle the Reader Mode preset that collapses imports, comments, regions, callable/member implementation blocks, and variable/object implementation detail while leaving top-level type structure visible. |
 
 Toggle methods whose immediate parent is a class:
 
@@ -278,6 +279,37 @@ The generic command equivalent is:
 }
 ```
 
+Toggle Reader Mode:
+
+```json
+{
+  "key": "ctrl+alt+shift+r",
+  "command": "semanticFold.toggleReaderMode"
+}
+```
+
+Reader Mode folds this category set:
+
+```json
+{
+  "filter": {
+    "kinds": [
+      "import",
+      "comment",
+      "region",
+      "constructor",
+      "method",
+      "function",
+      "property",
+      "field",
+      "variable",
+      "object"
+    ]
+  },
+  "mode": "toggle"
+}
+```
+
 Toggle comment blocks:
 
 ```json
@@ -366,6 +398,7 @@ Use a file with a top-level class, methods inside that class, a nested function 
 - Run `semanticFold.toggleVariables`; confirm foldable variable, constant, and object regions toggle.
 - Run `semanticFold.toggleFunctionsInVariables`; confirm function and method regions inside variable or object contexts toggle when the provider exposes that hierarchy.
 - Run `semanticFold.toggleImports`; confirm provider-exposed import folding ranges toggle together.
+- Run `semanticFold.toggleReaderMode`; confirm imports/comments/regions and implementation-heavy callable/member blocks collapse while top-level type declarations remain visible.
 - Add `"mode": "collapse"` to the same keybinding; confirm repeated use stays a one-way collapse request.
 - Run `semanticFold.expand` with the same filter; confirm only the matching methods expand.
 - Run `semanticFold.toggle` with the same filter; confirm it targets the same methods as collapse and expand.

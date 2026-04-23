@@ -44,6 +44,7 @@ suite("Semantic Fold Foundation", () => {
 		assert.ok(commands.includes("semanticFold.toggleVariables"));
 		assert.ok(commands.includes("semanticFold.toggleFunctionsInVariables"));
 		assert.ok(commands.includes("semanticFold.toggleImports"));
+		assert.ok(commands.includes("semanticFold.toggleReaderMode"));
 	});
 
 	test("contributes semantic refinement configuration", () => {
@@ -1598,6 +1599,49 @@ suite("Region Filtering", () => {
 				},
 			}, regions)),
 			[72, 78, 88]
+		);
+		assert.deepStrictEqual(
+			collectSelectionLines(selectFoldableRegions({
+				filter: {
+					kinds: [
+						"import",
+						"comment",
+						"region",
+						"constructor",
+						"method",
+						"function",
+						"property",
+						"field",
+						"variable",
+						"object",
+					],
+				},
+			}, regions)),
+			[1, 5, 7, 21, 32, 70, 72, 78, 86, 88]
+		);
+	});
+
+	test("applies reader mode preset categories across symbol and folding ranges", () => {
+		const regions = createMixedSymbolAndFoldingFixture();
+
+		assert.deepStrictEqual(
+			collectSelectionLines(selectFoldableRegions({
+				filter: {
+					kinds: [
+						"import",
+						"comment",
+						"region",
+						"constructor",
+						"method",
+						"function",
+						"property",
+						"field",
+						"variable",
+						"object",
+					],
+				},
+			}, regions)),
+			[0, 5, 10, 12, 14, 20, 22, 40]
 		);
 	});
 
