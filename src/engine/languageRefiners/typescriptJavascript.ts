@@ -6,6 +6,13 @@ import type {
 	LanguageRefiner,
 } from "../languageRefinement";
 
+/*
+ * TypeScript and JavaScript refinement rules
+ *
+ * Handles callable members that some providers expose as properties or fields
+ * while semantic tokens identify the member name as callable
+ */
+
 const languageIds = [
 	"javascript",
 	"javascriptreact",

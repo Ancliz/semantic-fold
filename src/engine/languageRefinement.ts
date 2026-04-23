@@ -1,6 +1,15 @@
 import * as vscode from "vscode";
 import type { RegionNode } from "../model/region";
 
+/*
+ * Generic language-refinement entry point
+ *
+ * Core collection and generic semantic refinement stay language-neutral. This
+ * module defines the small adapter contract used when a language provider has
+ * known structural quirks that can be refined with already-collected semantic
+ * token data
+ */
+
 export interface DecodedSemanticToken {
 	line: number;
 	startCharacter: number;
