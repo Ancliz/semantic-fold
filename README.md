@@ -157,6 +157,25 @@ Toggle state is tracked for folds created through Semantic Fold commands. Manual
 
 Category support depends on the active language and folding providers. If the current editor does not report a category such as `import`, `comment`, or `region`, filters for that category simply produce no matching fold targets; other reported categories continue to work.
 
+`semanticFold.runComposite` accepts multiple filter objects and unions their fold targets into one command execution:
+
+```json
+{
+  "mode": "toggle",
+  "filters": [
+    {
+      "kinds": ["import", "comment", "region"]
+    },
+    {
+      "kinds": ["variable", "object"],
+      "minSymbolDepth": 2
+    }
+  ]
+}
+```
+
+Composite payloads use the same filter normalisation rules as single-filter commands. Invalid filter entries are dropped, and if no valid filters remain then the command is a no-op.
+
 ## Convenience commands
 
 These commands are available from the Command Palette and use the same filter pipeline as the generic commands:
@@ -170,6 +189,8 @@ These commands are available from the Command Palette and use the same filter pi
 | `semanticFold.toggleFunctionsInVariables` | Toggle function and method regions anywhere inside a variable or object ancestor context, such as functions inside an object literal assigned to a variable. |
 | `semanticFold.toggleImports` | Toggle provider-exposed import folding ranges. |
 | `semanticFold.toggleReaderMode` | Toggle the Reader Mode preset that collapses imports, comments, regions, callable/member implementation blocks, and variable/object implementation detail while leaving top-level type structure visible. |
+| `semanticFold.toggleApiOverview` | Toggle API Overview by collapsing structural noise plus nested variable/object containers while keeping callable/member signatures visible. |
+| `semanticFold.runComposite` | Run one collapse/expand/toggle request across a union of multiple filter queries supplied via `args.filters`. |
 
 Toggle methods whose immediate parent is a class:
 
@@ -310,6 +331,53 @@ Reader Mode folds this category set:
 }
 ```
 
+Toggle API Overview:
+
+```json
+{
+  "key": "ctrl+alt+shift+a",
+  "command": "semanticFold.toggleApiOverview"
+}
+```
+
+API Overview combines these composite filters:
+
+```json
+{
+  "filters": [
+    {
+      "kinds": ["import", "comment", "region"]
+    },
+    {
+      "kinds": ["variable", "object"],
+      "minSymbolDepth": 2
+    }
+  ],
+  "mode": "toggle"
+}
+```
+
+Run a custom composite keybinding:
+
+```json
+{
+  "key": "ctrl+alt+shift+u",
+  "command": "semanticFold.runComposite",
+  "args": {
+    "mode": "collapse",
+    "filters": [
+      {
+        "kinds": ["import", "comment"]
+      },
+      {
+        "kinds": ["method"],
+        "parentKinds": ["class"]
+      }
+    ]
+  }
+}
+```
+
 Toggle comment blocks:
 
 ```json
@@ -399,6 +467,8 @@ Use a file with a top-level class, methods inside that class, a nested function 
 - Run `semanticFold.toggleFunctionsInVariables`; confirm function and method regions inside variable or object contexts toggle when the provider exposes that hierarchy.
 - Run `semanticFold.toggleImports`; confirm provider-exposed import folding ranges toggle together.
 - Run `semanticFold.toggleReaderMode`; confirm imports/comments/regions and implementation-heavy callable/member blocks collapse while top-level type declarations remain visible.
+- Run `semanticFold.toggleApiOverview`; confirm it collapses imports/comments/regions and nested variable or object containers while methods/functions/properties/fields remain visible.
+- Run `semanticFold.runComposite` with two filters; confirm both filter queries contribute to one deduplicated target set.
 - Add `"mode": "collapse"` to the same keybinding; confirm repeated use stays a one-way collapse request.
 - Run `semanticFold.expand` with the same filter; confirm only the matching methods expand.
 - Run `semanticFold.toggle` with the same filter; confirm it targets the same methods as collapse and expand.

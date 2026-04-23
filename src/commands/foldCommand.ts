@@ -1,7 +1,12 @@
 import * as vscode from "vscode";
 import { getRegions } from "../engine/regionCollector";
-import { execFoldCommand } from "../engine/foldExecutor";
-import { type CollapseArgs, normaliseArgs } from "../model/filters";
+import { execCompositeFoldCommand, execFoldCommand } from "../engine/foldExecutor";
+import {
+	type CollapseArgs,
+	type CompositeCollapseArgs,
+	normaliseArgs,
+	normaliseCompositeArgs,
+} from "../model/filters";
 
 /**
  * Shared command runner for collapse, expand, toggle, and convenience commands
@@ -18,4 +23,22 @@ export async function runFoldCommand(args: unknown, defaultMode: CollapseArgs["m
 	
 	const regions = await getRegions(editor.document);
 	await execFoldCommand(normaliseArgs(args, defaultMode), regions);
+}
+
+/**
+ * Shared command runner for multi-filter composite fold execution
+ */
+export async function runCompositeFoldCommand(
+	args: unknown,
+	defaultMode: CompositeCollapseArgs["mode"] = "toggle"
+): Promise<void> {
+	const editor = vscode.window.activeTextEditor;
+
+	if(!editor) {
+		return;
+	}
+
+	const regions = await getRegions(editor.document);
+
+	await execCompositeFoldCommand(normaliseCompositeArgs(args, defaultMode), regions);
 }
