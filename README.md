@@ -64,6 +64,11 @@ than in the core normalisation and filtering model. Generic semantic refinement
 runs first, then adapters can add narrowly scoped classifications for languages
 whose providers expose known structural oddities.
 
+The TypeScript/JavaScript adapter handles callable object members that some
+providers expose as properties or fields. When semantic tokens identify the
+member name as callable, Semantic Fold adds a secondary `method` classification
+without replacing the provider-backed structural kind.
+
 ### Example
 
 Collapse methods inside classes:

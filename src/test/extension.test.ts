@@ -1872,6 +1872,74 @@ suite("Semantic Token Refinement", () => {
 			["run"]
 		);
 	});
+
+	test("refines TypeScript callable properties as methods", async () => {
+		const document = await vscode.workspace.openTextDocument({
+			content: "const config = {\n\thandler: () => true\n}\n",
+			language: "typescript",
+		});
+		const objectSymbol = createSymbol("config", vscode.SymbolKind.Object, 0, 2);
+		const propertySymbol = createSymbol("handler", vscode.SymbolKind.Property, 1, 1);
+
+		objectSymbol.children.push(propertySymbol);
+
+		const regions = normalizeSymbols([objectSymbol]);
+
+		refineWithSemanticTokens(regions, {
+			document,
+			semanticTokens: createSemanticTokens([{
+				line: 1,
+				startCharacter: 1,
+				length: 7,
+				tokenType: 0,
+			}]),
+			semanticTokenLegend: new vscode.SemanticTokensLegend(["function"]),
+		});
+
+		assert.strictEqual(regions[0].children[0].kind, "property");
+		assert.strictEqual(regions[0].children[0].semanticKind, "method");
+		assert.deepStrictEqual(
+			filterRegions(regions, {
+				kinds: ["method"],
+				parentKinds: ["object"],
+			}).map((region) => region.name),
+			["handler"]
+		);
+	});
+
+	test("keeps callable property rules out of unsupported languages", async () => {
+		const document = await vscode.workspace.openTextDocument({
+			content: "const config = {\n\thandler: () => true\n}\n",
+			language: "plaintext",
+		});
+		const objectSymbol = createSymbol("config", vscode.SymbolKind.Object, 0, 2);
+		const propertySymbol = createSymbol("handler", vscode.SymbolKind.Property, 1, 1);
+
+		objectSymbol.children.push(propertySymbol);
+
+		const regions = normalizeSymbols([objectSymbol]);
+
+		refineWithSemanticTokens(regions, {
+			document,
+			semanticTokens: createSemanticTokens([{
+				line: 1,
+				startCharacter: 1,
+				length: 7,
+				tokenType: 0,
+			}]),
+			semanticTokenLegend: new vscode.SemanticTokensLegend(["function"]),
+		});
+
+		assert.strictEqual(regions[0].children[0].kind, "property");
+		assert.strictEqual(regions[0].children[0].semanticKind, undefined);
+		assert.deepStrictEqual(
+			filterRegions(regions, {
+				kinds: ["property"],
+				parentKinds: ["object"],
+			}).map((region) => region.name),
+			["handler"]
+		);
+	});
 });
 
 suite("Fold Execution Guards", () => {
