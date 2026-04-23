@@ -8,7 +8,7 @@ import { type RegionKind } from "../model/region";
 export const structuralNoiseKinds: readonly RegionKind[] = [
 	"import",
 	"comment",
-	"region",
+	"region"
 ];
 
 export const callableAndMemberKinds: readonly RegionKind[] = [
@@ -16,12 +16,12 @@ export const callableAndMemberKinds: readonly RegionKind[] = [
 	"method",
 	"function",
 	"property",
-	"field",
+	"field"
 ];
 
 export const implementationContainerKinds: readonly RegionKind[] = [
 	"variable",
-	"object",
+	"object"
 ];
 
 function composeKinds(
@@ -33,9 +33,9 @@ function composeKinds(
 function createTogglePreset(kinds: readonly RegionKind[]): CollapseArgs {
 	return {
 		filter: {
-			kinds: [...kinds],
+			kinds: [...kinds]
 		},
-		mode: "toggle",
+		mode: "toggle"
 	};
 }
 
@@ -50,12 +50,12 @@ export const importsArgs: CollapseArgs = createTogglePreset(["import"]);
 export const commentsArgs: CollapseArgs = createTogglePreset(["comment"]);
 export const apiOverviewFilters: CollapseFilter[] = [
 	{
-		kinds: [...structuralNoiseKinds],
+		kinds: [...structuralNoiseKinds]
 	},
 	{
 		kinds: [...implementationContainerKinds],
-		minSymbolDepth: 2,
-	},
+		minSymbolDepth: 2
+	}
 ];
 export const apiOverviewArgs: CompositeCollapseArgs = {
 	filters: apiOverviewFilters,

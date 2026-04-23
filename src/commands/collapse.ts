@@ -5,7 +5,7 @@ import {
 	apiOverviewArgs,
 	commentsArgs,
 	importsArgs,
-	readerModeArgs,
+	readerModeArgs
 } from "./presets";
 import { resolveCompositePresetArgs, resolveTogglePresetArgs } from "../util/config";
 
