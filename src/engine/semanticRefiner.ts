@@ -1,5 +1,7 @@
 import * as vscode from "vscode";
 import type { RegionKind, RegionNode } from "../model/region";
+import { languageRefiners } from "./languageRefinerRegistry";
+import { applyLanguageRefinements, type DecodedSemanticToken } from "./languageRefinement";
 
 /**
  * Semantic-token data needed to refine structural regions
@@ -8,13 +10,6 @@ export interface SemanticTokenRefinementContext {
 	document: vscode.TextDocument;
 	semanticTokens: vscode.SemanticTokens | null | undefined;
 	semanticTokenLegend: vscode.SemanticTokensLegend | null | undefined;
-}
-
-interface DecodedSemanticToken {
-	line: number;
-	startCharacter: number;
-	length: number;
-	tokenType: string;
 }
 
 const semanticTokenKinds = new Map<string, RegionKind>([
@@ -86,6 +81,11 @@ export function refineWithSemanticTokens(
 				region.semanticKind = semanticKind;
 			}
 		}
+
+		applyLanguageRefinements(rootNodes, {
+			document: context.document,
+			semanticTokens,
+		}, languageRefiners);
 	} catch (error) {
 		console.debug(`[semanticFold] Semantic refinement failed for ${uri}: ${formatError(error)}`);
 		return rootNodes;

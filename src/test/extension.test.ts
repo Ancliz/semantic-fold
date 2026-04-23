@@ -10,6 +10,10 @@ import {
 	selectFoldableRegions,
 	TrackedFoldState,
 } from "../engine/foldExecutor";
+import {
+	applyLanguageRefinements,
+	type LanguageRefiner,
+} from "../engine/languageRefinement";
 import { formatRegionDiagnostics } from "../engine/regionDiagnostics";
 import { getRegions } from "../engine/regionCollector";
 import { refineWithSemanticTokens } from "../engine/semanticRefiner";
@@ -88,6 +92,57 @@ suite("Region Diagnostics", () => {
 				"(no regions)",
 			].join("\n")
 		);
+	});
+});
+
+suite("Language Refinement Boundary", () => {
+	test("applies only refiners matching the active document language", async () => {
+		const document = await vscode.workspace.openTextDocument({
+			content: "class Example {}\n",
+			language: "typescript",
+		});
+		const regions = normalizeSymbols([
+			createSymbol("Example", 999 as vscode.SymbolKind, 0, 0),
+		]);
+		const refiner: LanguageRefiner = {
+			languageIds: ["typescript"],
+			refine(nodes) {
+				nodes[0].semanticKind = "class";
+			},
+		};
+
+		const refinedRegions = applyLanguageRefinements(regions, {
+			document,
+			semanticTokens: [],
+		}, [refiner]);
+
+		assert.strictEqual(refinedRegions, regions);
+		assert.strictEqual(regions[0].kind, "unknown");
+		assert.strictEqual(regions[0].semanticKind, "class");
+	});
+
+	test("keeps regions unchanged when no language refiner matches", async () => {
+		const document = await vscode.workspace.openTextDocument({
+			content: "class Example {}\n",
+			language: "plaintext",
+		});
+		const regions = normalizeSymbols([
+			createSymbol("Example", 999 as vscode.SymbolKind, 0, 0),
+		]);
+		const refiner: LanguageRefiner = {
+			languageIds: ["typescript"],
+			refine(nodes) {
+				nodes[0].semanticKind = "class";
+			},
+		};
+
+		applyLanguageRefinements(regions, {
+			document,
+			semanticTokens: [],
+		}, [refiner]);
+
+		assert.strictEqual(regions[0].kind, "unknown");
+		assert.strictEqual(regions[0].semanticKind, undefined);
 	});
 });
 

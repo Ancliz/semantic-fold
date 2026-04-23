@@ -59,6 +59,11 @@ If semantic data is disabled or unavailable, Semantic Fold keeps using the struc
 
 The extension then filters those regions using one or more constraints and folds only the matching lines.
 
+Language-specific quirks live behind the language refinement boundary rather
+than in the core normalisation and filtering model. Generic semantic refinement
+runs first, then adapters can add narrowly scoped classifications for languages
+whose providers expose known structural oddities.
+
 ### Example
 
 Collapse methods inside classes:
