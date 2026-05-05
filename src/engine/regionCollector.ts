@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
 import type { RegionNode } from "../model/region";
-import { getCachedRegions, setCachedRegions } from "../util/cache";
+import { getCache, setCachedRegions } from "../util/cache";
 import { isSemanticRefinementEnabled } from "../util/config";
 import { attachFoldingOnlyNodes } from "./foldingRangeRefiner";
 import { refineWithSemanticTokens } from "./semanticRefiner";
@@ -51,7 +51,7 @@ export async function getRegions(
 ): Promise<RegionNode[]> {
 	const uri = document.uri.toString();
 	const semanticRefinementEnabled = isSemanticRefinementEnabled(document.uri);
-	const cached = getCachedRegions(uri);
+	const cached = getCache(uri);
 
 	if(
 		cached

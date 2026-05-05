@@ -15,13 +15,8 @@ import { runCompositeCommand } from "./commands/composite";
 import { expandCommand } from "./commands/expand";
 import { inspectRegionsCommand } from "./commands/inspectRegions";
 import { toggleCommand } from "./commands/toggle";
-import { clearRegionCache, invalidateRegionCache, invalidateRegionCacheDebounced } from "./util/cache";
+import { clearCache, handleDocumentChange, invalidateCache } from "./util/cache";
 import { SEMANTIC_REFINEMENT_ENABLED_SETTING } from "./util/config";
-
-/**
- * Delay used to avoid rebuilding regions for every keystroke
- */
-const DEBOUNCE_DELAY_MS = 500;
 
 export function activate(context: vscode.ExtensionContext): void {
 	let diagnosticsOutputChannel: vscode.OutputChannel | undefined;
@@ -81,19 +76,28 @@ export function activate(context: vscode.ExtensionContext): void {
 			"semanticFold.runComposite",
 			runCompositeCommand
 		),
-		// Text changes use debounce because providers can be expensive
-		vscode.workspace.onDidChangeTextDocument((event) => {
-			const documentUri = event.document.uri.toString();
-			invalidateRegionCacheDebounced(documentUri, DEBOUNCE_DELAY_MS);
-		}),
+			// Text changes use structural checks to decide whether cache remains valid
+			vscode.workspace.onDidChangeTextDocument((event) => {
+				handleDocumentChange(
+					event.document.uri.toString(),
+					event.document.version,
+					event.contentChanges.map((change) => {
+						return {
+							startLine: change.range.start.line,
+							endLine: change.range.end.line,
+							text: change.text
+						};
+					})
+				);
+			}),
 		vscode.workspace.onDidCloseTextDocument((document) => {
 			const documentUri = document.uri.toString();
-			invalidateRegionCache(documentUri);
+			invalidateCache(documentUri);
 		}),
 		vscode.workspace.onDidChangeConfiguration((event) => {
 			if(event.affectsConfiguration(SEMANTIC_REFINEMENT_ENABLED_SETTING)) {
 				console.debug("[semanticFold] Semantic refinement setting changed, clearing region cache");
-				clearRegionCache();
+				clearCache();
 			}
 		})
 	);

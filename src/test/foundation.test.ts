@@ -5,18 +5,24 @@ import { applyLanguageRefinements,type LanguageRefiner } from "../engine/languag
 import { getRegions } from "../engine/regionCollector";
 import { formatRegionDiagnostics } from "../engine/regionDiagnostics";
 import { normalizeSymbols } from "../engine/symbolNormaliser";
-import { clearRegionCache,getCachedRegions,invalidateRegionCache,invalidateRegionCacheDebounced,setCachedRegions } from "../util/cache";
+import {
+	clearCache,
+	getCache,
+	handleDocumentChange,
+	invalidateCache,
+	setCachedRegions,
+	shouldInvalidateCache
+} from "../util/cache";
 import { mapFoldingRangeKind,mapSymbolKind } from "../util/symbolKindMap";
 import {
 activateExtension,
 createFilterFixture,
-createMixedSymbolAndFoldingFixture,
-createSemanticTokens,
-createSymbol,
-createSymbolInformation,
-delay,
-getSemanticFoldExtension,
-withSemanticRefinementEnabled
+	createMixedSymbolAndFoldingFixture,
+	createSemanticTokens,
+	createSymbol,
+	createSymbolInformation,
+	getSemanticFoldExtension,
+	withSemanticRefinementEnabled
 } from "./testHelpers";
 suite("Semantic Fold Foundation", () => {
 	test("registers collapse, expand, and toggle commands", async () => {
@@ -220,7 +226,7 @@ suite("Document Region Collection", () => {
 
 	test("skips semantic token collection when semantic refinement is disabled", async () => {
 		await withSemanticRefinementEnabled(false, async () => {
-			clearRegionCache();
+			clearCache();
 
 			const document = await vscode.workspace.openTextDocument({
 				content: "const handler = () => {\n\treturn true;\n}\n",
@@ -608,42 +614,93 @@ suite("Region Cache", () => {
 		const documentUri = "test://cache/direct";
 		const nodes = createFilterFixture();
 
-		clearRegionCache();
+		clearCache();
 		setCachedRegions(documentUri, {
 			documentVersion: 3,
 			nodes
 		});
 
-		assert.strictEqual(getCachedRegions(documentUri)?.documentVersion, 3);
-		assert.strictEqual(getCachedRegions(documentUri)?.nodes, nodes);
+		assert.strictEqual(getCache(documentUri)?.documentVersion, 3);
+		assert.strictEqual(getCache(documentUri)?.nodes, nodes);
 
-		invalidateRegionCache(documentUri);
-		assert.strictEqual(getCachedRegions(documentUri), undefined);
+		invalidateCache(documentUri);
+		assert.strictEqual(getCache(documentUri), undefined);
 
 		setCachedRegions(documentUri, {
 			documentVersion: 4,
 			nodes
 		});
-		clearRegionCache();
-		assert.strictEqual(getCachedRegions(documentUri), undefined);
+		clearCache();
+		assert.strictEqual(getCache(documentUri), undefined);
 	});
 
-	test("debounces cache invalidation until the requested delay elapses", async () => {
-		const documentUri = "test://cache/debounce";
+	test("reuses cache for non-structural edits by bumping cache version", () => {
+		const documentUri = "test://cache/reuse";
 		const nodes = createFilterFixture();
 
-		clearRegionCache();
+		clearCache();
 		setCachedRegions(documentUri, {
 			documentVersion: 1,
 			nodes
 		});
-		invalidateRegionCacheDebounced(documentUri, 20);
 
-		assert.strictEqual(getCachedRegions(documentUri)?.nodes, nodes);
+			handleDocumentChange(
+				documentUri,
+				2,
+				[{
+					startLine: 9,
+					endLine: 9,
+					text: "updated"
+				}]
+			);
 
-		await delay(50);
+		assert.strictEqual(getCache(documentUri)?.documentVersion, 2);
+		assert.strictEqual(getCache(documentUri)?.nodes, nodes);
+		clearCache();
+	});
 
-		assert.strictEqual(getCachedRegions(documentUri), undefined);
-		clearRegionCache();
+	test("invalidates cache for structural newline edits", () => {
+		const documentUri = "test://cache/newline";
+		const nodes = createFilterFixture();
+
+		clearCache();
+		setCachedRegions(documentUri, {
+			documentVersion: 1,
+			nodes
+		});
+
+			handleDocumentChange(
+				documentUri,
+				2,
+				[{
+					startLine: 9,
+					endLine: 9,
+					text: "\n"
+				}]
+			);
+
+			assert.strictEqual(getCache(documentUri), undefined);
+			clearCache();
+	});
+
+	test("invalidates cache when edits touch cached boundary lines", () => {
+		const nodes = createFilterFixture();
+
+		assert.strictEqual(
+			shouldInvalidateCache(nodes, [{
+				startLine: 0,
+				endLine: 0,
+				text: "rename"
+			}]),
+			true
+		);
+		assert.strictEqual(
+			shouldInvalidateCache(nodes, [{
+				startLine: 9,
+				endLine: 9,
+				text: "body edit"
+			}]),
+			false
+		);
 	});
 });

@@ -9,14 +9,22 @@ export interface CachedRegions {
 	nodes: RegionNode[];
 }
 
-const regionCache = new Map<string, CachedRegions>();
-const debounceTimers = new Map<string, NodeJS.Timeout>();
+const cache = new Map<string, CachedRegions>();
+
+/**
+ * Minimal edit shape used to decide whether cached regions stay valid
+ */
+export interface CacheChange {
+	startLine: number;
+	endLine: number;
+	text: string;
+}
 
 /**
  * Reads the cached region tree for a document URI when present
  */
-export function getCachedRegions(documentUri: string): CachedRegions | undefined {
-	const cached = regionCache.get(documentUri);
+export function getCache(documentUri: string): CachedRegions | undefined {
+	const cached = cache.get(documentUri);
 	if(cached) {
 		console.debug(`[semanticFold] Cache hit for ${documentUri}`);
 	} else {
@@ -30,46 +38,101 @@ export function getCachedRegions(documentUri: string): CachedRegions | undefined
  */
 export function setCachedRegions(documentUri: string, value: CachedRegions): void {
 	console.debug(`[semanticFold] Setting cache for ${documentUri} at version ${value.documentVersion}`);
-	regionCache.set(documentUri, value);
+	cache.set(documentUri, value);
 }
 
 /**
  * Removes cached region data for one document URI
  */
-export function invalidateRegionCache(documentUri: string): void {
+export function invalidateCache(documentUri: string): void {
 	console.debug(`[semanticFold] Invalidating cache for ${documentUri}`);
-	regionCache.delete(documentUri);
+	cache.delete(documentUri);
 }
 
 /**
- * Schedules cache invalidation after edits settle
+ * Applies cache-aware document-change handling
+ *
+ * Reuses cached regions for simple single-line edits that do not touch cached
+ * region boundaries, and bumps the cached version so later commands can keep
+ * using the same structural data
  */
-export function invalidateRegionCacheDebounced(documentUri: string, delayMs: number): void {
-	const existingTimer = debounceTimers.get(documentUri);
-	if(existingTimer) {
-		clearTimeout(existingTimer);
-		console.debug(`[semanticFold] Rescheduling debounce for ${documentUri}`);
-	} else {
-		console.debug(`[semanticFold] Scheduled debounce for ${documentUri} in ${delayMs}ms`);
+export function handleDocumentChange(
+	documentUri: string,
+	documentVersion: number,
+	changes: readonly CacheChange[]
+): void {
+	const cached = cache.get(documentUri);
+
+	if(!cached) {
+		return;
 	}
 
-	const timer = setTimeout(() => {
-		console.debug(`[semanticFold] Debounce fired, invalidating cache for ${documentUri}`);
-		debounceTimers.delete(documentUri);
-		invalidateRegionCache(documentUri);
-	}, delayMs);
+	if(shouldInvalidateCache(cached.nodes, changes)) {
+		invalidateCache(documentUri);
+		return;
+	}
 
-	debounceTimers.set(documentUri, timer);
+	console.debug(
+		`[semanticFold] Reusing cache for ${documentUri} at version ${documentVersion}`
+	);
+
+	cache.set(documentUri, {
+		...cached,
+		documentVersion
+	});
 }
 
 /**
- * Clears cached data and pending timers, primarily for extension shutdown or tests
+ * Invalidates on structural edits, newline edits, or boundary-line edits
  */
-export function clearRegionCache(): void {
-	console.debug(`[semanticFold] Clearing entire region cache`);
-	regionCache.clear();
-	debounceTimers.forEach((timer) => {
-		clearTimeout(timer);
-	});
-	debounceTimers.clear();
+export function shouldInvalidateCache(nodes: readonly RegionNode[], changes: readonly CacheChange[]): boolean {
+	if(changes.length === 0) {
+		return false;
+	}
+
+	const boundaryLines = collectRegionBoundaryLines(nodes);
+
+	for(const change of changes) {
+		if(change.startLine !== change.endLine) {
+			return true;
+		}
+
+		if(change.text.includes("\n")) {
+			return true;
+		}
+
+		if(boundaryLines.has(change.startLine)) {
+			return true;
+		}
+	}
+
+	return false;
+}
+
+function collectRegionBoundaryLines(nodes: readonly RegionNode[]): Set<number> {
+	const boundaryLines = new Set<number>();
+
+	for(const node of nodes) {
+		collectRegionBoundaryLine(node, boundaryLines);
+	}
+
+	return boundaryLines;
+}
+
+function collectRegionBoundaryLine(node: RegionNode, boundaryLines: Set<number>): void {
+	boundaryLines.add(node.rangeStartLine);
+	boundaryLines.add(node.rangeEndLine);
+	boundaryLines.add(node.selectionLine);
+
+	for(const child of node.children) {
+		collectRegionBoundaryLine(child, boundaryLines);
+	}
+}
+
+/**
+ * Clear cached data
+ */
+export function clearCache(): void {
+	console.debug(`[semanticFold] Clearing region cache`);
+	cache.clear();
 }

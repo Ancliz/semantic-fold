@@ -2,7 +2,7 @@ import * as assert from "assert";
 import * as vscode from "vscode";
 import { attachFoldingOnlyNodes } from "../engine/foldingRangeRefiner";
 import { normalizeSymbols } from "../engine/symbolNormaliser";
-import { clearRegionCache } from "../util/cache";
+import { clearCache } from "../util/cache";
 export function createSymbol(
 	name: string,
 	kind: vscode.SymbolKind,
@@ -220,7 +220,7 @@ export async function withSemanticRefinementEnabled(enabled: boolean, callback: 
 		await callback();
 	} finally {
 		await configuration.update("enabled", inspectedValue?.globalValue, vscode.ConfigurationTarget.Global);
-		clearRegionCache();
+		clearCache();
 	}
 }
 
