@@ -1,6 +1,13 @@
 import * as assert from "assert";
 import * as vscode from "vscode";
-import { collectFoldableRegions,collectSelectionLines,execFoldCommand,selectFoldableRegions,TrackedFoldState } from "../engine/foldExecutor";
+import {
+	collectFoldableRegions,
+	collectSelectionLines,
+	collectSelectionLinesWithOptions,
+	execFoldCommand,
+	selectFoldableRegions,
+	TrackedFoldState
+} from "../engine/foldExecutor";
 import { attachFoldingOnlyNodes } from "../engine/foldingRangeRefiner";
 import { normalizeSymbols } from "../engine/symbolNormaliser";
 import { type CollapseFilter } from "../model/filters";
@@ -75,6 +82,52 @@ suite("Fold Execution Guards", () => {
 		);
 	});
 
+	test("optionally includes closing delimiter lines when enabled", () => {
+		const regions = createPhaseOneFixture();
+		const selectedRegions = selectFoldableRegions({
+			filter: {
+				kinds: ["method", "function"]
+			}
+		}, regions);
+		const lineTextByNumber = new Map<number, string>([
+			[10, "\t};"],
+			[11, ""],
+			[16, "}"],
+			[17, ""],
+			[35, "})"],
+			[36, ""]
+		]);
+
+		assert.deepStrictEqual(
+			collectSelectionLinesWithOptions(selectedRegions, {
+				includeClosingDelimiter: true,
+				getLineText(lineNumber) {
+					return lineTextByNumber.get(lineNumber);
+				}
+			}),
+			[5, 7, 11, 17, 21, 30, 36]
+		);
+	});
+
+	test("ignores non-delimiter end lines even when delimiter mode is enabled", () => {
+		const regions = createPhaseOneFixture();
+		const selectedRegions = selectFoldableRegions({
+			filter: {
+				kinds: ["method", "function"]
+			}
+		}, regions);
+
+		assert.deepStrictEqual(
+			collectSelectionLinesWithOptions(selectedRegions, {
+				includeClosingDelimiter: true,
+				getLineText(lineNumber) {
+					return lineNumber === 16 ? "return value + 1;" : undefined;
+				}
+			}),
+			[5, 7, 21, 30]
+		);
+	});
+
 	test("executes exact non-recursive fold selection lines", async () => {
 		const regions = createDuplicateSelectionFixture();
 		const executedCommands: ExecutedCommand[] = [];
@@ -93,6 +146,187 @@ suite("Fold Execution Guards", () => {
 			levels: 1,
 			selectionLines: [2, 6, 12]
 		}]);
+	});
+
+	test("executes closing delimiter lines when option is enabled", async () => {
+		const regions = createPhaseOneFixture();
+		const executedCommands: ExecutedCommand[] = [];
+		const foldState = new TrackedFoldState();
+
+		await execFoldCommand({
+			filter: {
+				kinds: ["method", "function"]
+			}
+		}, regions, async (command, commandArgs) => {
+			executedCommands.push({
+				command,
+				levels: commandArgs.levels,
+				selectionLines: commandArgs.selectionLines
+			});
+		}, foldState, "test://fold-closing-delimiter", {
+			includeClosingDelimiter: true,
+			getLineText(lineNumber) {
+				const closingDelimiterLines = new Map<number, string>([
+					[10, "\t};"],
+					[11, ""],
+					[16, "}"],
+					[17, ""],
+					[35, "})"],
+					[36, ""]
+				]);
+
+				return closingDelimiterLines.get(lineNumber);
+			}
+		});
+
+		assert.deepStrictEqual(executedCommands, [{
+			command: "editor.fold",
+			levels: 1,
+			selectionLines: [5, 7, 11, 17, 21, 30, 36]
+		}]);
+	});
+
+	test("uses manual folding-range execution when delimiter mode is enabled", async () => {
+		const regions = createPhaseOneFixture();
+		const executedCommands: ExecutedCommand[] = [];
+		const manualCommands: Array<{
+			command: "editor.fold" | "editor.unfold";
+			selectionLines: number[];
+		}> = [];
+
+		await execFoldCommand({
+			filter: {
+				kinds: ["method", "function"]
+			}
+		}, regions, async (command, args) => {
+			executedCommands.push({
+				command,
+				levels: args.levels,
+				selectionLines: args.selectionLines
+			});
+		}, new TrackedFoldState(), "test://manual-ranges", {
+			includeClosingDelimiter: true,
+			getLineText() {
+				return "}";
+			},
+			executeManualFoldingRanges: async (command, selectedRegions) => {
+				manualCommands.push({
+					command,
+					selectionLines: selectedRegions.map((region) => region.selectionLine)
+				});
+
+				return true;
+			}
+		});
+
+		assert.deepStrictEqual(executedCommands, []);
+		assert.deepStrictEqual(manualCommands, [{
+			command: "editor.fold",
+			selectionLines: [5, 7, 21, 30]
+		}]);
+	});
+
+	test("falls back to default fold execution when manual range handling is unavailable", async () => {
+		const regions = createPhaseOneFixture();
+		const executedCommands: ExecutedCommand[] = [];
+		const manualCommands: Array<{
+			command: "editor.fold" | "editor.unfold";
+			selectionLines: number[];
+		}> = [];
+
+		await execFoldCommand({
+			filter: {
+				kinds: ["method", "function"]
+			}
+		}, regions, async (command, args) => {
+			executedCommands.push({
+				command,
+				levels: args.levels,
+				selectionLines: args.selectionLines
+			});
+		}, new TrackedFoldState(), "test://manual-fallback", {
+			includeClosingDelimiter: true,
+			getLineText() {
+				return "}";
+			},
+			executeManualFoldingRanges: async (command, selectedRegions) => {
+				manualCommands.push({
+					command,
+					selectionLines: selectedRegions.map((region) => region.selectionLine)
+				});
+
+				return false;
+			}
+		});
+
+		assert.deepStrictEqual(manualCommands, [{
+			command: "editor.fold",
+			selectionLines: [5, 7, 21, 30]
+		}]);
+		assert.deepStrictEqual(executedCommands, [{
+			command: "editor.fold",
+			levels: 1,
+			selectionLines: [5, 7, 11, 17, 21, 25, 30, 36]
+		}]);
+	});
+
+	test("toggles manual ranges between fold and unfold commands", async () => {
+		const regions = createPhaseOneFixture();
+		const manualCommands: Array<{
+			command: "editor.fold" | "editor.unfold";
+			selectionLines: number[];
+		}> = [];
+		const foldState = new TrackedFoldState();
+
+		await execFoldCommand({
+			filter: {
+				kinds: ["method", "function"]
+			},
+			mode: "toggle"
+		}, regions, async () => undefined, foldState, "test://manual-toggle", {
+			includeClosingDelimiter: true,
+			getLineText() {
+				return "}";
+			},
+			executeManualFoldingRanges: async (command, selectedRegions) => {
+				manualCommands.push({
+					command,
+					selectionLines: selectedRegions.map((region) => region.selectionLine)
+				});
+
+				return true;
+			}
+		});
+		await execFoldCommand({
+			filter: {
+				kinds: ["method", "function"]
+			},
+			mode: "toggle"
+		}, regions, async () => undefined, foldState, "test://manual-toggle", {
+			includeClosingDelimiter: true,
+			getLineText() {
+				return "}";
+			},
+			executeManualFoldingRanges: async (command, selectedRegions) => {
+				manualCommands.push({
+					command,
+					selectionLines: selectedRegions.map((region) => region.selectionLine)
+				});
+
+				return true;
+			}
+		});
+
+		assert.deepStrictEqual(manualCommands, [
+			{
+				command: "editor.fold",
+				selectionLines: [5, 7, 21, 30]
+			},
+			{
+				command: "editor.unfold",
+				selectionLines: [5, 7, 21, 30]
+			}
+		]);
 	});
 
 	test("executes mixed symbol and folding-range targets non-recursively", async () => {
@@ -448,4 +682,3 @@ suite("Fold Execution Guards", () => {
 		);
 	});
 });
-

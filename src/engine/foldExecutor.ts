@@ -8,7 +8,7 @@ import { filterRegions } from "./filterEngine";
  * selecting foldable regions, converting them to editor selection lines, and
  * dispatching VS Code's built-in fold or unfold command
  */
-type FoldCommand = "editor.fold" | "editor.unfold";
+export type FoldCommand = "editor.fold" | "editor.unfold";
 
 /**
  * Shape expected by VS Code's fold commands when folding explicit target lines
@@ -16,6 +16,18 @@ type FoldCommand = "editor.fold" | "editor.unfold";
 interface FoldCommandArgs {
 	selectionLines: number[];
 	levels: number;
+}
+
+/**
+ * Optional selection-line behaviour flags applied at fold-execution time
+ */
+export interface SelectionLineOptions {
+	includeClosingDelimiter?: boolean;
+	getLineText?: (lineNumber: number) => string | undefined;
+	executeManualFoldingRanges?: (
+		command: FoldCommand,
+		regions: readonly RegionNode[]
+	) => Promise<boolean>;
 }
 
 /**
@@ -171,6 +183,31 @@ export function collectSelectionLines(regions: readonly RegionNode[]): number[] 
 }
 
 /**
+ * Collects selection lines and optionally includes closing delimiter lines
+ */
+export function collectSelectionLinesWithOptions(
+	regions: readonly RegionNode[],
+	options: SelectionLineOptions = {}
+): number[] {
+	const selectionLines = new Set(collectSelectionLines(regions));
+
+	if(!options.includeClosingDelimiter || options.getLineText === undefined) {
+		return [...selectionLines].sort((left, right) => left - right);
+	}
+
+	for(const region of regions) {
+		const endLineText = options.getLineText(region.rangeEndLine);
+		const lineAfterEnd = region.rangeEndLine + 1;
+
+		if(isClosingDelimiterLine(endLineText) && options.getLineText(lineAfterEnd) !== undefined) {
+			selectionLines.add(lineAfterEnd);
+		}
+	}
+
+	return [...selectionLines].sort((left, right) => left - right);
+}
+
+/**
  * Executes a fold, unfold, or toggle request against the provided region tree
  *
  * The default arguments use live VS Code state
@@ -180,18 +217,31 @@ export async function execFoldCommand(
 	rootNodes: readonly RegionNode[] = [],
 	executeCommand: FoldCommandExecutor = defaultFoldCommandExecutor,
 	foldState: TrackedFoldState = defaultFoldState,
-	documentKey: string = getActiveDocumentKey()
+	documentKey: string = getActiveDocumentKey(),
+	selectionLineOptions: SelectionLineOptions = {}
 ): Promise<void> {
-	const selectionLines = collectSelectionLines(selectFoldableRegions(args, rootNodes));
+	const selectedRegions = selectFoldableRegions(args, rootNodes);
+	const selectionLines = collectSelectionLinesWithOptions(
+		selectedRegions,
+		selectionLineOptions
+	);
 
 	if(selectionLines.length === 0) {
 		return;
 	}
 
 	const command = getFoldCommand(args, selectionLines, foldState, documentKey);
+	const usedManualFoldingRanges = await executeManualFoldingRangesIfEnabled(
+		command,
+		selectedRegions,
+		selectionLineOptions
+	);
 
-	// levels: 1 keeps Semantic Fold targeted instead of recursively folding children
-	await executeCommand(command, { selectionLines, levels: 1 });
+	if(!usedManualFoldingRanges) {
+		// levels: 1 keeps Semantic Fold targeted instead of recursively folding children
+		await executeCommand(command, { selectionLines, levels: 1 });
+	}
+
 	updateTrackedFoldState(command, selectionLines, foldState, documentKey);
 }
 
@@ -203,14 +253,17 @@ export async function execCompositeFoldCommand(
 	rootNodes: readonly RegionNode[] = [],
 	executeCommand: FoldCommandExecutor = defaultFoldCommandExecutor,
 	foldState: TrackedFoldState = defaultFoldState,
-	documentKey: string = getActiveDocumentKey()
+	documentKey: string = getActiveDocumentKey(),
+	selectionLineOptions: SelectionLineOptions = {}
 ): Promise<void> {
 	if(!args.filters || args.filters.length === 0) {
 		return;
 	}
 
-	const selectionLines = collectSelectionLines(
-		selectFoldableRegionsForFilters(args.filters, rootNodes)
+	const selectedRegions = selectFoldableRegionsForFilters(args.filters, rootNodes);
+	const selectionLines = collectSelectionLinesWithOptions(
+		selectedRegions,
+		selectionLineOptions
 	);
 
 	if(selectionLines.length === 0) {
@@ -218,9 +271,17 @@ export async function execCompositeFoldCommand(
 	}
 
 	const command = getFoldCommand(args, selectionLines, foldState, documentKey);
+	const usedManualFoldingRanges = await executeManualFoldingRangesIfEnabled(
+		command,
+		selectedRegions,
+		selectionLineOptions
+	);
 
-	// levels: 1 keeps Semantic Fold targeted instead of recursively folding children
-	await executeCommand(command, { selectionLines, levels: 1 });
+	if(!usedManualFoldingRanges) {
+		// levels: 1 keeps Semantic Fold targeted instead of recursively folding children
+		await executeCommand(command, { selectionLines, levels: 1 });
+	}
+
 	updateTrackedFoldState(command, selectionLines, foldState, documentKey);
 }
 
@@ -300,6 +361,38 @@ function getActiveDocumentKey(): string {
 	}
 
 	return editor.document.uri.toString();
+}
+
+/**
+ * Identifies lines containing only closing delimiters and punctuation
+ */
+function isClosingDelimiterLine(lineText: string | undefined): boolean {
+	if(lineText === undefined) {
+		return false;
+	}
+
+	const trimmed = lineText.replace(/\/\/.*$/, "").trim();
+
+	if(trimmed.length === 0 || !/[}\]\)]/.test(trimmed)) {
+		return false;
+	}
+
+	return /^[\]\}\),;]+$/.test(trimmed);
+}
+
+/**
+ * Routes fold or unfold to manual folding ranges when explicitly enabled
+ */
+async function executeManualFoldingRangesIfEnabled(
+	command: FoldCommand,
+	regions: readonly RegionNode[],
+	options: SelectionLineOptions
+): Promise<boolean> {
+	if(!options.includeClosingDelimiter || options.executeManualFoldingRanges === undefined) {
+		return false;
+	}
+
+	return options.executeManualFoldingRanges(command, regions);
 }
 
 /**

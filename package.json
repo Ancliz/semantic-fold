@@ -212,6 +212,12 @@
           "scope": "resource",
           "description": "Enable semantic-token refinement for weak or ambiguous symbol classifications. When disabled, Semantic Fold uses only document symbols and folding ranges."
         },
+        "semanticFold.folding.includeClosingDelimiter": {
+          "type": "boolean",
+          "default": true,
+          "scope": "resource",
+          "description": "Include closing brace and bracket lines when executing Semantic Fold commands."
+        },
         "semanticFold.presets.imports": {
           "type": "object",
           "default": {},

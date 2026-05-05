@@ -8,11 +8,13 @@ import {
 } from "../model/filters";
 
 export const SEMANTIC_REFINEMENT_ENABLED_SETTING = "semanticFold.semanticRefinement.enabled";
+export const INCLUDE_CLOSING_DELIMITER_SETTING = "semanticFold.folding.includeClosingDelimiter";
 export const PRESET_CONFIG_SECTION = "semanticFold.presets";
 export type TogglePresetSettingKey = "imports" | "comments" | "readerMode";
 export type CompositePresetSettingKey = "apiOverview";
 
 const SEMANTIC_REFINEMENT_SECTION = "semanticFold.semanticRefinement";
+const FOLDING_SECTION = "semanticFold.folding";
 const PRESET_LANGUAGE_OVERRIDES_SETTING = "languageOverrides";
 
 /**
@@ -22,6 +24,15 @@ export function isSemanticRefinementEnabled(resource?: vscode.Uri): boolean {
 	return vscode.workspace
 		.getConfiguration(SEMANTIC_REFINEMENT_SECTION, resource)
 		.get<boolean>("enabled", true);
+}
+
+/**
+ * Reads whether Semantic Fold should also target closing delimiter lines
+ */
+export function isIncludeClosingDelimiterEnabled(resource?: vscode.Uri): boolean {
+	return vscode.workspace
+		.getConfiguration(FOLDING_SECTION, resource)
+		.get<boolean>("includeClosingDelimiter", false);
 }
 
 /**

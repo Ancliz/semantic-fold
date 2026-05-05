@@ -758,6 +758,7 @@ Available settings:
 ```json
 {
   "semanticFold.semanticRefinement.enabled": true,
+  "semanticFold.folding.includeClosingDelimiter": true,
   "semanticFold.presets.readerMode": {
     "enabled": true
   },
@@ -768,6 +769,8 @@ Available settings:
 ```
 
 Set `semanticFold.semanticRefinement.enabled` to `false` to disable semantic-token collection and refinement. When disabled, Semantic Fold uses document symbols and folding ranges only, so unsupported or noisy semantic-token providers cannot change command results.
+
+Set `semanticFold.folding.includeClosingDelimiter` to `false` to exclude closing delimiter lines such as `}`, `]`, or `});` when those delimiters are on a standalone line.
 
 Preset settings support global overrides for built-in overview commands:
 

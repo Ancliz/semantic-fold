@@ -51,6 +51,7 @@ suite("Semantic Fold Foundation", () => {
 	test("contributes semantic refinement configuration", () => {
 		const extension = getSemanticFoldExtension();
 		const setting = extension.packageJSON.contributes.configuration.properties["semanticFold.semanticRefinement.enabled"];
+		const includeClosingDelimiterSetting = extension.packageJSON.contributes.configuration.properties["semanticFold.folding.includeClosingDelimiter"];
 		const readerModePresetSetting = extension.packageJSON.contributes.configuration.properties["semanticFold.presets.readerMode"];
 		const apiOverviewPresetSetting = extension.packageJSON.contributes.configuration.properties["semanticFold.presets.apiOverview"];
 		const languageOverridesSetting = extension.packageJSON.contributes.configuration.properties["semanticFold.presets.languageOverrides"];
@@ -58,6 +59,9 @@ suite("Semantic Fold Foundation", () => {
 		assert.strictEqual(setting.type, "boolean");
 		assert.strictEqual(setting.default, true);
 		assert.strictEqual(setting.scope, "resource");
+		assert.strictEqual(includeClosingDelimiterSetting.type, "boolean");
+		assert.strictEqual(includeClosingDelimiterSetting.default, false);
+		assert.strictEqual(includeClosingDelimiterSetting.scope, "resource");
 		assert.strictEqual(readerModePresetSetting.type, "object");
 		assert.strictEqual(apiOverviewPresetSetting.type, "object");
 		assert.strictEqual(languageOverridesSetting.type, "object");
