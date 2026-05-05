@@ -5,7 +5,7 @@ import { mapFoldingRangeKind } from "../util/symbolKindMap";
 /**
  * Folding-range categories that VS Code can identify without semantic tokens
  */
-const supportedFoldingRangeKinds = new Set<RegionKind>(["import", "comment", "region"]);
+const supportedFoldingRangeKinds = new Set<RegionKind>(["import", "comment", "region", "unknown"]);
 
 /**
  * Merges supported folding-range-only nodes into the symbol region tree
@@ -46,6 +46,8 @@ export function attachFoldingOnlyNodes(
 
 		mergedRootNodes.push(foldingNode);
 	}
+
+	reparentSymbolNodesUnderUnknownFoldingNodes(mergedRootNodes);
 
 	return mergedRootNodes.sort(compareRegions);
 }
@@ -198,6 +200,97 @@ function updateFoldingNodeDepths(region: RegionNode, symbolDepth: number, foldDe
 	for(const child of region.children) {
 		updateFoldingNodeDepths(child, symbolDepth + 1, foldDepth + 1);
 	}
+}
+
+/**
+ * Reparents symbol-backed nodes under unknown folding blocks when they are the
+ * tightest structural container available
+ */
+function reparentSymbolNodesUnderUnknownFoldingNodes(rootNodes: RegionNode[]): void {
+	const unknownFoldingNodes = flattenRegionTree(rootNodes).filter((region) => {
+		return region.source === "foldingRange" && region.kind === "unknown";
+	});
+
+	if(unknownFoldingNodes.length === 0) {
+		return;
+	}
+
+	const symbolNodes = flattenRegionTree(rootNodes)
+		.filter((region) => {
+			return region.source !== "foldingRange";
+		})
+		.sort((left, right) => {
+			if(left.symbolDepth !== right.symbolDepth) {
+				return left.symbolDepth - right.symbolDepth;
+			}
+
+			return compareRegions(left, right);
+		});
+
+	for(const symbolNode of symbolNodes) {
+		const parent = findSmallestContainingNode(symbolNode, unknownFoldingNodes);
+
+		if(parent === undefined || parent === symbolNode.parent || isAncestor(symbolNode, parent)) {
+			continue;
+		}
+
+		if(symbolNode.parent !== undefined && containsRange(parent, symbolNode.parent)) {
+			continue;
+		}
+
+		detachNode(rootNodes, symbolNode);
+		symbolNode.parent = parent;
+		parent.children.push(symbolNode);
+		parent.children.sort(compareRegions);
+		updateNodeSymbolDepths(symbolNode, parent.symbolDepth + 1);
+	}
+}
+
+/**
+ * Removes a node from its current parent or from the root list
+ */
+function detachNode(rootNodes: RegionNode[], node: RegionNode): void {
+	if(node.parent) {
+		node.parent.children = node.parent.children.filter((child) => {
+			return child !== node;
+		});
+
+		return;
+	}
+
+	const rootIndex = rootNodes.indexOf(node);
+
+	if(rootIndex >= 0) {
+		rootNodes.splice(rootIndex, 1);
+	}
+}
+
+/**
+ * Refreshes symbol depths for a moved subtree
+ */
+function updateNodeSymbolDepths(region: RegionNode, symbolDepth: number): void {
+	region.symbolDepth = symbolDepth;
+
+	for(const child of region.children) {
+		updateNodeSymbolDepths(child, symbolDepth + 1);
+	}
+}
+
+/**
+ * Guards against accidental cycles before reparenting
+ */
+function isAncestor(region: RegionNode, candidateAncestor: RegionNode): boolean {
+	let ancestor = candidateAncestor.parent;
+
+	while(ancestor !== undefined) {
+		if(ancestor === region) {
+			return true;
+		}
+
+		ancestor = ancestor.parent;
+	}
+
+	return false;
 }
 
 /**

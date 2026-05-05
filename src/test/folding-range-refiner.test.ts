@@ -36,8 +36,54 @@ suite("Folding Range Refinement", () => {
 				new vscode.FoldingRange(7.5, 9, vscode.FoldingRangeKind.Imports),
 				{ start: 10, end: 8, kind: vscode.FoldingRangeKind.Imports } as vscode.FoldingRange
 			]),
-			[]
+			[
+				{
+					id: "foldingRange:0:unknown:4:6",
+					name: "unknown",
+					kind: "unknown",
+					rangeStartLine: 4,
+					rangeEndLine: 6,
+					selectionLine: 4,
+					symbolDepth: 1,
+					foldDepth: 1,
+					children: [],
+					source: "foldingRange"
+				}
+			]
 		);
+	});
+
+	test("reparents symbol-backed nodes under unknown folding blocks when contained", () => {
+		const functionSymbol = createSymbol("getLinks", vscode.SymbolKind.Function, 0, 9);
+		const requestSymbol = createSymbol("request", vscode.SymbolKind.Variable, 1, 1);
+		const responseSymbol = createSymbol("response", vscode.SymbolKind.Variable, 2, 2);
+		const thenSymbol = createSymbol("then() callback", vscode.SymbolKind.Function, 4, 6);
+		const mapSymbol = createSymbol("data.map() callback", vscode.SymbolKind.Function, 5, 5);
+		thenSymbol.children.push(mapSymbol);
+		functionSymbol.children.push(requestSymbol, responseSymbol, thenSymbol);
+
+		const regions = attachFoldingOnlyNodes(normalizeSymbols([functionSymbol]), [
+			new vscode.FoldingRange(3, 7)
+		]);
+		const functionRegion = regions[0];
+		const unknownBlock = functionRegion.children.find((region) => {
+			return region.kind === "unknown" && region.source === "foldingRange";
+		});
+
+		assert.ok(unknownBlock);
+		assert.strictEqual(unknownBlock.symbolDepth, 2);
+
+		const thenRegion = unknownBlock.children.find((region) => region.name === "then() callback");
+
+		assert.ok(thenRegion);
+		assert.strictEqual(thenRegion.symbolDepth, 3);
+		assert.strictEqual(thenRegion.parent, unknownBlock);
+
+		const mapRegion = thenRegion.children.find((region) => region.name === "data.map() callback");
+
+		assert.ok(mapRegion);
+		assert.strictEqual(mapRegion.symbolDepth, 4);
+		assert.strictEqual(mapRegion.parent, thenRegion);
 	});
 
 	test("adds import nodes in document order with symbol nodes", () => {
@@ -387,4 +433,3 @@ suite("Folding Range Refinement", () => {
 		);
 	});
 });
-
