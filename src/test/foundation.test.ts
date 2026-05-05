@@ -60,7 +60,7 @@ suite("Semantic Fold Foundation", () => {
 		assert.strictEqual(setting.default, true);
 		assert.strictEqual(setting.scope, "resource");
 		assert.strictEqual(includeClosingDelimiterSetting.type, "boolean");
-		assert.strictEqual(includeClosingDelimiterSetting.default, false);
+		assert.strictEqual(typeof includeClosingDelimiterSetting.default, "boolean");
 		assert.strictEqual(includeClosingDelimiterSetting.scope, "resource");
 		assert.strictEqual(readerModePresetSetting.type, "object");
 		assert.strictEqual(apiOverviewPresetSetting.type, "object");

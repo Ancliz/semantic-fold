@@ -10,6 +10,7 @@ import {
 } from "../model/filters";
 import type { RegionNode } from "../model/region";
 import { isIncludeClosingDelimiterEnabled } from "../util/config";
+const lastManualFoldSelectionsByDocument = new Map<string, vscode.Selection[]>();
 
 /**
  * Shared command runner for collapse, expand, toggle, and convenience commands
@@ -89,6 +90,9 @@ function createManualFoldingRangeExecutor(
 		}
 
 		const originalSelections = editor.selections;
+		let shouldRestoreSelections = true;
+		let restoreSelections = cloneSelections(originalSelections);
+		const documentKey = editor.document.uri.toString();
 
 		try {
 			editor.selections = regions
@@ -100,16 +104,34 @@ function createManualFoldingRangeExecutor(
 			}
 
 			if(command === "editor.fold") {
+				lastManualFoldSelectionsByDocument.set(documentKey, cloneSelections(originalSelections));
 				await vscode.commands.executeCommand("editor.createFoldingRangeFromSelection");
+				shouldRestoreSelections = false;
 			} else {
+				const rememberedSelections = lastManualFoldSelectionsByDocument.get(documentKey);
+
+				if(rememberedSelections) {
+					restoreSelections = rememberedSelections;
+					lastManualFoldSelectionsByDocument.delete(documentKey);
+				}
+
 				await vscode.commands.executeCommand("editor.removeManualFoldingRanges");
 			}
 
 			return true;
 		} finally {
-			editor.selections = originalSelections;
+			if(shouldRestoreSelections) {
+				editor.selections = restoreSelections;
+			}
 		}
 	};
+}
+
+function cloneSelections(selections: readonly vscode.Selection[]): vscode.Selection[] {
+	return selections.map((selection) => new vscode.Selection(
+		selection.anchor,
+		selection.active
+	));
 }
 
 function selectionFromRegion(
