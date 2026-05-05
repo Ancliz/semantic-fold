@@ -11,6 +11,15 @@ import { filterRegions } from "./filterEngine";
 export type FoldCommand = "editor.fold" | "editor.unfold";
 
 /**
+ * Fold execution summary returned to callers that need post-command effects
+ */
+export interface FoldExecutionResult {
+	command: FoldCommand;
+	selectedRegions: RegionNode[];
+	selectionLines: number[];
+}
+
+/**
  * Shape expected by VS Code's fold commands when folding explicit target lines
  */
 interface FoldCommandArgs {
@@ -219,7 +228,7 @@ export async function execFoldCommand(
 	foldState: TrackedFoldState = defaultFoldState,
 	documentKey: string = getActiveDocumentKey(),
 	selectionLineOptions: SelectionLineOptions = {}
-): Promise<void> {
+): Promise<FoldExecutionResult | undefined> {
 	const selectedRegions = selectFoldableRegions(args, rootNodes);
 	const selectionLines = collectSelectionLinesWithOptions(
 		selectedRegions,
@@ -227,7 +236,7 @@ export async function execFoldCommand(
 	);
 
 	if(selectionLines.length === 0) {
-		return;
+		return undefined;
 	}
 
 	const command = getFoldCommand(args, selectionLines, foldState, documentKey);
@@ -243,6 +252,12 @@ export async function execFoldCommand(
 	}
 
 	updateTrackedFoldState(command, selectionLines, foldState, documentKey);
+
+	return {
+		command,
+		selectedRegions,
+		selectionLines
+	};
 }
 
 /**
@@ -255,9 +270,9 @@ export async function execCompositeFoldCommand(
 	foldState: TrackedFoldState = defaultFoldState,
 	documentKey: string = getActiveDocumentKey(),
 	selectionLineOptions: SelectionLineOptions = {}
-): Promise<void> {
+): Promise<FoldExecutionResult | undefined> {
 	if(!args.filters || args.filters.length === 0) {
-		return;
+		return undefined;
 	}
 
 	const selectedRegions = selectFoldableRegionsForFilters(args.filters, rootNodes);
@@ -267,7 +282,7 @@ export async function execCompositeFoldCommand(
 	);
 
 	if(selectionLines.length === 0) {
-		return;
+		return undefined;
 	}
 
 	const command = getFoldCommand(args, selectionLines, foldState, documentKey);
@@ -283,6 +298,12 @@ export async function execCompositeFoldCommand(
 	}
 
 	updateTrackedFoldState(command, selectionLines, foldState, documentKey);
+
+	return {
+		command,
+		selectedRegions,
+		selectionLines
+	};
 }
 
 /**

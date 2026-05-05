@@ -11,6 +11,7 @@ import {
 } from "../model/filters";
 import type { RegionNode } from "../model/region";
 import { isIncludeClosingDelimiterEnabled } from "../util/config";
+import { applyFunctionSignatureHints } from "../util/foldedSignatureHints";
 const lastManualFoldSelectionsByDocument = new Map<string, vscode.Selection[]>();
 
 /**
@@ -28,7 +29,7 @@ export async function runFoldCommand(args: unknown, defaultMode: CollapseArgs["m
 
 	const includeClosingDelimiter = isIncludeClosingDelimiterEnabled(editor.document.uri);
 	const regions = await getRegions(editor.document);
-	await execFoldCommand(
+	const executionResult = await execFoldCommand(
 		normaliseArgs(args, defaultMode),
 		regions,
 		undefined,
@@ -40,6 +41,7 @@ export async function runFoldCommand(args: unknown, defaultMode: CollapseArgs["m
 			executeManualFoldingRanges: createManualFoldingRangeExecutor(editor, includeClosingDelimiter)
 		}
 	);
+	applyFunctionSignatureHints(editor, executionResult);
 }
 
 /**
@@ -58,7 +60,7 @@ export async function runCompositeFoldCommand(
 	const includeClosingDelimiter = isIncludeClosingDelimiterEnabled(editor.document.uri);
 	const regions = await getRegions(editor.document);
 
-	await execCompositeFoldCommand(
+	const executionResult = await execCompositeFoldCommand(
 		normaliseCompositeArgs(args, defaultMode),
 		regions,
 		undefined,
@@ -70,6 +72,7 @@ export async function runCompositeFoldCommand(
 			executeManualFoldingRanges: createManualFoldingRangeExecutor(editor, includeClosingDelimiter)
 		}
 	);
+	applyFunctionSignatureHints(editor, executionResult);
 }
 
 function createLineTextReader(document: vscode.TextDocument): (lineNumber: number) => string | undefined {

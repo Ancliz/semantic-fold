@@ -52,6 +52,8 @@ suite("Semantic Fold Foundation", () => {
 		const extension = getSemanticFoldExtension();
 		const setting = extension.packageJSON.contributes.configuration.properties["semanticFold.semanticRefinement.enabled"];
 		const includeClosingDelimiterSetting = extension.packageJSON.contributes.configuration.properties["semanticFold.folding.includeClosingDelimiter"];
+		const foldedFunctionSignatureHintSetting = extension.packageJSON.contributes.configuration.properties["semanticFold.inlineHints.showFoldedFunctionSignatures"];
+		const collapsedFunctionSignatureHintSetting = extension.packageJSON.contributes.configuration.properties["semanticFold.inlineHints.collapseFunctionSignatures"];
 		const readerModePresetSetting = extension.packageJSON.contributes.configuration.properties["semanticFold.presets.readerMode"];
 		const apiOverviewPresetSetting = extension.packageJSON.contributes.configuration.properties["semanticFold.presets.apiOverview"];
 		const languageOverridesSetting = extension.packageJSON.contributes.configuration.properties["semanticFold.presets.languageOverrides"];
@@ -62,6 +64,12 @@ suite("Semantic Fold Foundation", () => {
 		assert.strictEqual(includeClosingDelimiterSetting.type, "boolean");
 		assert.strictEqual(typeof includeClosingDelimiterSetting.default, "boolean");
 		assert.strictEqual(includeClosingDelimiterSetting.scope, "resource");
+		assert.strictEqual(foldedFunctionSignatureHintSetting.type, "boolean");
+		assert.strictEqual(foldedFunctionSignatureHintSetting.default, false);
+		assert.strictEqual(foldedFunctionSignatureHintSetting.scope, "resource");
+		assert.strictEqual(collapsedFunctionSignatureHintSetting.type, "boolean");
+		assert.strictEqual(collapsedFunctionSignatureHintSetting.default, false);
+		assert.strictEqual(collapsedFunctionSignatureHintSetting.scope, "resource");
 		assert.strictEqual(readerModePresetSetting.type, "object");
 		assert.strictEqual(apiOverviewPresetSetting.type, "object");
 		assert.strictEqual(languageOverridesSetting.type, "object");

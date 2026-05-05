@@ -28,10 +28,19 @@ import { expandCommand } from "./commands/expand";
 import { inspectRegionsCommand } from "./commands/inspectRegions";
 import { toggleCommand } from "./commands/toggle";
 import { clearCache, handleDocumentChange, invalidateCache } from "./util/cache";
-import { SEMANTIC_REFINEMENT_ENABLED_SETTING } from "./util/config";
+import {
+	COLLAPSE_FUNCTION_SIGNATURE_HINTS_SETTING,
+	FOLDED_FUNCTION_SIGNATURE_HINTS_SETTING,
+	SEMANTIC_REFINEMENT_ENABLED_SETTING
+} from "./util/config";
+import {
+	clearFunctionSignatureHints,
+	refreshFunctionHints
+} from "./util/foldedSignatureHints";
 
 export function activate(context: vscode.ExtensionContext): void {
 	let diagnosticsOutputChannel: vscode.OutputChannel | undefined;
+	const visibleRangeSegmentCountByDocument = new Map<string, number>();
 	const getDiagnosticsOutputChannel = (): vscode.OutputChannel => {
 		if(diagnosticsOutputChannel === undefined) {
 			diagnosticsOutputChannel = vscode.window.createOutputChannel("Semantic Fold");
@@ -116,15 +125,47 @@ export function activate(context: vscode.ExtensionContext): void {
 						};
 					})
 				);
+				clearFunctionSignatureHints(event.document.uri.toString());
 			}),
 		vscode.workspace.onDidCloseTextDocument((document) => {
 			const documentUri = document.uri.toString();
 			invalidateCache(documentUri);
+			clearFunctionSignatureHints(documentUri);
+			visibleRangeSegmentCountByDocument.delete(documentUri);
+		}),
+		vscode.window.onDidChangeActiveTextEditor((editor) => {
+			refreshFunctionHints(editor);
+
+			if(editor !== undefined) {
+				visibleRangeSegmentCountByDocument.set(
+					editor.document.uri.toString(),
+					editor.visibleRanges.length
+				);
+			}
+		}),
+		vscode.window.onDidChangeTextEditorVisibleRanges((event) => {
+			const documentUri = event.textEditor.document.uri.toString();
+			const previousSegmentCount = visibleRangeSegmentCountByDocument.get(documentUri);
+			const currentSegmentCount = event.visibleRanges.length;
+
+			visibleRangeSegmentCountByDocument.set(documentUri, currentSegmentCount);
+
+			if(previousSegmentCount !== undefined && currentSegmentCount < previousSegmentCount) {
+				clearFunctionSignatureHints(documentUri);
+			}
 		}),
 		vscode.workspace.onDidChangeConfiguration((event) => {
 			if(event.affectsConfiguration(SEMANTIC_REFINEMENT_ENABLED_SETTING)) {
 				console.debug("[semanticFold] Semantic refinement setting changed, clearing region cache");
 				clearCache();
+			}
+
+			if(
+				event.affectsConfiguration(FOLDED_FUNCTION_SIGNATURE_HINTS_SETTING)
+				|| event.affectsConfiguration(COLLAPSE_FUNCTION_SIGNATURE_HINTS_SETTING)
+			) {
+				clearFunctionSignatureHints();
+				refreshFunctionHints(vscode.window.activeTextEditor);
 			}
 		})
 	);

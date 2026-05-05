@@ -9,12 +9,15 @@ import {
 
 export const SEMANTIC_REFINEMENT_ENABLED_SETTING = "semanticFold.semanticRefinement.enabled";
 export const INCLUDE_CLOSING_DELIMITER_SETTING = "semanticFold.folding.includeClosingDelimiter";
+export const FOLDED_FUNCTION_SIGNATURE_HINTS_SETTING = "semanticFold.inlineHints.showFoldedFunctionSignatures";
+export const COLLAPSE_FUNCTION_SIGNATURE_HINTS_SETTING = "semanticFold.inlineHints.collapseFunctionSignatures";
 export const PRESET_CONFIG_SECTION = "semanticFold.presets";
 export type TogglePresetSettingKey = "imports" | "comments" | "readerMode";
 export type CompositePresetSettingKey = "apiOverview";
 
 const SEMANTIC_REFINEMENT_SECTION = "semanticFold.semanticRefinement";
 const FOLDING_SECTION = "semanticFold.folding";
+const INLINE_HINTS_SECTION = "semanticFold.inlineHints";
 const PRESET_LANGUAGE_OVERRIDES_SETTING = "languageOverrides";
 
 /**
@@ -33,6 +36,24 @@ export function isIncludeClosingDelimiterEnabled(resource?: vscode.Uri): boolean
 	return vscode.workspace
 		.getConfiguration(FOLDING_SECTION, resource)
 		.get<boolean>("includeClosingDelimiter", false);
+}
+
+/**
+ * Reads whether folded function and method signatures should be shown inline
+ */
+export function isSignatureHintsEnabled(resource?: vscode.Uri): boolean {
+	return vscode.workspace
+		.getConfiguration(INLINE_HINTS_SECTION, resource)
+		.get<boolean>("showFoldedFunctionSignatures", false);
+}
+
+/**
+ * Reads whether folded signatures should be collapsed into inline hint text
+ */
+export function isCollapsedHintEnabled(resource?: vscode.Uri): boolean {
+	return vscode.workspace
+		.getConfiguration(INLINE_HINTS_SECTION, resource)
+		.get<boolean>("collapseFunctionSignatures", false);
 }
 
 /**

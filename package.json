@@ -218,6 +218,18 @@
           "scope": "resource",
           "description": "Include closing brace and bracket lines when executing Semantic Fold commands."
         },
+        "semanticFold.inlineHints.showFoldedFunctionSignatures": {
+          "type": "boolean",
+          "default": false,
+          "scope": "resource",
+          "description": "Show inline parameter and return signature hints on folded function and method headers."
+        },
+        "semanticFold.inlineHints.collapseFunctionSignatures": {
+          "type": "boolean",
+          "default": false,
+          "scope": "resource",
+          "description": "Render folded function and method signatures as inline hints in collapsed form."
+        },
         "semanticFold.presets.imports": {
           "type": "object",
           "default": {},

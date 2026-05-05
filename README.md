@@ -759,6 +759,8 @@ Available settings:
 {
   "semanticFold.semanticRefinement.enabled": true,
   "semanticFold.folding.includeClosingDelimiter": true,
+  "semanticFold.inlineHints.showFoldedFunctionSignatures": false,
+  "semanticFold.inlineHints.collapseFunctionSignatures": false,
   "semanticFold.presets.readerMode": {
     "enabled": true
   },
@@ -771,6 +773,13 @@ Available settings:
 Set `semanticFold.semanticRefinement.enabled` to `false` to disable semantic-token collection and refinement. When disabled, Semantic Fold uses document symbols and folding ranges only, so unsupported or noisy semantic-token providers cannot change command results.
 
 Set `semanticFold.folding.includeClosingDelimiter` to `false` to exclude closing delimiter lines such as `}`, `]`, or `});` when those delimiters are on a standalone line.
+
+Set `semanticFold.inlineHints.showFoldedFunctionSignatures` to `true` to show inline function and method signature hints on folded headers. Hints include parameter names and explicit return types when available.
+
+Set `semanticFold.inlineHints.collapseFunctionSignatures` to `true` to render folded signatures in compact placeholder form:
+
+- `(...): type` when parameters exist
+- `: type` when no parameters exist
 
 Preset settings support global overrides for built-in overview commands:
 
