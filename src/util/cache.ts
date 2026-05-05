@@ -83,49 +83,54 @@ export function handleDocumentChange(
 }
 
 /**
- * Invalidates on structural edits, newline edits, or boundary-line edits
+ * Invalidates on structural edits, newline edits, or declaration-line edits
  */
 export function shouldInvalidateCache(nodes: readonly RegionNode[], changes: readonly CacheChange[]): boolean {
 	if(changes.length === 0) {
+		console.debug("[semanticFold] cache valid");
 		return false;
 	}
 
-	const boundaryLines = collectRegionBoundaryLines(nodes);
+	const headerLines = collectRegionHeaderLines(nodes);
 
 	for(const change of changes) {
 		if(change.startLine !== change.endLine) {
+			console.debug("[semanticFold] cache invalid - start line is not end line");
 			return true;
 		}
 
 		if(change.text.includes("\n")) {
+			console.debug("[semanticFold] cache invalid - new line");
 			return true;
 		}
 
-		if(boundaryLines.has(change.startLine)) {
+		if(headerLines.has(change.startLine)) {
+			console.debug("[semanticFold] cache invalid - header lines has change start line");
 			return true;
 		}
 	}
+
+	console.debug("[semanticFold] cache valid");
 
 	return false;
 }
 
-function collectRegionBoundaryLines(nodes: readonly RegionNode[]): Set<number> {
-	const boundaryLines = new Set<number>();
+function collectRegionHeaderLines(nodes: readonly RegionNode[]): Set<number> {
+	const headerLines = new Set<number>();
 
 	for(const node of nodes) {
-		collectRegionBoundaryLine(node, boundaryLines);
+		collectRegionHeaderLine(node, headerLines);
 	}
 
-	return boundaryLines;
+	return headerLines;
 }
 
-function collectRegionBoundaryLine(node: RegionNode, boundaryLines: Set<number>): void {
-	boundaryLines.add(node.rangeStartLine);
-	boundaryLines.add(node.rangeEndLine);
-	boundaryLines.add(node.selectionLine);
+function collectRegionHeaderLine(node: RegionNode, headerLines: Set<number>): void {
+	headerLines.add(node.rangeStartLine);
+	headerLines.add(node.selectionLine);
 
 	for(const child of node.children) {
-		collectRegionBoundaryLine(child, boundaryLines);
+		collectRegionHeaderLine(child, headerLines);
 	}
 }
 

@@ -36,7 +36,7 @@ suite("Semantic Fold Foundation", () => {
 		assert.ok(commands.includes("semanticFold.toggleAtCursor"));
 		assert.ok(commands.includes("semanticFold.toggleDepth1"));
 		assert.ok(commands.includes("semanticFold.toggleDepth9"));
-		assert.ok(commands.includes("semanticFold.toggleMethodsAndFunctions"));
+		assert.ok(commands.includes("semanticFold.toggleFunctions"));
 		assert.ok(commands.includes("semanticFold.toggleAll"));
 		assert.ok(commands.includes("semanticFold.inspectRegions"));
 		assert.ok(commands.includes("semanticFold.toggleMethodsInClasses"));
@@ -740,6 +740,19 @@ suite("Region Cache", () => {
 				startLine: 9,
 				endLine: 9,
 				text: "body edit"
+			}]),
+			false
+		);
+	});
+
+	test("keeps cache valid for end-line edits without structural line shifts", () => {
+		const nodes = createFilterFixture();
+
+		assert.strictEqual(
+			shouldInvalidateCache(nodes, [{
+				startLine: 12,
+				endLine: 12,
+				text: "inline edit"
 			}]),
 			false
 		);
