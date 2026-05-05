@@ -25,6 +25,54 @@
         "title": "Semantic Fold: Toggle"
       },
       {
+        "command": "semanticFold.toggleAtCursor",
+        "title": "Semantic Fold: Toggle Current Region"
+      },
+      {
+        "command": "semanticFold.toggleDepth1",
+        "title": "Semantic Fold: Toggle Level 1"
+      },
+      {
+        "command": "semanticFold.toggleDepth2",
+        "title": "Semantic Fold: Toggle Level 2"
+      },
+      {
+        "command": "semanticFold.toggleDepth3",
+        "title": "Semantic Fold: Toggle Level 3"
+      },
+      {
+        "command": "semanticFold.toggleDepth4",
+        "title": "Semantic Fold: Toggle Level 4"
+      },
+      {
+        "command": "semanticFold.toggleDepth5",
+        "title": "Semantic Fold: Toggle Level 5"
+      },
+      {
+        "command": "semanticFold.toggleDepth6",
+        "title": "Semantic Fold: Toggle Level 6"
+      },
+      {
+        "command": "semanticFold.toggleDepth7",
+        "title": "Semantic Fold: Toggle Level 7"
+      },
+      {
+        "command": "semanticFold.toggleDepth8",
+        "title": "Semantic Fold: Toggle Level 8"
+      },
+      {
+        "command": "semanticFold.toggleDepth9",
+        "title": "Semantic Fold: Toggle Level 9"
+      },
+      {
+        "command": "semanticFold.toggleFunctions",
+        "title": "Semantic Fold: Toggle Functions"
+      },
+      {
+        "command": "semanticFold.toggleAll",
+        "title": "Semantic Fold: Toggle All"
+      },
+      {
         "command": "semanticFold.runComposite",
         "title": "Semantic Fold: Run Composite"
       },
@@ -71,6 +119,88 @@
       {
         "command": "semanticFold.toggleApiOverview",
         "title": "Semantic Fold: Toggle API Overview"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "semanticFold.toggleAtCursor",
+        "key": "ctrl+shift+[",
+        "when": "editorTextFocus"
+      },
+      {
+        "command": "semanticFold.expand",
+        "key": "ctrl+shift+]",
+        "when": "editorTextFocus"
+      },
+      {
+        "command": "semanticFold.toggleDepth1",
+        "key": "alt+s alt+1",
+        "when": "editorTextFocus"
+      },
+      {
+        "command": "semanticFold.toggleDepth2",
+        "key": "alt+s alt+2",
+        "when": "editorTextFocus"
+      },
+      {
+        "command": "semanticFold.toggleDepth3",
+        "key": "alt+s alt+3",
+        "when": "editorTextFocus"
+      },
+      {
+        "command": "semanticFold.toggleDepth4",
+        "key": "alt+s alt+4",
+        "when": "editorTextFocus"
+      },
+      {
+        "command": "semanticFold.toggleDepth5",
+        "key": "alt+s alt+5",
+        "when": "editorTextFocus"
+      },
+      {
+        "command": "semanticFold.toggleDepth6",
+        "key": "alt+s alt+6",
+        "when": "editorTextFocus"
+      },
+      {
+        "command": "semanticFold.toggleDepth7",
+        "key": "alt+s alt+7",
+        "when": "editorTextFocus"
+      },
+      {
+        "command": "semanticFold.toggleDepth8",
+        "key": "alt+s alt+8",
+        "when": "editorTextFocus"
+      },
+      {
+        "command": "semanticFold.toggleDepth9",
+        "key": "alt+s alt+9",
+        "when": "editorTextFocus"
+      },
+      {
+        "command": "semanticFold.toggleFunctions",
+        "key": "alt+s alt+m",
+        "when": "editorTextFocus"
+      },
+      {
+        "command": "semanticFold.toggleApiOverview",
+        "key": "alt+s alt+a",
+        "when": "editorTextFocus"
+      },
+      {
+        "command": "semanticFold.toggleReaderMode",
+        "key": "alt+s alt+r",
+        "when": "editorTextFocus"
+      },
+      {
+        "command": "semanticFold.toggleAll",
+        "key": "alt+s alt+o",
+        "when": "editorTextFocus"
+      },
+      {
+        "command": "semanticFold.toggleComments",
+        "key": "alt+s alt+/",
+        "when": "editorTextFocus"
       }
     ],
     "configuration": {

@@ -1,12 +1,7 @@
 import * as vscode from "vscode";
 import { type CollapseArgs } from "../model/filters";
 import { runCompositeFoldCommand, runFoldCommand } from "./foldCommand";
-import {
-	apiOverviewArgs,
-	commentsArgs,
-	importsArgs,
-	readerModeArgs
-} from "./presets";
+import { apiOverviewArgs, commentsArgs, importsArgs, readerModeArgs } from "./presets";
 import { resolveCompositePresetArgs, resolveTogglePresetArgs } from "../util/config";
 
 /*
@@ -51,11 +46,75 @@ const functionsInVariablesArgs: CollapseArgs = {
 	mode: "toggle"
 };
 
+const toggleAtCursorArgs: CollapseArgs = {
+	mode: "toggle"
+};
+
+const toggleFunctionsArgs: CollapseArgs = {
+	filter: {
+		kinds: ["method", "function"]
+	},
+	mode: "toggle"
+};
+
+const toggleAllArgs: CollapseArgs = {
+	mode: "toggle"
+};
+
+function createDepthToggleArgs(depth: number): CollapseArgs {
+	return {
+		filter: {
+			exactSymbolDepth: depth
+		},
+		mode: "toggle"
+	};
+}
+
 /**
  * Base collapse command used by the command palette and keybinding payloads
  */
 export async function collapseCommand(args?: unknown): Promise<void> {
 	await runFoldCommand(args, getDefaultCollapseMode(args));
+}
+
+export async function toggleAtCursorCommand(): Promise<void> {
+	await collapseCommand(toggleAtCursorArgs);
+}
+
+export async function toggleDepth1Command(): Promise<void> {
+	await collapseCommand(createDepthToggleArgs(1));
+}
+
+export async function toggleDepth2Command(): Promise<void> {
+	await collapseCommand(createDepthToggleArgs(2));
+}
+
+export async function toggleDepth3Command(): Promise<void> {
+	await collapseCommand(createDepthToggleArgs(3));
+}
+
+export async function toggleDepth4Command(): Promise<void> {
+	await collapseCommand(createDepthToggleArgs(4));
+}
+
+export async function toggleDepth5Command(): Promise<void> {
+	await collapseCommand(createDepthToggleArgs(5));
+}
+
+export async function toggleDepth6Command(): Promise<void> {
+	await collapseCommand(createDepthToggleArgs(6));
+}
+
+export async function toggleDepth7Command(): Promise<void> {
+	await collapseCommand(createDepthToggleArgs(7));
+}
+
+export async function toggleDepth8Command(): Promise<void> {
+	await collapseCommand(createDepthToggleArgs(8));
+}
+
+export async function toggleDepth9Command(): Promise<void> {
+	await collapseCommand(createDepthToggleArgs(9));
 }
 
 export async function toggleReaderModeCommand(): Promise<void> {
@@ -106,6 +165,14 @@ export async function toggleVariablesCommand(): Promise<void> {
 
 export async function toggleFunctionsInVariablesCommand(): Promise<void> {
 	await collapseCommand(functionsInVariablesArgs);
+}
+
+export async function toggleFunctionsCommand(): Promise<void> {
+	await collapseCommand(toggleFunctionsArgs);
+}
+
+export async function toggleAllCommand(): Promise<void> {
+	await collapseCommand(toggleAllArgs);
 }
 
 export async function toggleImportsCommand(): Promise<void> {

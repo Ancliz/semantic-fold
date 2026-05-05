@@ -33,6 +33,11 @@ suite("Semantic Fold Foundation", () => {
 		assert.ok(commands.includes("semanticFold.collapse"));
 		assert.ok(commands.includes("semanticFold.expand"));
 		assert.ok(commands.includes("semanticFold.toggle"));
+		assert.ok(commands.includes("semanticFold.toggleAtCursor"));
+		assert.ok(commands.includes("semanticFold.toggleDepth1"));
+		assert.ok(commands.includes("semanticFold.toggleDepth9"));
+		assert.ok(commands.includes("semanticFold.toggleMethodsAndFunctions"));
+		assert.ok(commands.includes("semanticFold.toggleAll"));
 		assert.ok(commands.includes("semanticFold.inspectRegions"));
 		assert.ok(commands.includes("semanticFold.toggleMethodsInClasses"));
 		assert.ok(commands.includes("semanticFold.toggleClassMembers"));
@@ -56,6 +61,42 @@ suite("Semantic Fold Foundation", () => {
 		assert.strictEqual(readerModePresetSetting.type, "object");
 		assert.strictEqual(apiOverviewPresetSetting.type, "object");
 		assert.strictEqual(languageOverridesSetting.type, "object");
+	});
+
+	test("contributes semantic default keybindings for cursor and depth workflows", () => {
+		const extension = getSemanticFoldExtension();
+		const keybindings = extension.packageJSON.contributes.keybindings as Array<{
+			key: string;
+			command: string;
+			args?: {
+				mode?: string;
+				filter?: {
+					exactSymbolDepth?: number;
+				};
+			};
+		}>;
+		const findBinding = (key: string) => {
+			return keybindings.find((binding) => binding.key === key);
+		};
+		const collapseAtCursor = findBinding("ctrl+shift+[");
+		const expandAtCursor = findBinding("ctrl+shift+]");
+		const collapseLevelOne = findBinding("alt+s alt+1");
+		const collapseLevelNine = findBinding("alt+s alt+9");
+
+		assert.ok(collapseAtCursor);
+		assert.strictEqual(collapseAtCursor.command, "semanticFold.toggleAtCursor");
+		assert.strictEqual(collapseAtCursor.args, undefined);
+
+		assert.ok(expandAtCursor);
+		assert.strictEqual(expandAtCursor.command, "semanticFold.expand");
+
+		assert.ok(collapseLevelOne);
+		assert.strictEqual(collapseLevelOne.command, "semanticFold.toggleDepth1");
+		assert.strictEqual(collapseLevelOne.args, undefined);
+
+		assert.ok(collapseLevelNine);
+		assert.strictEqual(collapseLevelNine.command, "semanticFold.toggleDepth9");
+		assert.strictEqual(collapseLevelNine.args, undefined);
 	});
 });
 
