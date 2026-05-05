@@ -64,7 +64,7 @@ export async function getRegions(
 	// Structural and semantic data come from separate VS Code providers
 	const [symbols, foldingRanges, semanticTokens, semanticTokenLegend] = await Promise.all([
 		collectSymbols(document.uri, executeSymbolProvider),
-		collectFoldingRanges(document.uri, executeFoldingRangeProvider),
+		collectFoldingRanges(document, executeFoldingRangeProvider),
 		semanticRefinementEnabled
 			? collectSemanticTokens(document.uri, executeSemanticTokenProvider)
 			: undefined,
@@ -114,14 +114,75 @@ async function collectSymbols(
  * Converts provider failures into absent folding ranges so symbols still work
  */
 async function collectFoldingRanges(
-	uri: vscode.Uri,
+	document: vscode.TextDocument,
 	executeFoldingRangeProvider: FoldingRangeProviderExecutor
 ): Promise<FoldingRangeProviderResult> {
+	const uri = document.uri;
+
 	try {
-		return await executeFoldingRangeProvider(uri);
+		const foldingRanges = await executeFoldingRangeProvider(uri);
+
+		return mergeWithInferredClauseFoldingRanges(document, foldingRanges);
 	} catch {
-		return undefined;
+		return mergeWithInferredClauseFoldingRanges(document, undefined);
 	}
+}
+
+function mergeWithInferredClauseFoldingRanges(
+	document: vscode.TextDocument,
+	foldingRanges: FoldingRangeProviderResult
+): vscode.FoldingRange[] {
+	const mergedRanges = Array.isArray(foldingRanges)
+		? [...foldingRanges]
+		: [];
+	const existingStartLines = new Set(mergedRanges.map((range) => range.start));
+
+	for(let lineNumber = 0; lineNumber < document.lineCount; lineNumber++) {
+		if(existingStartLines.has(lineNumber) || !isControlClauseHeaderLine(document.lineAt(lineNumber).text)) {
+			continue;
+		}
+
+		const endLine = findControlClauseEndLine(document, lineNumber);
+
+		if(endLine <= lineNumber) {
+			continue;
+		}
+
+		mergedRanges.push(new vscode.FoldingRange(lineNumber, endLine));
+		existingStartLines.add(lineNumber);
+	}
+
+	return mergedRanges;
+}
+
+function findControlClauseEndLine(document: vscode.TextDocument, startLine: number): number {
+	const startLineText = document.lineAt(startLine);
+	const startIndent = startLineText.firstNonWhitespaceCharacterIndex;
+
+	for(let lineNumber = startLine + 1; lineNumber < document.lineCount; lineNumber++) {
+		const lineText = document.lineAt(lineNumber);
+		const trimmedLine = stripLineComments(lineText.text).trim();
+
+		if(trimmedLine.length === 0) {
+			continue;
+		}
+
+		if(trimmedLine.startsWith("}") && lineText.firstNonWhitespaceCharacterIndex <= startIndent) {
+			return lineNumber;
+		}
+	}
+
+	return startLine;
+}
+
+function isControlClauseHeaderLine(lineText: string): boolean {
+	const trimmedLine = stripLineComments(lineText).trim();
+
+	return /^\}?\s*(catch|finally|else\b).*\{$/.test(trimmedLine);
+}
+
+function stripLineComments(lineText: string): string {
+	return lineText.replace(/\/\/.*$/, "");
 }
 
 /**

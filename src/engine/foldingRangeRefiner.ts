@@ -138,7 +138,7 @@ function findSmallestContainingNode(
 	candidateParents: readonly RegionNode[]
 ): RegionNode | undefined {
 	const containingNodes = candidateParents.filter((candidate) => {
-		return candidate !== foldingNode && containsRange(candidate, foldingNode);
+		return candidate !== foldingNode && canParentNode(candidate, foldingNode);
 	});
 
 	return containingNodes.sort((left, right) => {
@@ -151,6 +151,30 @@ function findSmallestContainingNode(
 
 		return compareRegions(left, right);
 	})[0];
+}
+
+/**
+ * Applies containment rules with special handling for clause-like sibling blocks
+ */
+function canParentNode(parent: RegionNode, child: RegionNode): boolean {
+	if(!containsRange(parent, child)) {
+		return false;
+	}
+
+	if(
+		parent.source === "foldingRange"
+		&& child.source === "foldingRange"
+		&& parent.kind === "unknown"
+		&& child.kind === "unknown"
+		&& (
+			parent.rangeEndLine === child.rangeEndLine
+			|| child.rangeStartLine === parent.rangeEndLine
+		)
+	) {
+		return false;
+	}
+
+	return true;
 }
 
 /**
@@ -185,8 +209,13 @@ function isCoveredBySymbolRegion(
 	symbolNodes: readonly RegionNode[]
 ): boolean {
 	return symbolNodes.some((symbolNode) => {
+		const symbolHasFoldableSpan = symbolNode.rangeEndLine > symbolNode.rangeStartLine;
+
 		return rangesOverlap(symbolNode, foldingNode)
-			&& (hasSameRange(symbolNode, foldingNode) || symbolNode.selectionLine === foldingNode.selectionLine);
+			&& (
+				hasSameRange(symbolNode, foldingNode)
+				|| (symbolHasFoldableSpan && symbolNode.selectionLine === foldingNode.selectionLine)
+			);
 	});
 }
 

@@ -366,7 +366,7 @@ function getActiveDocumentKey(): string {
 /**
  * Identifies lines containing only closing delimiters and punctuation
  */
-function isClosingDelimiterLine(lineText: string | undefined): boolean {
+export function isClosingDelimiterLine(lineText: string | undefined): boolean {
 	if(lineText === undefined) {
 		return false;
 	}

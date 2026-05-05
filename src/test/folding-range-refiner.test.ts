@@ -86,6 +86,37 @@ suite("Folding Range Refinement", () => {
 		assert.strictEqual(mapRegion.parent, thenRegion);
 	});
 
+	test("keeps try and catch folding blocks at the same depth when they share an end line", () => {
+		const functionSymbol = createSymbol("getLinks", vscode.SymbolKind.Function, 0, 20);
+		const regions = attachFoldingOnlyNodes(normalizeSymbols([functionSymbol]), [
+			new vscode.FoldingRange(2, 12),
+			new vscode.FoldingRange(4, 6),
+			new vscode.FoldingRange(8, 12)
+		]);
+		const functionRegion = regions[0];
+		const tryBlock = functionRegion.children.find((region) => {
+			return region.kind === "unknown" && region.rangeStartLine === 2 && region.rangeEndLine === 12;
+		});
+		const catchBlock = functionRegion.children.find((region) => {
+			return region.kind === "unknown" && region.rangeStartLine === 8 && region.rangeEndLine === 12;
+		});
+
+		assert.ok(tryBlock);
+		assert.ok(catchBlock);
+		assert.strictEqual(tryBlock.parent, functionRegion);
+		assert.strictEqual(catchBlock.parent, functionRegion);
+		assert.strictEqual(tryBlock.symbolDepth, 2);
+		assert.strictEqual(catchBlock.symbolDepth, 2);
+
+		const nestedBlock = tryBlock.children.find((region) => {
+			return region.kind === "unknown" && region.rangeStartLine === 4 && region.rangeEndLine === 6;
+		});
+
+		assert.ok(nestedBlock);
+		assert.strictEqual(nestedBlock.parent, tryBlock);
+		assert.strictEqual(nestedBlock.symbolDepth, 3);
+	});
+
 	test("adds import nodes in document order with symbol nodes", () => {
 		const classSymbol = createSymbol("Example", vscode.SymbolKind.Class, 4, 10);
 		const regions = attachFoldingOnlyNodes(normalizeSymbols([classSymbol]), [
@@ -193,6 +224,19 @@ suite("Folding Range Refinement", () => {
 			collectSelectionLines(selectFoldableRegions({}, regions)),
 			[4]
 		);
+	});
+
+	test("keeps folding ranges that share a selection line with one-line symbol nodes", () => {
+		const errorSymbol = createSymbol("error", vscode.SymbolKind.Variable, 4, 4);
+		const regions = attachFoldingOnlyNodes(normalizeSymbols([errorSymbol]), [
+			new vscode.FoldingRange(4, 8)
+		]);
+		const unknownRegion = regions.find((region) => {
+			return region.kind === "unknown" && region.source === "foldingRange";
+		});
+
+		assert.ok(unknownRegion);
+		assert.ok(unknownRegion.children.some((region) => region.name === "error"));
 	});
 
 	test("keeps partially overlapping folding ranges that are not symbol duplicates", () => {
