@@ -6,6 +6,8 @@ import { isCollapsedHintEnabled, isSignatureHintsEnabled } from "./config";
 const functionLikeKinds = new Set<string>(["function", "method"]);
 const maxHintLength = 80;
 const foldedFunctionRegionsByDocument = new Map<string, Map<number, RegionNode>>();
+const providerReturnTypeCacheByDocument = new Map<string, Map<string, string | null>>();
+const hintRefreshSequenceByDocument = new Map<string, number>();
 const foldedSignatureDecorationType = vscode.window.createTextEditorDecorationType({
 	after: {
 		margin: "0",
@@ -61,11 +63,15 @@ export function applyFunctionSignatureHints(
 export function clearFunctionSignatureHints(documentUri?: string): void {
 	if(documentUri !== undefined) {
 		foldedFunctionRegionsByDocument.delete(documentUri);
+		providerReturnTypeCacheByDocument.delete(documentUri);
+		hintRefreshSequenceByDocument.delete(documentUri);
 		refreshFunctionHints(vscode.window.activeTextEditor);
 		return;
 	}
 
 	foldedFunctionRegionsByDocument.clear();
+	providerReturnTypeCacheByDocument.clear();
+	hintRefreshSequenceByDocument.clear();
 	refreshFunctionHints(vscode.window.activeTextEditor);
 }
 
@@ -77,19 +83,27 @@ export function refreshFunctionHints(editor?: vscode.TextEditor): void {
 		return;
 	}
 
+	const documentUri = editor.document.uri.toString();
+	const refreshSequence = nextHintRefreshSequence(documentUri);
+
+	void refreshFunctionHintsAsync(editor, refreshSequence);
+}
+
+async function refreshFunctionHintsAsync(
+	editor: vscode.TextEditor,
+	refreshSequence: number
+): Promise<void> {
+	const documentUri = editor.document.uri.toString();
+
 	if(!isSignatureHintsEnabled(editor.document.uri)) {
-		editor.setDecorations(foldedSignatureDecorationType, []);
-		editor.setDecorations(collapsedSignatureHintDecorationType, []);
-		editor.setDecorations(replacedSignatureDecorationType, []);
+		applyHintDecorations(editor, [], [], []);
 		return;
 	}
 
-	const foldedFunctionRegions = foldedFunctionRegionsByDocument.get(editor.document.uri.toString());
+	const foldedFunctionRegions = foldedFunctionRegionsByDocument.get(documentUri);
 
 	if(foldedFunctionRegions === undefined || foldedFunctionRegions.size === 0) {
-		editor.setDecorations(foldedSignatureDecorationType, []);
-		editor.setDecorations(collapsedSignatureHintDecorationType, []);
-		editor.setDecorations(replacedSignatureDecorationType, []);
+		applyHintDecorations(editor, [], [], []);
 		return;
 	}
 
@@ -100,17 +114,28 @@ export function refreshFunctionHints(editor?: vscode.TextEditor): void {
 	const sortedFoldedFunctionRegions = [...foldedFunctionRegions.values()].sort((left, right) => {
 		return left.selectionLine - right.selectionLine;
 	});
+	const hintEntries = await Promise.all(sortedFoldedFunctionRegions.map(async (region) => {
+		const hintText = await buildFunctionLabelWithProviders(editor.document, region, {
+			collapseSignature
+		});
 
-	for(const region of sortedFoldedFunctionRegions) {
+		return { region, hintText };
+	}));
+
+	if(isStaleHintRefresh(documentUri, refreshSequence)) {
+		return;
+	}
+
+	for(const entry of hintEntries) {
+		const region = entry.region;
 		const lineNumber = region.selectionLine;
+
 		if(lineNumber < 0 || lineNumber >= editor.document.lineCount) {
 			continue;
 		}
 
 		const line = editor.document.lineAt(lineNumber);
-		const hintText = buildFunctionLabel(editor.document, region, {
-			collapseSignature
-		});
+		const hintText = entry.hintText;
 
 		if(hintText === undefined) {
 			continue;
@@ -154,9 +179,16 @@ export function refreshFunctionHints(editor?: vscode.TextEditor): void {
 		});
 	}
 
-	editor.setDecorations(foldedSignatureDecorationType, trailingDecorations);
-	editor.setDecorations(collapsedSignatureHintDecorationType, collapsedHintDecorations);
-	editor.setDecorations(replacedSignatureDecorationType, replacedSignatureDecorations);
+	if(isStaleHintRefresh(documentUri, refreshSequence)) {
+		return;
+	}
+
+	applyHintDecorations(
+		editor,
+		trailingDecorations,
+		collapsedHintDecorations,
+		replacedSignatureDecorations
+	);
 }
 
 /**
@@ -224,6 +256,7 @@ export function buildFunctionLabel(
 	region: RegionNode,
 	options: {
 		collapseSignature?: boolean;
+		returnTypeOverride?: string;
 	} = {}
 ): string | undefined {
 	const parameterDetails = extractParameterDetails(document, region);
@@ -233,7 +266,7 @@ export function buildFunctionLabel(
 	}
 
 	const parameterNames = extractParameterNames(parameterDetails.parameterSource);
-	const returnType = extractReturnType(document, region);
+	const returnType = options.returnTypeOverride ?? extractReturnType(document, region);
 	const collapseSignature = options.collapseSignature ?? false;
 	const shouldShowParameters = collapseSignature || parameterDetails.spansMultipleLines;
 
@@ -263,6 +296,21 @@ export function buildFunctionLabel(
 	return `${label.slice(0, maxHintLength - 1)}…`;
 }
 
+async function buildFunctionLabelWithProviders(
+	document: vscode.TextDocument,
+	region: RegionNode,
+	options: {
+		collapseSignature?: boolean;
+	} = {}
+): Promise<string | undefined> {
+	const providerReturnType = await resolveProviderReturnType(document, region);
+
+	return buildFunctionLabel(document, region, {
+		...options,
+		returnTypeOverride: providerReturnType
+	});
+}
+
 function buildCollapsedSignatureLabel(
 	parameterNames: string[],
 	returnType: string | undefined
@@ -276,6 +324,32 @@ function buildCollapsedSignatureLabel(
 		: "()";
 
 	return `${collapsedParameterText} : ${returnType}`;
+}
+
+function applyHintDecorations(
+	editor: vscode.TextEditor,
+	trailing: vscode.DecorationOptions[],
+	collapsed: vscode.DecorationOptions[],
+	replaced: vscode.DecorationOptions[]
+): void {
+	editor.setDecorations(foldedSignatureDecorationType, trailing);
+	editor.setDecorations(collapsedSignatureHintDecorationType, collapsed);
+	editor.setDecorations(replacedSignatureDecorationType, replaced);
+}
+
+function nextHintRefreshSequence(documentUri: string): number {
+	const current = hintRefreshSequenceByDocument.get(documentUri) ?? 0;
+	const next = current + 1;
+
+	hintRefreshSequenceByDocument.set(documentUri, next);
+
+	return next;
+}
+
+function isStaleHintRefresh(documentUri: string, refreshSequence: number): boolean {
+	const current = hintRefreshSequenceByDocument.get(documentUri) ?? 0;
+
+	return current !== refreshSequence;
 }
 
 function isRegionBodyVisible(region: RegionNode, visibleRanges: readonly vscode.Range[]): boolean {
@@ -517,6 +591,198 @@ function extractParameterDetails(
 /**
  * Resolves return type from typed syntax, JSDoc, or body inference fallbacks
  */
+async function resolveProviderReturnType(
+	document: vscode.TextDocument,
+	region: RegionNode
+): Promise<string | undefined> {
+	const documentUri = document.uri.toString();
+	const cacheKey = `${document.version}:${region.selectionLine}:${region.rangeEndLine}`;
+	const documentCache = getProviderReturnTypeCache(documentUri);
+	const cachedValue = documentCache.get(cacheKey);
+
+	if(cachedValue !== undefined) {
+		return cachedValue === null ? undefined : cachedValue;
+	}
+
+	const providerReturnType = await queryProviderReturnType(document, region);
+
+	documentCache.set(cacheKey, providerReturnType ?? null);
+
+	return providerReturnType;
+}
+
+async function queryProviderReturnType(
+	document: vscode.TextDocument,
+	region: RegionNode
+): Promise<string | undefined> {
+	const position = createTypeQueryPosition(document, region);
+	let hovers: vscode.Hover[] | undefined;
+
+	try {
+		hovers = await vscode.commands.executeCommand<vscode.Hover[]>(
+			"vscode.executeHoverProvider",
+			document.uri,
+			position
+		);
+	} catch (error) {
+		console.debug(`[semanticFold] Hover type query failed: ${formatError(error)}`);
+		return undefined;
+	}
+
+	if(hovers === undefined || hovers.length === 0) {
+		return undefined;
+	}
+
+	for(const hover of hovers) {
+		const returnType = extractReturnTypeFromHover(hover);
+
+		if(returnType !== undefined) {
+			return returnType;
+		}
+	}
+
+	return undefined;
+}
+
+function extractReturnTypeFromHover(hover: vscode.Hover): string | undefined {
+	for(const content of hover.contents) {
+		const contentText = toHoverContentText(content);
+
+		if(contentText === undefined) {
+			continue;
+		}
+
+		const signatureLines = extractHoverSignatureCandidates(contentText);
+
+		for(const signatureLine of signatureLines) {
+			const returnType = extractReturnTypeFromHoverSignature(signatureLine);
+
+			if(returnType !== undefined) {
+				return returnType;
+			}
+		}
+	}
+
+	return undefined;
+}
+
+function toHoverContentText(content: vscode.MarkedString | vscode.MarkdownString): string | undefined {
+	if(typeof content === "string") {
+		return content;
+	}
+
+	if("value" in content && typeof content.value === "string") {
+		return content.value;
+	}
+
+	return undefined;
+}
+
+function extractHoverSignatureCandidates(contentText: string): string[] {
+	const candidates: string[] = [];
+	const codeBlockPattern = /```[^\n]*\n([\s\S]*?)```/g;
+	let match: RegExpExecArray | null = codeBlockPattern.exec(contentText);
+
+	while(match !== null) {
+		candidates.push(match[1]);
+		match = codeBlockPattern.exec(contentText);
+	}
+
+	if(candidates.length === 0) {
+		candidates.push(contentText);
+	}
+
+	const signatureLines: string[] = [];
+
+	for(const candidate of candidates) {
+		for(const line of candidate.split(/\r?\n/u)) {
+			const trimmedLine = line.trim();
+
+			if(trimmedLine.length === 0 || !trimmedLine.includes("(")) {
+				continue;
+			}
+
+			signatureLines.push(trimmedLine);
+		}
+	}
+
+	return signatureLines;
+}
+
+function extractReturnTypeFromHoverSignature(signatureLine: string): string | undefined {
+	const cleanedLine = signatureLine.replace(/^\([^)]*\)\s*/, "").trim();
+	const openIndex = cleanedLine.indexOf("(");
+
+	if(openIndex < 0) {
+		return undefined;
+	}
+
+	let depth = 0;
+	let closeIndex = -1;
+
+	for(let index = openIndex; index < cleanedLine.length; index++) {
+		const current = cleanedLine[index];
+
+		if(current === "(") {
+			depth++;
+			continue;
+		}
+
+		if(current === ")") {
+			depth--;
+
+			if(depth === 0) {
+				closeIndex = index;
+				break;
+			}
+		}
+	}
+
+	if(closeIndex < 0) {
+		return undefined;
+	}
+
+	const typedReturnType = extractTypedReturnType(cleanedLine, openIndex, closeIndex);
+
+	if(typedReturnType !== undefined) {
+		return typedReturnType;
+	}
+
+	const arrowReturnMatch = cleanedLine
+		.slice(closeIndex + 1)
+		.match(/^\s*=>\s*([^={;]+?)\s*(?:\{|$)/);
+
+	if(arrowReturnMatch === null) {
+		return undefined;
+	}
+
+	const arrowReturnType = arrowReturnMatch[1].trim();
+
+	return arrowReturnType.length === 0 ? undefined : arrowReturnType;
+}
+
+function createTypeQueryPosition(document: vscode.TextDocument, region: RegionNode): vscode.Position {
+	const line = document.lineAt(region.selectionLine);
+	const anchorRange = createHintAnchorRange(line, region.selectionLine, region.name);
+	const queryColumn = Math.max(0, anchorRange.start.character - 1);
+
+	return new vscode.Position(region.selectionLine, queryColumn);
+}
+
+function getProviderReturnTypeCache(documentUri: string): Map<string, string | null> {
+	const existingCache = providerReturnTypeCacheByDocument.get(documentUri);
+
+	if(existingCache !== undefined) {
+		return existingCache;
+	}
+
+	const createdCache = new Map<string, string | null>();
+
+	providerReturnTypeCacheByDocument.set(documentUri, createdCache);
+
+	return createdCache;
+}
+
 function extractReturnType(document: vscode.TextDocument, region: RegionNode): string | undefined {
 	const headerText = buildHeaderText(document, region);
 	const openIndex = headerText.indexOf("(");
@@ -1002,6 +1268,10 @@ function inferExpressionType(
 ): string | undefined {
 	const value = expression.trim();
 
+	if(value === "this") {
+		return inferThisReturnType(document, region);
+	}
+
 	if(value === "true" || value === "false") {
 		return "boolean";
 	}
@@ -1040,12 +1310,6 @@ function inferExpressionType(
 		return constructorMatch[1];
 	}
 
-	const promiseMatch = value.match(/^Promise\./);
-
-	if(promiseMatch !== null) {
-		return "Promise";
-	}
-
 	const callReturnType = inferReturnTypeFromCallExpression(document, region, value);
 
 	if(callReturnType !== undefined) {
@@ -1054,6 +1318,35 @@ function inferExpressionType(
 
 	if(isLikelyNumericExpression(value)) {
 		return "number";
+	}
+
+	return undefined;
+}
+
+function inferThisReturnType(document: vscode.TextDocument, region: RegionNode): string | undefined {
+	let ancestor = region.parent;
+
+	while(ancestor !== undefined) {
+		if(
+			(ancestor.kind === "class" || ancestor.semanticKind === "class")
+			&& ancestor.name !== undefined
+			&& ancestor.name.length > 0
+		) {
+			return ancestor.name;
+		}
+
+		ancestor = ancestor.parent;
+	}
+
+	const classMatchPattern = /^(?:export\s+)?class\s+([A-Za-z_$][\w$]*)\b/;
+
+	for(let lineNumber = region.selectionLine; lineNumber >= 0; lineNumber--) {
+		const trimmedLine = stripLineComment(document.lineAt(lineNumber).text).trim();
+		const classMatch = trimmedLine.match(classMatchPattern);
+
+		if(classMatch !== null) {
+			return classMatch[1];
+		}
 	}
 
 	return undefined;
@@ -1242,4 +1535,12 @@ function stripLeadingTypeParameterClause(value: string): string {
 	}
 
 	return trimmed;
+}
+
+function formatError(error: unknown): string {
+	if(error instanceof Error) {
+		return error.message;
+	}
+
+	return String(error);
 }

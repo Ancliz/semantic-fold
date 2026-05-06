@@ -260,6 +260,25 @@ suite("Folded Signature Hints", () => {
 			"() : Vec2d"
 		);
 	});
+
+	test("infers class return type from this in collapsed mode", async () => {
+		const document = await openDocument([
+			"class ReportBuilder {",
+			"\tadd(item) {",
+			"\t\tthis.items.push(item);",
+			"\t\treturn this;",
+			"\t}",
+			"}"
+		], "javascript");
+		const region = createRegion("method", 1, 4, "add");
+
+		assert.strictEqual(
+			buildFunctionLabel(document, region, {
+				collapseSignature: true
+			}),
+			"(item) : ReportBuilder"
+		);
+	});
 });
 
 function createRegion(
