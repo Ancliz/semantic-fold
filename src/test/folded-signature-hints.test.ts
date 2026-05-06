@@ -135,7 +135,7 @@ suite("Folded Signature Hints", () => {
 			buildFunctionLabel(document, region, {
 				collapseSignature: true
 			}),
-			" : void"
+			"() : void"
 		);
 	});
 
@@ -167,7 +167,7 @@ suite("Folded Signature Hints", () => {
 			buildFunctionLabel(document, region, {
 				collapseSignature: true
 			}),
-			" : void"
+			"() : void"
 		);
 	});
 
@@ -183,7 +183,81 @@ suite("Folded Signature Hints", () => {
 			buildFunctionLabel(document, region, {
 				collapseSignature: true
 			}),
-			"(plugin)"
+			undefined
+		);
+	});
+
+	test("uses JSDoc returns types for collapsed javascript method hints", async () => {
+		const document = await openDocument([
+			"/**",
+			" * @returns {Vec2d} a new Vec2d of the result of scalar multiplication",
+			" */",
+			"static multiply(vector, scalar) {",
+			"\treturn vector.scale(scalar);",
+			"}"
+		], "javascript");
+		const region = createRegion("method", 3, 5, "multiply");
+
+		assert.strictEqual(
+			buildFunctionLabel(document, region, {
+				collapseSignature: true
+			}),
+			"(vector, scalar) : Vec2d"
+		);
+	});
+
+	test("falls back to inferred javascript return types without JSDoc", async () => {
+		const document = await openDocument([
+			"function createEntry(name) {",
+			"\treturn new Entry(name);",
+			"}"
+		], "javascript");
+		const region = createRegion("function", 0, 2, "createEntry");
+
+		assert.strictEqual(
+			buildFunctionLabel(document, region, {
+				collapseSignature: true
+			}),
+			"(name) : Entry"
+		);
+	});
+
+	test("infers numeric return types for arithmetic expressions", async () => {
+		const document = await openDocument([
+			"function dotProduct(other) {",
+			"\treturn this.x * other.x + this.y * other.y;",
+			"}"
+		], "javascript");
+		const region = createRegion("function", 0, 2, "dotProduct");
+
+		assert.strictEqual(
+			buildFunctionLabel(document, region, {
+				collapseSignature: true
+			}),
+			"(other) : number"
+		);
+	});
+
+	test("infers return type from nearby callable declarations", async () => {
+		const document = await openDocument([
+			"/**",
+			" * @returns {Vec2d} scaled vector",
+			" */",
+			"static multiply(vector, scalar) {",
+			"\treturn vector.scale(scalar);",
+			"}",
+			"",
+			"getUnitVec() {",
+			"\treturn this.multiply(this, 1);",
+			"}"
+		], "javascript");
+		const region = createRegion("method", 7, 9, "getUnitVec");
+
+		assert.strictEqual(
+			buildFunctionLabel(document, region, {
+				collapseSignature: true
+			}),
+			"() : Vec2d"
 		);
 	});
 });
