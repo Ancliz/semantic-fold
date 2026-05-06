@@ -160,6 +160,63 @@ export function refreshFunctionHints(editor?: vscode.TextEditor): void {
 }
 
 /**
+ * Removes stored folded regions that are visibly expanded in the current viewport
+ */
+export function pruneExpandedFunctionHints(editor: vscode.TextEditor): void {
+	const documentUri = editor.document.uri.toString();
+	const foldedFunctionRegions = foldedFunctionRegionsByDocument.get(documentUri);
+
+	if(foldedFunctionRegions === undefined || foldedFunctionRegions.size === 0) {
+		return;
+	}
+
+	let changed = false;
+
+	for(const [selectionLine, region] of foldedFunctionRegions) {
+		if(isRegionBodyVisible(region, editor.visibleRanges)) {
+			foldedFunctionRegions.delete(selectionLine);
+			changed = true;
+		}
+	}
+
+	if(!changed) {
+		return;
+	}
+
+	if(foldedFunctionRegions.size === 0) {
+		foldedFunctionRegionsByDocument.delete(documentUri);
+	}
+
+	refreshFunctionHints(editor);
+}
+
+/**
+ * Adds hints for function-like regions that appear collapsed in the viewport
+ */
+export function addCollapsedFunctionHintsFromRegions(
+	editor: vscode.TextEditor,
+	rootNodes: readonly RegionNode[]
+): void {
+	if(!isSignatureHintsEnabled(editor.document.uri)) {
+		return;
+	}
+
+	const documentUri = editor.document.uri.toString();
+	const foldedFunctionRegions = getDocumentFunctionRegions(documentUri);
+	const functionLikeRegions = flattenRegions(rootNodes).filter((region) => {
+		return isFunctionLikeRegion(region) && region.rangeEndLine > region.selectionLine;
+	});
+
+	for(const region of functionLikeRegions) {
+		if(!isRegionCollapsedInViewport(region, editor.visibleRanges)) {
+			continue;
+		}
+
+		foldedFunctionRegions.set(region.selectionLine, region);
+	}
+}
+
+/**
  * Builds a compact signature hint for function and method regions
  */
 export function buildFunctionLabel(
@@ -219,6 +276,59 @@ function buildCollapsedSignatureLabel(
 		: "()";
 
 	return `${collapsedParameterText} : ${returnType}`;
+}
+
+function isRegionBodyVisible(region: RegionNode, visibleRanges: readonly vscode.Range[]): boolean {
+	const bodyStartLine = region.selectionLine + 1;
+	const bodyEndLine = region.rangeEndLine;
+
+	if(bodyEndLine < bodyStartLine) {
+		return false;
+	}
+
+	for(const visibleRange of visibleRanges) {
+		const startLine = Math.max(bodyStartLine, visibleRange.start.line);
+		const endLine = Math.min(bodyEndLine, visibleRange.end.line);
+
+		if(startLine <= endLine) {
+			return true;
+		}
+	}
+
+	return false;
+}
+
+function isRegionCollapsedInViewport(region: RegionNode, visibleRanges: readonly vscode.Range[]): boolean {
+	return isLineVisible(region.selectionLine, visibleRanges)
+		&& !isRegionBodyVisible(region, visibleRanges);
+}
+
+function isLineVisible(lineNumber: number, visibleRanges: readonly vscode.Range[]): boolean {
+	for(const visibleRange of visibleRanges) {
+		if(lineNumber >= visibleRange.start.line && lineNumber <= visibleRange.end.line) {
+			return true;
+		}
+	}
+
+	return false;
+}
+
+function flattenRegions(rootNodes: readonly RegionNode[]): RegionNode[] {
+	const regions: RegionNode[] = [];
+
+	for(const node of rootNodes) {
+		appendRegion(node, regions);
+	}
+
+	return regions;
+}
+
+function appendRegion(region: RegionNode, regions: RegionNode[]): void {
+	regions.push(region);
+
+	for(const child of region.children) {
+		appendRegion(child, regions);
+	}
 }
 
 /**

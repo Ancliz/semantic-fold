@@ -27,6 +27,7 @@ import { runCompositeCommand } from "./commands/composite";
 import { expandCommand } from "./commands/expand";
 import { inspectRegionsCommand } from "./commands/inspectRegions";
 import { toggleCommand } from "./commands/toggle";
+import { getRegions } from "./engine/regionCollector";
 import { clearCache, handleDocumentChange, invalidateCache } from "./util/cache";
 import {
 	COLLAPSE_FUNCTION_SIGNATURE_HINTS_SETTING,
@@ -39,7 +40,9 @@ import {
 	reapplyLastFoldExecutionForVisibleEditors
 } from "./commands/foldCommand";
 import {
+	addCollapsedFunctionHintsFromRegions,
 	clearFunctionSignatureHints,
+	pruneExpandedFunctionHints,
 	refreshFunctionHints
 } from "./util/foldedSignatureHints";
 
@@ -159,10 +162,13 @@ export function activate(context: vscode.ExtensionContext): void {
 			const currentSegmentCount = event.visibleRanges.length;
 
 			visibleRangeSegmentCountByDocument.set(documentUri, currentSegmentCount);
-
-			if(previousSegmentCount !== undefined && currentSegmentCount < previousSegmentCount) {
-				clearFunctionSignatureHints(documentUri);
-			}
+			pruneExpandedFunctionHints(event.textEditor);
+			void syncCollapsedFunctionHintsOnManualFold(
+				event.textEditor,
+				previousSegmentCount,
+				currentSegmentCount
+			);
+			refreshFunctionHints(event.textEditor);
 		}),
 		vscode.workspace.onDidChangeConfiguration(async (event) => {
 			if(event.affectsConfiguration(SEMANTIC_REFINEMENT_ENABLED_SETTING)) {
@@ -193,6 +199,21 @@ export function activate(context: vscode.ExtensionContext): void {
 			}
 		})
 	);
+}
+
+async function syncCollapsedFunctionHintsOnManualFold(
+	editor: vscode.TextEditor,
+	previousSegmentCount: number | undefined,
+	currentSegmentCount: number
+): Promise<void> {
+	if(previousSegmentCount === undefined || currentSegmentCount <= previousSegmentCount) {
+		return;
+	}
+
+	const regions = await getRegions(editor.document);
+
+	addCollapsedFunctionHintsFromRegions(editor, regions);
+	refreshFunctionHints(editor);
 }
 
 /**
