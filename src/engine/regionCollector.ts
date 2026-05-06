@@ -72,8 +72,12 @@ export async function getRegions(
 			? collectSemanticTokenLegend(document.uri, executeSemanticTokenLegendProvider)
 			: undefined
 	]);
-	
-	const structuralNodes = attachFoldingOnlyNodes(normalizeSymbols(symbols), foldingRanges);
+
+	const symbolNodes = normalizeSymbols(symbols);
+
+	realignSelectionLines(document, symbolNodes);
+
+	const structuralNodes = attachFoldingOnlyNodes(symbolNodes, foldingRanges);
 
 	const nodes = semanticRefinementEnabled
 		? refineWithSemanticTokens(structuralNodes, {
@@ -94,6 +98,74 @@ export async function getRegions(
 	});
 
 	return nodes;
+}
+
+/**
+ * Recursively realigns symbol selection lines so fold targets anchor to declarations
+ */
+function realignSelectionLines(document: vscode.TextDocument, regions: RegionNode[]): void {
+	for(const region of regions) {
+		// Some providers pin method selection lines to annotation or comment prefixes
+		// Move those lines to the first concrete declaration line so fold starts feel natural
+		realignSelectionLine(document, region);
+		realignSelectionLines(document, region.children);
+	}
+}
+
+/**
+ * Repositions one symbol node's selection line when provider output lands on prefixes
+ */
+function realignSelectionLine(document: vscode.TextDocument, region: RegionNode): void {
+	// Only symbol-backed nodes expose a selection line that can drift from the declaration header
+	if(region.source !== "documentSymbol") {
+		return;
+	}
+
+	const safeStartLine = Math.max(0, Math.min(document.lineCount - 1, region.selectionLine));
+	const safeEndLine = Math.max(safeStartLine, Math.min(document.lineCount - 1, region.rangeEndLine));
+	const currentLineText = document.lineAt(safeStartLine).text.trim();
+
+	// Fast exit when selection already points at a declaration line
+	if(!isDeclarationPrefix(currentLineText)) {
+		return;
+	}
+
+	// Scan forward within the symbol range and anchor selection to the first non-prefix line
+	for(let lineNumber = safeStartLine + 1; lineNumber <= safeEndLine; lineNumber++) {
+		const lineText = document.lineAt(lineNumber).text.trim();
+
+		if(isDeclarationPrefix(lineText)) {
+			continue;
+		}
+
+		region.selectionLine = lineNumber;
+		return;
+	}
+}
+
+/**
+ * Returns true for non-declaration prefix lines that should be skipped when anchoring folds
+ */
+function isDeclarationPrefix(lineText: string): boolean {
+	// Treat blank and comment-only lines as non-declaration prefixes
+	if(lineText.length === 0) {
+		return true;
+	}
+
+	if(lineText.startsWith("//") || lineText.startsWith("/*") || lineText.startsWith("*") || lineText.startsWith("*/")) {
+		return true;
+	}
+
+	if(lineText.startsWith("@")) {
+		return true;
+	}
+
+	// Support attribute-style metadata lines used by some languages and providers
+	if(/^\[[^\]]+\]$/.test(lineText)) {
+		return true;
+	}
+
+	return false;
 }
 
 /**

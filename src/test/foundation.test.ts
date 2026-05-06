@@ -233,6 +233,37 @@ suite("Document Region Collection", () => {
 		);
 	});
 
+	test("realigns annotated symbol selection lines to declaration lines", async () => {
+		const document = await vscode.workspace.openTextDocument({
+			content: "@Override\npublic String run(String input) {\n\treturn input;\n}\n",
+			language: "java"
+		});
+		const annotatedMethodSymbol = new vscode.DocumentSymbol(
+			"run",
+			"",
+			vscode.SymbolKind.Method,
+			new vscode.Range(0, 0, 3, 1),
+			new vscode.Range(0, 0, 0, 1)
+		);
+
+		const regions = await getRegions(document, async () => {
+			return [annotatedMethodSymbol];
+		}, async () => {
+			return [];
+		});
+
+		assert.strictEqual(regions.length, 1);
+		assert.strictEqual(regions[0].selectionLine, 1);
+		assert.deepStrictEqual(
+			collectSelectionLines(selectFoldableRegions({
+				filter: {
+					kinds: ["method"]
+				}
+			}, regions)),
+			[1]
+		);
+	});
+
 	test("requests semantic tokens and legend for the supplied document uri", async () => {
 		const document = await vscode.workspace.openTextDocument({
 			content: "const handler = () => {\n\treturn true;\n}\n",
