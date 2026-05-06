@@ -6,7 +6,7 @@ import { resolveSelectionsAfterManualFold } from "../commands/foldCommand";
 import type { RegionNode } from "../model/region";
 
 suite("Fold Command Manual Range Resolution", () => {
-	test("keeps the original end line when delimiter mode is disabled", async () => {
+	test("excludes closing delimiter end lines when delimiter mode is disabled", async () => {
 		const document = await openDocument([
 			"function run() {",
 			"\tif (value) {",
@@ -16,10 +16,10 @@ suite("Fold Command Manual Range Resolution", () => {
 		]);
 		const region = createUnknownRegion(1, 3);
 
-		assert.strictEqual(resolveRangeEndLine(document, region, false), 3);
+		assert.strictEqual(resolveRangeEndLine(document, region, false), 2);
 	});
 
-	test("extends range to include closing delimiter line when safe", async () => {
+	test("keeps closing delimiter end lines when delimiter mode is enabled", async () => {
 		const document = await openDocument([
 			"function run() {",
 			"\tif (value) {",
@@ -30,7 +30,7 @@ suite("Fold Command Manual Range Resolution", () => {
 		]);
 		const region = createUnknownRegion(1, 3);
 
-		assert.strictEqual(resolveRangeEndLine(document, region, true), 4);
+		assert.strictEqual(resolveRangeEndLine(document, region, true), 3);
 	});
 
 	test("extends to next line when the closing delimiter is after range end", async () => {
@@ -78,7 +78,7 @@ suite("Fold Command Manual Range Resolution", () => {
 		const catchRegion = createUnknownRegion(3, 5);
 
 		assert.strictEqual(resolveRangeEndLine(document, tryRegion, true), 2);
-		assert.strictEqual(resolveRangeEndLine(document, catchRegion, true), 6);
+		assert.strictEqual(resolveRangeEndLine(document, catchRegion, true), 5);
 	});
 
 	test("uses selection line when a region starts on an annotation prefix", () => {

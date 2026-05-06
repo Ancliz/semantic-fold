@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
 import { getRegions } from "../engine/regionCollector";
-import type { FoldCommand } from "../engine/foldExecutor";
+import type { FoldCommand, FoldExecutionResult } from "../engine/foldExecutor";
 import { execCompositeFoldCommand, execFoldCommand } from "../engine/foldExecutor";
 import { isClosingDelimiterLine } from "../engine/foldExecutor";
 import {
@@ -12,7 +12,15 @@ import {
 import type { RegionNode } from "../model/region";
 import { isIncludeClosingDelimiterEnabled } from "../util/config";
 import { applyFunctionSignatureHints } from "../util/foldedSignatureHints";
+
 const lastManualFoldSelectionsByDocument = new Map<string, vscode.Selection[]>();
+const lastFoldExecutionByDocument = new Map<string, LastFoldExecution>();
+
+interface LastFoldExecution {
+	kind: "single" | "composite";
+	args: CollapseArgs | CompositeCollapseArgs;
+	lastResult?: FoldExecutionResult;
+}
 
 /**
  * Shared command runner for collapse, expand, toggle, and convenience commands
@@ -27,10 +35,12 @@ export async function runFoldCommand(args: unknown, defaultMode: CollapseArgs["m
 		return;
 	}
 
+	const normalisedArgs = normaliseArgs(args, defaultMode);
 	const includeClosingDelimiter = isIncludeClosingDelimiterEnabled(editor.document.uri);
+	console.debug(`[semanticFold] runFoldCommand includeClosingDelimiter=${String(includeClosingDelimiter)}`);
 	const regions = await getRegions(editor.document);
 	const executionResult = await execFoldCommand(
-		normaliseArgs(args, defaultMode),
+		normalisedArgs,
 		regions,
 		undefined,
 		undefined,
@@ -42,6 +52,11 @@ export async function runFoldCommand(args: unknown, defaultMode: CollapseArgs["m
 		}
 	);
 	applyFunctionSignatureHints(editor, executionResult);
+	rememberLastFoldExecution(editor.document.uri.toString(), {
+		kind: "single",
+		args: normalisedArgs,
+		lastResult: executionResult
+	});
 }
 
 /**
@@ -57,11 +72,13 @@ export async function runCompositeFoldCommand(
 		return;
 	}
 
+	const normalisedArgs = normaliseCompositeArgs(args, defaultMode);
 	const includeClosingDelimiter = isIncludeClosingDelimiterEnabled(editor.document.uri);
+	console.debug(`[semanticFold] runCompositeFoldCommand includeClosingDelimiter=${String(includeClosingDelimiter)}`);
 	const regions = await getRegions(editor.document);
 
 	const executionResult = await execCompositeFoldCommand(
-		normaliseCompositeArgs(args, defaultMode),
+		normalisedArgs,
 		regions,
 		undefined,
 		undefined,
@@ -73,6 +90,143 @@ export async function runCompositeFoldCommand(
 		}
 	);
 	applyFunctionSignatureHints(editor, executionResult);
+	rememberLastFoldExecution(editor.document.uri.toString(), {
+		kind: "composite",
+		args: normalisedArgs,
+		lastResult: executionResult
+	});
+}
+
+/**
+ * Re-applies the most recent Semantic Fold result for the active editor
+ * so settings can take effect without requiring the user to run a command
+ */
+export async function reapplyLastFoldExecutionForActiveEditor(
+	options: {
+		refreshManualFolds?: boolean;
+		refreshHints?: boolean;
+	} = {}
+): Promise<void> {
+	const editor = vscode.window.activeTextEditor;
+
+	if(editor !== undefined) {
+		await reapplyLastFoldExecutionForEditor(editor, options);
+	}
+}
+
+/**
+ * Re-applies the most recent Semantic Fold result for all visible editors
+ */
+export async function reapplyLastFoldExecutionForVisibleEditors(
+	options: {
+		refreshManualFolds?: boolean;
+		refreshHints?: boolean;
+		forceCollapseForHints?: boolean;
+	} = {}
+): Promise<void> {
+	for(const editor of vscode.window.visibleTextEditors) {
+		await reapplyLastFoldExecutionForEditor(editor, options);
+	}
+}
+
+/**
+ * Drops stored fold execution history for one document or all documents
+ */
+export function clearLastFoldExecution(documentUri?: string): void {
+	if(documentUri !== undefined) {
+		lastFoldExecutionByDocument.delete(documentUri);
+		return;
+	}
+
+	lastFoldExecutionByDocument.clear();
+}
+
+function rememberLastFoldExecution(documentUri: string, execution: LastFoldExecution): void {
+	lastFoldExecutionByDocument.set(documentUri, execution);
+}
+
+function clearRememberedManualFoldSelections(documentUri: string): void {
+	lastManualFoldSelectionsByDocument.delete(documentUri);
+}
+
+async function reapplyLastFoldExecutionForEditor(
+	editor: vscode.TextEditor,
+	options: {
+		refreshManualFolds?: boolean;
+		refreshHints?: boolean;
+		forceCollapseForHints?: boolean;
+	}
+): Promise<void> {
+	const documentUri = editor.document.uri.toString();
+	const lastExecution = lastFoldExecutionByDocument.get(documentUri);
+
+	if(lastExecution === undefined) {
+		return;
+	}
+
+	let executionResult = lastExecution.lastResult;
+	const shouldRerunAsCollapseForHints = options.forceCollapseForHints && options.refreshHints;
+
+	if(
+		(options.refreshManualFolds && lastExecution.lastResult?.command === "editor.fold")
+		|| shouldRerunAsCollapseForHints
+	) {
+		await vscode.commands.executeCommand("editor.removeManualFoldingRanges");
+		clearRememberedManualFoldSelections(documentUri);
+		executionResult = await rerunLastFoldAsCollapse(editor, lastExecution);
+		lastExecution.lastResult = executionResult;
+		lastFoldExecutionByDocument.set(documentUri, lastExecution);
+	}
+
+	if(options.refreshHints && executionResult !== undefined) {
+		applyFunctionSignatureHints(editor, executionResult);
+	}
+}
+
+async function rerunLastFoldAsCollapse(
+	editor: vscode.TextEditor,
+	lastExecution: LastFoldExecution
+): Promise<FoldExecutionResult | undefined> {
+	const includeClosingDelimiter = isIncludeClosingDelimiterEnabled(editor.document.uri);
+	const regions = await getRegions(editor.document);
+
+	if(lastExecution.kind === "single") {
+		const args: CollapseArgs = {
+			...lastExecution.args as CollapseArgs,
+			mode: "collapse"
+		};
+
+		return execFoldCommand(
+			args,
+			regions,
+			undefined,
+			undefined,
+			undefined,
+			{
+				includeClosingDelimiter,
+				getLineText: createLineTextReader(editor.document),
+				executeManualFoldingRanges: createManualFoldingRangeExecutor(editor, includeClosingDelimiter)
+			}
+		);
+	}
+
+	const args: CompositeCollapseArgs = {
+		...lastExecution.args as CompositeCollapseArgs,
+		mode: "collapse"
+	};
+
+	return execCompositeFoldCommand(
+		args,
+		regions,
+		undefined,
+		undefined,
+		undefined,
+		{
+			includeClosingDelimiter,
+			getLineText: createLineTextReader(editor.document),
+			executeManualFoldingRanges: createManualFoldingRangeExecutor(editor, includeClosingDelimiter)
+		}
+	);
 }
 
 function createLineTextReader(document: vscode.TextDocument): (lineNumber: number) => string | undefined {
@@ -183,7 +337,25 @@ export function resolveRangeEndLine(
 	region: RegionNode,
 	includeClosingDelimiter: boolean
 ): number {
+	const rangeStartLine = resolveRangeStartLine(region);
 	if(!includeClosingDelimiter) {
+		const endLineText = document.lineAt(region.rangeEndLine).text;
+		const trimmedEndLine = endLineText.replace(/\/\/.*$/, "").trim();
+
+		if(
+			isInlineControlClauseBoundaryLine(trimmedEndLine)
+			&& region.rangeEndLine > rangeStartLine
+		) {
+			return region.rangeEndLine - 1;
+		}
+
+		if(
+			isClosingDelimiterLine(endLineText)
+			&& region.rangeEndLine > rangeStartLine
+		) {
+			return region.rangeEndLine - 1;
+		}
+
 		return region.rangeEndLine;
 	}
 
@@ -192,9 +364,13 @@ export function resolveRangeEndLine(
 
 	if(
 		isInlineControlClauseBoundaryLine(trimmedEndLine)
-		&& region.rangeEndLine > resolveRangeStartLine(region)
+		&& region.rangeEndLine > rangeStartLine
 	) {
 		return region.rangeEndLine - 1;
+	}
+
+	if(isClosingDelimiterLine(endLineText)) {
+		return region.rangeEndLine;
 	}
 
 	const lineAfterEnd = region.rangeEndLine + 1;

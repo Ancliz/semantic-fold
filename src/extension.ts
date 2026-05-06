@@ -31,8 +31,13 @@ import { clearCache, handleDocumentChange, invalidateCache } from "./util/cache"
 import {
 	COLLAPSE_FUNCTION_SIGNATURE_HINTS_SETTING,
 	FOLDED_FUNCTION_SIGNATURE_HINTS_SETTING,
+	INCLUDE_CLOSING_DELIMITER_SETTING,
 	SEMANTIC_REFINEMENT_ENABLED_SETTING
 } from "./util/config";
+import {
+	clearLastFoldExecution,
+	reapplyLastFoldExecutionForVisibleEditors
+} from "./commands/foldCommand";
 import {
 	clearFunctionSignatureHints,
 	refreshFunctionHints
@@ -114,6 +119,10 @@ export function activate(context: vscode.ExtensionContext): void {
 		),
 			// Text changes use structural checks to decide whether cache remains valid
 			vscode.workspace.onDidChangeTextDocument((event) => {
+				if(event.contentChanges.length === 0) {
+					return;
+				}
+
 				handleDocumentChange(
 					event.document.uri.toString(),
 					event.document.version,
@@ -131,6 +140,7 @@ export function activate(context: vscode.ExtensionContext): void {
 			const documentUri = document.uri.toString();
 			invalidateCache(documentUri);
 			clearFunctionSignatureHints(documentUri);
+			clearLastFoldExecution(documentUri);
 			visibleRangeSegmentCountByDocument.delete(documentUri);
 		}),
 		vscode.window.onDidChangeActiveTextEditor((editor) => {
@@ -154,18 +164,32 @@ export function activate(context: vscode.ExtensionContext): void {
 				clearFunctionSignatureHints(documentUri);
 			}
 		}),
-		vscode.workspace.onDidChangeConfiguration((event) => {
+		vscode.workspace.onDidChangeConfiguration(async (event) => {
 			if(event.affectsConfiguration(SEMANTIC_REFINEMENT_ENABLED_SETTING)) {
 				console.debug("[semanticFold] Semantic refinement setting changed, clearing region cache");
 				clearCache();
 			}
 
-			if(
+			const includeClosingDelimiterChanged = event.affectsConfiguration(INCLUDE_CLOSING_DELIMITER_SETTING);
+			const signatureHintSettingsChanged = (
 				event.affectsConfiguration(FOLDED_FUNCTION_SIGNATURE_HINTS_SETTING)
 				|| event.affectsConfiguration(COLLAPSE_FUNCTION_SIGNATURE_HINTS_SETTING)
-			) {
-				clearFunctionSignatureHints();
-				refreshFunctionHints(vscode.window.activeTextEditor);
+			);
+			console.debug(
+				`[semanticFold] config changed includeClosingDelimiter=${String(includeClosingDelimiterChanged)} signatureHints=${String(signatureHintSettingsChanged)}`
+			);
+
+			if(includeClosingDelimiterChanged) {
+				await reapplyLastFoldExecutionForVisibleEditors({
+					refreshManualFolds: includeClosingDelimiterChanged,
+					refreshHints: true
+				});
+			}
+
+			if(signatureHintSettingsChanged) {
+				for(const editor of vscode.window.visibleTextEditors) {
+					refreshFunctionHints(editor);
+				}
 			}
 		})
 	);

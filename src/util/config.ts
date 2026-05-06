@@ -39,12 +39,17 @@ export function isIncludeClosingDelimiterEnabled(resource?: vscode.Uri): boolean
 }
 
 /**
- * Reads whether folded function and method signatures should be shown inline
+ * Reads whether folded function and method signature hints are enabled
+ *
+ * Collapsed signature mode implies hint rendering even when the base
+ * show-signatures toggle is disabled
  */
 export function isSignatureHintsEnabled(resource?: vscode.Uri): boolean {
-	return vscode.workspace
-		.getConfiguration(INLINE_HINTS_SECTION, resource)
-		.get<boolean>("showFoldedFunctionSignatures", false);
+	const configuration = vscode.workspace.getConfiguration(INLINE_HINTS_SECTION, resource);
+	const showFoldedSignatures = configuration.get<boolean>("showFoldedFunctionSignatures", false);
+	const collapseFoldedSignatures = configuration.get<boolean>("collapseFunctionSignatures", false);
+
+	return showFoldedSignatures || collapseFoldedSignatures;
 }
 
 /**

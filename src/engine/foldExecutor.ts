@@ -409,7 +409,7 @@ async function executeManualFoldingRangesIfEnabled(
 	regions: readonly RegionNode[],
 	options: SelectionLineOptions
 ): Promise<boolean> {
-	if(!options.includeClosingDelimiter || options.executeManualFoldingRanges === undefined) {
+	if(options.executeManualFoldingRanges === undefined) {
 		return false;
 	}
 

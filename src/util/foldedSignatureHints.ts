@@ -5,13 +5,7 @@ import { isCollapsedHintEnabled, isSignatureHintsEnabled } from "./config";
 
 const functionLikeKinds = new Set<string>(["function", "method"]);
 const maxHintLength = 80;
-interface SignatureHintDecoration {
-	hintText: string;
-	anchorName?: string;
-	replaceSignature?: boolean;
-}
-
-const signatureHintsByDocument = new Map<string, Map<number, SignatureHintDecoration>>();
+const foldedFunctionRegionsByDocument = new Map<string, Map<number, RegionNode>>();
 const foldedSignatureDecorationType = vscode.window.createTextEditorDecorationType({
 	after: {
 		margin: "0",
@@ -39,45 +33,23 @@ export function applyFunctionSignatureHints(
 ): void {
 	const documentUri = editor.document.uri.toString();
 
-	if(!isSignatureHintsEnabled(editor.document.uri)) {
-		signatureHintsByDocument.delete(documentUri);
-		refreshFunctionHints(editor);
-		return;
-	}
+	if(executionResult !== undefined) {
+		const documentFunctionRegions = getDocumentFunctionRegions(documentUri);
+		const functionLikeRegions = executionResult.selectedRegions.filter(isFunctionLikeRegion);
 
-	if(executionResult === undefined) {
-		refreshFunctionHints(editor);
-		return;
-	}
-
-	const documentHints = getDocumentHints(documentUri);
-	const functionLikeRegions = executionResult.selectedRegions.filter(isFunctionLikeRegion);
-	const collapseSignature = isCollapsedHintEnabled(editor.document.uri);
-
-	if(executionResult.command === "editor.fold") {
-		for(const region of functionLikeRegions) {
-			const signatureHint = buildFunctionLabel(editor.document, region, {
-				collapseSignature
-			});
-
-			if(signatureHint === undefined) {
-				continue;
+		if(executionResult.command === "editor.fold") {
+			for(const region of functionLikeRegions) {
+				documentFunctionRegions.set(region.selectionLine, region);
 			}
-
-			documentHints.set(region.selectionLine, {
-				hintText: signatureHint,
-				anchorName: region.name,
-				replaceSignature: collapseSignature
-			});
+		} else {
+			for(const region of functionLikeRegions) {
+				documentFunctionRegions.delete(region.selectionLine);
+			}
 		}
-	} else {
-		for(const region of functionLikeRegions) {
-			documentHints.delete(region.selectionLine);
-		}
-	}
 
-	if(documentHints.size === 0) {
-		signatureHintsByDocument.delete(documentUri);
+		if(documentFunctionRegions.size === 0) {
+			foldedFunctionRegionsByDocument.delete(documentUri);
+		}
 	}
 
 	refreshFunctionHints(editor);
@@ -88,12 +60,12 @@ export function applyFunctionSignatureHints(
  */
 export function clearFunctionSignatureHints(documentUri?: string): void {
 	if(documentUri !== undefined) {
-		signatureHintsByDocument.delete(documentUri);
+		foldedFunctionRegionsByDocument.delete(documentUri);
 		refreshFunctionHints(vscode.window.activeTextEditor);
 		return;
 	}
 
-	signatureHintsByDocument.clear();
+	foldedFunctionRegionsByDocument.clear();
 	refreshFunctionHints(vscode.window.activeTextEditor);
 }
 
@@ -112,48 +84,60 @@ export function refreshFunctionHints(editor?: vscode.TextEditor): void {
 		return;
 	}
 
-	const documentHints = signatureHintsByDocument.get(editor.document.uri.toString());
+	const foldedFunctionRegions = foldedFunctionRegionsByDocument.get(editor.document.uri.toString());
 
-	if(documentHints === undefined || documentHints.size === 0) {
+	if(foldedFunctionRegions === undefined || foldedFunctionRegions.size === 0) {
 		editor.setDecorations(foldedSignatureDecorationType, []);
 		editor.setDecorations(collapsedSignatureHintDecorationType, []);
 		editor.setDecorations(replacedSignatureDecorationType, []);
 		return;
 	}
 
+	const collapseSignature = isCollapsedHintEnabled(editor.document.uri);
 	const trailingDecorations: vscode.DecorationOptions[] = [];
 	const collapsedHintDecorations: vscode.DecorationOptions[] = [];
 	const replacedSignatureDecorations: vscode.DecorationOptions[] = [];
+	const sortedFoldedFunctionRegions = [...foldedFunctionRegions.values()].sort((left, right) => {
+		return left.selectionLine - right.selectionLine;
+	});
 
-	for(const [lineNumber, hintDecoration] of documentHints) {
+	for(const region of sortedFoldedFunctionRegions) {
+		const lineNumber = region.selectionLine;
 		if(lineNumber < 0 || lineNumber >= editor.document.lineCount) {
 			continue;
 		}
 
 		const line = editor.document.lineAt(lineNumber);
+		const hintText = buildFunctionLabel(editor.document, region, {
+			collapseSignature
+		});
+
+		if(hintText === undefined) {
+			continue;
+		}
 
 		if(line.text.trim().length === 0) {
 			continue;
 		}
 
-		const anchorRange = createHintAnchorRange(line, lineNumber, hintDecoration.anchorName);
+		const anchorRange = createHintAnchorRange(line, lineNumber, region.name);
 
-		if(hintDecoration.replaceSignature) {
+		if(collapseSignature) {
 			const signatureRange = createSignatureReplacementRange(line, anchorRange);
 
 			if(signatureRange !== undefined) {
 				replacedSignatureDecorations.push({
 					range: signatureRange,
-					hoverMessage: hintDecoration.hintText
+					hoverMessage: hintText
 				});
 				collapsedHintDecorations.push({
 					range: anchorRange,
 					renderOptions: {
 						after: {
-							contentText: hintDecoration.hintText
+							contentText: hintText
 						}
 					},
-					hoverMessage: hintDecoration.hintText
+					hoverMessage: hintText
 				});
 				continue;
 			}
@@ -163,10 +147,10 @@ export function refreshFunctionHints(editor?: vscode.TextEditor): void {
 			range: anchorRange,
 			renderOptions: {
 				after: {
-					contentText: hintDecoration.hintText
+					contentText: hintText
 				}
 			},
-			hoverMessage: hintDecoration.hintText
+			hoverMessage: hintText
 		});
 	}
 
@@ -248,18 +232,18 @@ function isFunctionLikeRegion(region: RegionNode): boolean {
 /**
  * Returns or initialises the hint map for one document
  */
-function getDocumentHints(documentUri: string): Map<number, SignatureHintDecoration> {
-	const existingHints = signatureHintsByDocument.get(documentUri);
+function getDocumentFunctionRegions(documentUri: string): Map<number, RegionNode> {
+	const existingRegions = foldedFunctionRegionsByDocument.get(documentUri);
 
-	if(existingHints !== undefined) {
-		return existingHints;
+	if(existingRegions !== undefined) {
+		return existingRegions;
 	}
 
-	const createdHints = new Map<number, SignatureHintDecoration>();
+	const createdRegions = new Map<number, RegionNode>();
 
-	signatureHintsByDocument.set(documentUri, createdHints);
+	foldedFunctionRegionsByDocument.set(documentUri, createdRegions);
 
-	return createdHints;
+	return createdRegions;
 }
 
 /**
