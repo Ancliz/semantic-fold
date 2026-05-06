@@ -124,12 +124,12 @@
     "keybindings": [
       {
         "command": "semanticFold.toggleAtCursor",
-        "key": "ctrl+shift+[",
+        "key": "alt+shift+[",
         "when": "editorTextFocus"
       },
       {
         "command": "semanticFold.expand",
-        "key": "ctrl+shift+]",
+        "key": "alt+shift+]",
         "when": "editorTextFocus"
       },
       {
@@ -220,13 +220,13 @@
         },
         "semanticFold.inlineHints.showFoldedFunctionSignatures": {
           "type": "boolean",
-          "default": false,
+          "default": true,
           "scope": "resource",
           "description": "Show inline parameter and return signature hints on folded function and method headers."
         },
         "semanticFold.inlineHints.collapseFunctionSignatures": {
           "type": "boolean",
-          "default": false,
+          "default": true,
           "scope": "resource",
           "description": "Render folded function and method signatures as inline hints in collapsed form."
         },
