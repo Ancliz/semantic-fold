@@ -146,16 +146,36 @@ function selectionFromRegion(
 	region: RegionNode,
 	includeClosingDelimiter: boolean
 ): vscode.Selection | undefined {
-	if(region.rangeStartLine < 0 || region.rangeEndLine >= document.lineCount) {
+	const rangeStartLine = resolveRangeStartLine(region);
+
+	if(
+		rangeStartLine < 0
+		|| rangeStartLine >= document.lineCount
+		|| region.rangeEndLine < 0
+		|| region.rangeEndLine >= document.lineCount
+	) {
 		return undefined;
 	}
 
 	const rangeEndLine = resolveRangeEndLine(document, region, includeClosingDelimiter);
+	const startPosition = new vscode.Position(rangeStartLine, 0);
+	const endPosition = new vscode.Position(
+		rangeEndLine,
+		document.lineAt(rangeEndLine).text.length
+	);
 
 	return new vscode.Selection(
-		new vscode.Position(region.rangeStartLine, 0),
-		new vscode.Position(rangeEndLine, document.lineAt(rangeEndLine).text.length)
+		endPosition,
+		startPosition
 	);
+}
+
+export function resolveRangeStartLine(region: RegionNode): number {
+	if(region.selectionLine >= region.rangeStartLine && region.selectionLine <= region.rangeEndLine) {
+		return region.selectionLine;
+	}
+
+	return region.rangeStartLine;
 }
 
 export function resolveRangeEndLine(
@@ -172,12 +192,16 @@ export function resolveRangeEndLine(
 
 	if(
 		isInlineControlClauseBoundaryLine(trimmedEndLine)
-		&& region.rangeEndLine > region.rangeStartLine
+		&& region.rangeEndLine > resolveRangeStartLine(region)
 	) {
 		return region.rangeEndLine - 1;
 	}
 
 	const lineAfterEnd = region.rangeEndLine + 1;
+
+	if(lineAfterEnd < document.lineCount && document.lineAt(lineAfterEnd).text.trim().length === 0) {
+		return region.rangeEndLine;
+	}
 
 	if(
 		!isClosingDelimiterLine(endLineText)
@@ -202,9 +226,10 @@ export function resolveSelectionsAfterManualFold(
 
 	const primaryCursorLine = originalSelections[0].active.line;
 	const containingRegions = regions.filter((region) => {
+		const rangeStartLine = resolveRangeStartLine(region);
 		const rangeEndLine = resolveRangeEndLine(document, region, includeClosingDelimiter);
 
-		return primaryCursorLine >= region.rangeStartLine && primaryCursorLine <= rangeEndLine;
+		return primaryCursorLine >= rangeStartLine && primaryCursorLine <= rangeEndLine;
 	});
 
 	if(containingRegions.length === 0) {
@@ -229,17 +254,19 @@ export function resolveSelectionsAfterManualFold(
 		? visibleContainingRegions
 		: containingRegions;
 	const targetRegion = targetCandidates.sort((left, right) => {
+		const leftStartLine = resolveRangeStartLine(left);
+		const rightStartLine = resolveRangeStartLine(right);
 		const leftEndLine = resolveRangeEndLine(document, left, includeClosingDelimiter);
 		const rightEndLine = resolveRangeEndLine(document, right, includeClosingDelimiter);
-		const leftSpan = leftEndLine - left.rangeStartLine;
-		const rightSpan = rightEndLine - right.rangeStartLine;
+		const leftSpan = leftEndLine - leftStartLine;
+		const rightSpan = rightEndLine - rightStartLine;
 
 		if(leftSpan !== rightSpan) {
 			return leftSpan - rightSpan;
 		}
 
-		if(left.rangeStartLine !== right.rangeStartLine) {
-			return right.rangeStartLine - left.rangeStartLine;
+		if(leftStartLine !== rightStartLine) {
+			return rightStartLine - leftStartLine;
 		}
 
 		return right.selectionLine - left.selectionLine;
@@ -261,9 +288,10 @@ function isLineInsideFoldBody(
 	document: vscode.TextDocument,
 	includeClosingDelimiter: boolean
 ): boolean {
+	const rangeStartLine = resolveRangeStartLine(region);
 	const rangeEndLine = resolveRangeEndLine(document, region, includeClosingDelimiter);
 
-	return lineNumber > region.rangeStartLine && lineNumber <= rangeEndLine;
+	return lineNumber > rangeStartLine && lineNumber <= rangeEndLine;
 }
 
 function isControlClauseLine(lineText: string): boolean {

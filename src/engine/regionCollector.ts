@@ -116,8 +116,8 @@ function realignSelectionLines(document: vscode.TextDocument, regions: RegionNod
  * Repositions one symbol node's selection line when provider output lands on prefixes
  */
 function realignSelectionLine(document: vscode.TextDocument, region: RegionNode): void {
-	// Only symbol-backed nodes expose a selection line that can drift from the declaration header
-	if(region.source !== "documentSymbol") {
+	// Folding-range-only nodes already anchor to provider folding starts
+	if(region.source === "foldingRange") {
 		return;
 	}
 

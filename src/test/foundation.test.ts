@@ -465,6 +465,38 @@ suite("Document Region Collection", () => {
 		assert.strictEqual(regions[0].source, "symbolInformation");
 	});
 
+	test("realigns annotated flat symbol information selection lines", async () => {
+		const document = await vscode.workspace.openTextDocument({
+			content: "@Override\npublic String run(String input) {\n\treturn input;\n}\n",
+			language: "java"
+		});
+		const annotatedMethodSymbol = createSymbolInformation(
+			"run",
+			vscode.SymbolKind.Method,
+			document.uri,
+			0,
+			3
+		);
+
+		const regions = await getRegions(document, async () => {
+			return [annotatedMethodSymbol];
+		}, async () => {
+			return [];
+		});
+
+		assert.strictEqual(regions.length, 1);
+		assert.strictEqual(regions[0].source, "symbolInformation");
+		assert.strictEqual(regions[0].selectionLine, 1);
+		assert.deepStrictEqual(
+			collectSelectionLines(selectFoldableRegions({
+				filter: {
+					kinds: ["method"]
+				}
+			}, regions)),
+			[1]
+		);
+	});
+
 	test("caches regions per document URI and version", async () => {
 		const document = await vscode.workspace.openTextDocument({
 			content: "class Example {\n\tmethod() {}\n}\n",

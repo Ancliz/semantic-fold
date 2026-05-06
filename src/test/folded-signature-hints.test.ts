@@ -135,7 +135,55 @@ suite("Folded Signature Hints", () => {
 			buildFunctionLabel(document, region, {
 				collapseSignature: true
 			}),
-			": void"
+			" : void"
+		);
+	});
+
+	test("renders java return types in collapsed mode even when symbol names are decorated", async () => {
+		const document = await openDocument([
+			"public InputStream getResource(String file) {",
+			"\treturn null;",
+			"}"
+		], "java");
+		const region = createRegion("method", 0, 2, "getResource(file)");
+
+		assert.strictEqual(
+			buildFunctionLabel(document, region, {
+				collapseSignature: true
+			}),
+			"(file) : InputStream"
+		);
+	});
+
+	test("renders java void for collapsed methods with no value return", async () => {
+		const document = await openDocument([
+			"public void onEnable() {",
+			"\treturn;",
+			"}"
+		], "java");
+		const region = createRegion("method", 0, 2, "onEnable");
+
+		assert.strictEqual(
+			buildFunctionLabel(document, region, {
+				collapseSignature: true
+			}),
+			" : void"
+		);
+	});
+
+	test("does not default javascript collapsed signatures to void", async () => {
+		const document = await openDocument([
+			"function configure(plugin) {",
+			"\tplugin.enabled = true;",
+			"}"
+		], "javascript");
+		const region = createRegion("function", 0, 2, "configure");
+
+		assert.strictEqual(
+			buildFunctionLabel(document, region, {
+				collapseSignature: true
+			}),
+			"(plugin)"
 		);
 	});
 });

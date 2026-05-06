@@ -1,6 +1,7 @@
 import * as assert from "assert";
 import * as vscode from "vscode";
 import { resolveRangeEndLine } from "../commands/foldCommand";
+import { resolveRangeStartLine } from "../commands/foldCommand";
 import { resolveSelectionsAfterManualFold } from "../commands/foldCommand";
 import type { RegionNode } from "../model/region";
 
@@ -80,6 +81,37 @@ suite("Fold Command Manual Range Resolution", () => {
 		assert.strictEqual(resolveRangeEndLine(document, catchRegion, true), 6);
 	});
 
+	test("uses selection line when a region starts on an annotation prefix", () => {
+		const region = createUnknownRegion(10, 18, {
+			selectionLine: 12
+		});
+
+		assert.strictEqual(resolveRangeStartLine(region), 12);
+	});
+
+	test("falls back to range start when selection line is outside range", () => {
+		const region = createUnknownRegion(10, 18, {
+			selectionLine: 30
+		});
+
+		assert.strictEqual(resolveRangeStartLine(region), 10);
+	});
+
+	test("keeps separator blank lines outside folded ranges", async () => {
+		const document = await openDocument([
+			"public void first() {",
+			"\treturn;",
+			"}",
+			"",
+			"public void second() {",
+			"\treturn;",
+			"}"
+		]);
+		const region = createUnknownRegion(0, 2);
+
+		assert.strictEqual(resolveRangeEndLine(document, region, true), 2);
+	});
+
 	test("moves cursor to header line when folding region contains cursor", async () => {
 		const document = await openDocument([
 			"function run() {",
@@ -93,6 +125,39 @@ suite("Fold Command Manual Range Resolution", () => {
 			new vscode.Selection(
 				new vscode.Position(2, 5),
 				new vscode.Position(2, 5)
+			)
+		];
+		const resolvedSelections = resolveSelectionsAfterManualFold(
+			originalSelections,
+			[region],
+			document,
+			true
+		);
+
+		assert.strictEqual(resolvedSelections.length, 1);
+		assert.strictEqual(resolvedSelections[0].active.line, 1);
+		assert.strictEqual(
+			resolvedSelections[0].active.character,
+			document.lineAt(1).text.length
+		);
+	});
+
+	test("moves cursor to declaration line for annotation-prefixed ranges", async () => {
+		const document = await openDocument([
+			"@Override",
+			"public void run() {",
+			"\tif (value) {",
+			"\t\treturn;",
+			"\t}",
+			"}"
+		]);
+		const region = createUnknownRegion(0, 4, {
+			selectionLine: 1
+		});
+		const originalSelections = [
+			new vscode.Selection(
+				new vscode.Position(3, 2),
+				new vscode.Position(3, 2)
 			)
 		];
 		const resolvedSelections = resolveSelectionsAfterManualFold(
@@ -174,7 +239,11 @@ suite("Fold Command Manual Range Resolution", () => {
 	});
 });
 
-function createUnknownRegion(startLine: number, endLine: number): RegionNode {
+function createUnknownRegion(
+	startLine: number,
+	endLine: number,
+	overrides: Partial<RegionNode> = {}
+): RegionNode {
 	return {
 		id: `unknown:${startLine}:${endLine}`,
 		name: "unknown",
@@ -185,7 +254,8 @@ function createUnknownRegion(startLine: number, endLine: number): RegionNode {
 		symbolDepth: 1,
 		foldDepth: 1,
 		children: [],
-		source: "foldingRange"
+		source: "foldingRange",
+		...overrides
 	};
 }
 

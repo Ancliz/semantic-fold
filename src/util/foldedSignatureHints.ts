@@ -234,7 +234,7 @@ function buildCollapsedSignatureLabel(
 	}
 
 	if(!hasParameters) {
-		return `: ${returnType}`;
+		return ` : ${returnType}`;
 	}
 
 	return `${collapsedParameterText} : ${returnType}`;
@@ -264,6 +264,12 @@ function createHintAnchorRange(
 	lineNumber: number,
 	anchorName?: string
 ): vscode.Range {
+	const callableAnchorColumn = findCallableNameAnchorColumn(line.text);
+
+	if(callableAnchorColumn !== undefined) {
+		return new vscode.Range(lineNumber, callableAnchorColumn, lineNumber, callableAnchorColumn);
+	}
+
 	if(anchorName === undefined || anchorName.length === 0) {
 		return line.range;
 	}
@@ -277,6 +283,38 @@ function createHintAnchorRange(
 	const anchorColumn = anchorIndex + anchorName.length;
 
 	return new vscode.Range(lineNumber, anchorColumn, lineNumber, anchorColumn);
+}
+
+function findCallableNameAnchorColumn(lineText: string): number | undefined {
+	const openParenthesis = lineText.indexOf("(");
+
+	if(openParenthesis <= 0) {
+		return undefined;
+	}
+
+	let end = openParenthesis - 1;
+
+	while(end >= 0 && /\s/.test(lineText[end])) {
+		end--;
+	}
+
+	if(end < 0) {
+		return undefined;
+	}
+
+	let start = end;
+
+	while(start >= 0 && /[A-Za-z0-9_$]/.test(lineText[start])) {
+		start--;
+	}
+
+	const identifier = lineText.slice(start + 1, end + 1);
+
+	if(identifier.length === 0) {
+		return undefined;
+	}
+
+	return end + 1;
 }
 
 function createSignatureReplacementRange(
@@ -369,7 +407,15 @@ function extractReturnType(document: vscode.TextDocument, region: RegionNode): s
 	const openIndex = headerText.indexOf("(");
 
 	if(openIndex < 0) {
-		return inferReturnTypeFromBody(document, region);
+		const inferredReturnType = inferReturnTypeFromBody(document, region);
+
+		if(inferredReturnType !== undefined) {
+			return inferredReturnType;
+		}
+
+		return shouldDefaultVoidReturnType(document.languageId)
+			? "void"
+			: undefined;
 	}
 
 	let depth = 0;
@@ -394,16 +440,32 @@ function extractReturnType(document: vscode.TextDocument, region: RegionNode): s
 	}
 
 	if(closeIndex < 0) {
-		return inferReturnTypeFromBody(document, region);
+		const inferredReturnType = inferReturnTypeFromBody(document, region);
+
+		if(inferredReturnType !== undefined) {
+			return inferredReturnType;
+		}
+
+		return shouldDefaultVoidReturnType(document.languageId)
+			? "void"
+			: undefined;
 	}
 
-	const typedReturnType = extractTypedReturnType(headerText, region, openIndex, closeIndex);
+	const typedReturnType = extractTypedReturnType(headerText, openIndex, closeIndex);
 
 	if(typedReturnType !== undefined) {
 		return typedReturnType;
 	}
 
-	return inferReturnTypeFromBody(document, region);
+	const inferredReturnType = inferReturnTypeFromBody(document, region);
+
+	if(inferredReturnType !== undefined) {
+		return inferredReturnType;
+	}
+
+	return shouldDefaultVoidReturnType(document.languageId)
+		? "void"
+		: undefined;
 }
 
 function buildHeaderText(document: vscode.TextDocument, region: RegionNode): string {
@@ -620,12 +682,7 @@ function stripLineComment(lineText: string): string {
 	return lineText.replace(/\/\/.*$/, "");
 }
 
-function extractTypedReturnType(
-	headerText: string,
-	region: RegionNode,
-	openIndex: number,
-	closeIndex: number
-): string | undefined {
+function extractTypedReturnType(headerText: string, openIndex: number,closeIndex: number): string | undefined {
 	const afterParameters = headerText.slice(closeIndex + 1);
 	const typeScriptMatch = afterParameters.match(/^\s*:\s*([^={]+?)(?:\s*\{|[\s]*=>|$)/);
 
@@ -633,21 +690,14 @@ function extractTypedReturnType(
 		return typeScriptMatch[1].trim();
 	}
 
-	const methodName = region.name?.trim();
+	const beforeParameters = headerText.slice(0, openIndex).trim();
+	const methodName = extractTrailingIdentifier(beforeParameters);
 
 	if(methodName === undefined || methodName.length === 0) {
 		return undefined;
 	}
 
-	const beforeParameters = headerText.slice(0, openIndex).trim();
-	const escapedMethodName = escapeForRegExp(methodName);
-	const methodNameMatcher = new RegExp(`\\b${escapedMethodName}\\s*$`);
-
-	if(!methodNameMatcher.test(beforeParameters)) {
-		return undefined;
-	}
-
-	let returnPrefix = beforeParameters.replace(methodNameMatcher, "").trim();
+	let returnPrefix = beforeParameters.slice(0, beforeParameters.length - methodName.length).trim();
 
 	returnPrefix = stripLeadingAnnotations(returnPrefix);
 	returnPrefix = stripLeadingModifiers(returnPrefix);
@@ -664,6 +714,19 @@ function extractTypedReturnType(
 	}
 
 	return returnPrefix;
+}
+
+function extractTrailingIdentifier(value: string): string | undefined {
+	const match = value.match(/([A-Za-z_$][\w$]*)\s*$/);
+
+	return match === null ? undefined : match[1];
+}
+
+function shouldDefaultVoidReturnType(languageId: string): boolean {
+	return languageId !== "javascript"
+		&& languageId !== "javascriptreact"
+		&& languageId !== "typescript"
+		&& languageId !== "typescriptreact";
 }
 
 function inferReturnTypeFromBody(document: vscode.TextDocument, region: RegionNode): string | undefined {
@@ -809,8 +872,4 @@ function stripLeadingTypeParameterClause(value: string): string {
 	}
 
 	return trimmed;
-}
-
-function escapeForRegExp(value: string): string {
-	return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
