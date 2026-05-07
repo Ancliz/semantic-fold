@@ -305,6 +305,15 @@ export function buildFunctionLabel(
 		return providerLabel;
 	}
 
+	debugHintFallback(
+		document,
+		region,
+		"provider detail",
+		region.detail === undefined
+			? "detail unavailable, reading source signature"
+			: "detail did not provide a usable signature, reading source signature"
+	);
+
 	const fallbackParameterDetails = parameterDetails ?? extractParameterDetails(document, region);
 
 	if(fallbackParameterDetails === undefined) {
@@ -315,6 +324,12 @@ export function buildFunctionLabel(
 	const returnType = options.returnTypeOverride ?? extractReturnType(document, region);
 
 	if(returnType === undefined) {
+		debugHintFallback(
+			document,
+			region,
+			"return type",
+			"all return providers and fallbacks failed"
+		);
 		return undefined;
 	}
 
@@ -380,6 +395,15 @@ async function buildFoldedRegionHintWithProviders(
 	const providerReturnType = isFunctionLikeRegion(region)
 		? await resolveProviderReturnType(document, region)
 		: undefined;
+
+	if(isFunctionLikeRegion(region) && providerReturnType === undefined) {
+		debugHintFallback(
+			document,
+			region,
+			"hover return type",
+			"hover provider did not provide a return type, continuing with local fallbacks"
+		);
+	}
 
 	return buildFoldedRegionHint(document, region, {
 		...options,
@@ -835,6 +859,12 @@ async function queryProviderReturnType(
 	}
 
 	if(hovers === undefined || hovers.length === 0) {
+		debugHintFallback(
+			document,
+			region,
+			"hover return type",
+			"hover provider returned no entries"
+		);
 		return undefined;
 	}
 
@@ -845,6 +875,13 @@ async function queryProviderReturnType(
 			return returnType;
 		}
 	}
+
+	debugHintFallback(
+		document,
+		region,
+		"hover return type",
+		"hover entries did not contain a parseable return type"
+	);
 
 	return undefined;
 }
@@ -1022,6 +1059,12 @@ function extractReturnType(document: vscode.TextDocument, region: RegionNode): s
 	const openIndex = headerText.indexOf("(");
 
 	if(openIndex < 0) {
+		debugHintFallback(
+			document,
+			region,
+			"typed signature",
+			"no parameter list found, using return-type fallbacks"
+		);
 		return extractFallbackReturnType(document, region);
 	}
 
@@ -1047,6 +1090,12 @@ function extractReturnType(document: vscode.TextDocument, region: RegionNode): s
 	}
 
 	if(closeIndex < 0) {
+		debugHintFallback(
+			document,
+			region,
+			"typed signature",
+			"parameter list did not close, using return-type fallbacks"
+		);
 		return extractFallbackReturnType(document, region);
 	}
 
@@ -1055,6 +1104,13 @@ function extractReturnType(document: vscode.TextDocument, region: RegionNode): s
 	if(typedReturnType !== undefined) {
 		return typedReturnType;
 	}
+
+	debugHintFallback(
+		document,
+		region,
+		"typed signature",
+		"explicit return type missing, using return-type fallbacks"
+	);
 
 	return extractFallbackReturnType(document, region);
 }
@@ -1362,11 +1418,25 @@ function shouldDefaultVoidReturnType(languageId: string): boolean {
  * Resolves fallback return types after typed signature parsing fails
  */
 function extractFallbackReturnType(document: vscode.TextDocument, region: RegionNode): string | undefined {
+	debugHintFallback(
+		document,
+		region,
+		"return type",
+		"entering JSDoc, body inference, and language default fallbacks"
+	);
+
 	const jsDocReturnType = extractJsDocReturnType(document, region);
 
 	if(jsDocReturnType !== undefined) {
 		return jsDocReturnType;
 	}
+
+	debugHintFallback(
+		document,
+		region,
+		"JSDoc return type",
+		"no JSDoc return type found, trying body inference"
+	);
 
 	const inferredReturnType = inferReturnTypeFromBody(document, region);
 
@@ -1374,9 +1444,31 @@ function extractFallbackReturnType(document: vscode.TextDocument, region: Region
 		return inferredReturnType;
 	}
 
-	return shouldDefaultVoidReturnType(document.languageId)
-		? "void"
-		: undefined;
+	debugHintFallback(
+		document,
+		region,
+		"body return inference",
+		"no body return type inferred, considering language default"
+	);
+
+	if(shouldDefaultVoidReturnType(document.languageId)) {
+		debugHintFallback(
+			document,
+			region,
+			"language default return type",
+			"using void for language without inferred return type"
+		);
+		return "void";
+	}
+
+	debugHintFallback(
+		document,
+		region,
+		"language default return type",
+		"no default return type for this language"
+	);
+
+	return undefined;
 }
 
 /**
@@ -1618,6 +1710,12 @@ function inferReturnTypeFromCallExpression(
 	const openIndex = headerText.indexOf("(");
 
 	if(openIndex < 0) {
+		debugHintFallback(
+			document,
+			declarationRegion,
+			"call return declaration",
+			"matched declaration has no parameter list, trying JSDoc"
+		);
 		return extractJsDocReturnType(document, declarationRegion);
 	}
 
@@ -1643,6 +1741,12 @@ function inferReturnTypeFromCallExpression(
 	}
 
 	if(closeIndex < 0) {
+		debugHintFallback(
+			document,
+			declarationRegion,
+			"call return declaration",
+			"matched declaration parameter list did not close, trying JSDoc"
+		);
 		return extractJsDocReturnType(document, declarationRegion);
 	}
 
@@ -1651,6 +1755,13 @@ function inferReturnTypeFromCallExpression(
 	if(typedReturnType !== undefined) {
 		return typedReturnType;
 	}
+
+	debugHintFallback(
+		document,
+		declarationRegion,
+		"call return declaration",
+		"matched declaration had no explicit return type, trying JSDoc"
+	);
 
 	return extractJsDocReturnType(document, declarationRegion);
 }
@@ -1719,6 +1830,26 @@ function isLikelyNumericExpression(expression: string): boolean {
 	}
 
 	return true;
+}
+
+function debugHintFallback(
+	document: vscode.TextDocument,
+	region: RegionNode,
+	path: string,
+	reason: string
+): void {
+	console.debug(
+		`[semanticFold] Folded hint fallback (${path}) for ${formatDebugRegion(region)} `
+			+ `in ${document.uri.toString()}: ${reason}`
+	);
+}
+
+function formatDebugRegion(region: RegionNode): string {
+	const name = region.name === undefined || region.name.length === 0
+		? "unnamed"
+		: region.name;
+
+	return `${name}<${region.kind}>@${region.selectionLine}-${region.rangeEndLine}`;
 }
 
 /**
