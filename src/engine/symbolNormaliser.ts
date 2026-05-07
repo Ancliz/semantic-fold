@@ -21,6 +21,9 @@ export function normalizeSymbols(
 		}
 
 		if(isSymbolInformation(symbol)) {
+			console.debug(
+				`[semanticFold] Using flat SymbolInformation fallback for ${symbol.name} at index ${String(index)}`
+			);
 			return symbolInformationRegionNode(symbol, index);
 		}
 
@@ -54,8 +57,14 @@ function symbolRegionNode(
 	};
 
 	node.children = symbol.children
-		.filter(isDocumentSymbol)
-		.map((child, index) => symbolRegionNode(child, node, symbolDepth + 1, `${path}.${index}`));
+		.map((child, index) => {
+			if(!isDocumentSymbol(child)) {
+				return undefined;
+			}
+
+			return symbolRegionNode(child, node, symbolDepth + 1, `${path}.${index}`);
+		})
+		.filter((child): child is RegionNode => child !== undefined);
 
 	return node;
 }

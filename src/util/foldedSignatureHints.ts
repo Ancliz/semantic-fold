@@ -305,14 +305,14 @@ export function buildFunctionLabel(
 		return providerLabel;
 	}
 
-	debugHintFallback(
-		document,
-		region,
-		"provider detail",
-		region.detail === undefined
-			? "detail unavailable, reading source signature"
-			: "detail did not provide a usable signature, reading source signature"
-	);
+	if(region.detail !== undefined) {
+		debugHintFallback(
+			document,
+			region,
+			"provider detail",
+			"provider detail was unusable, reading source signature"
+		);
+	}
 
 	const fallbackParameterDetails = parameterDetails ?? extractParameterDetails(document, region);
 
@@ -324,12 +324,6 @@ export function buildFunctionLabel(
 	const returnType = options.returnTypeOverride ?? extractReturnType(document, region);
 
 	if(returnType === undefined) {
-		debugHintFallback(
-			document,
-			region,
-			"return type",
-			"all return providers and fallbacks failed"
-		);
 		return undefined;
 	}
 
@@ -395,15 +389,6 @@ async function buildFoldedRegionHintWithProviders(
 	const providerReturnType = isFunctionLikeRegion(region)
 		? await resolveProviderReturnType(document, region)
 		: undefined;
-
-	if(isFunctionLikeRegion(region) && providerReturnType === undefined) {
-		debugHintFallback(
-			document,
-			region,
-			"hover return type",
-			"hover provider did not provide a return type, continuing with local fallbacks"
-		);
-	}
 
 	return buildFoldedRegionHint(document, region, {
 		...options,
@@ -854,17 +839,13 @@ async function queryProviderReturnType(
 			position
 		);
 	} catch (error) {
-		console.debug(`[semanticFold] Hover type query failed: ${formatError(error)}`);
+		console.debug(
+			`[semanticFold] Hover type query failed, falling back to local return type inference: ${formatError(error)}`
+		);
 		return undefined;
 	}
 
 	if(hovers === undefined || hovers.length === 0) {
-		debugHintFallback(
-			document,
-			region,
-			"hover return type",
-			"hover provider returned no entries"
-		);
 		return undefined;
 	}
 
@@ -875,13 +856,6 @@ async function queryProviderReturnType(
 			return returnType;
 		}
 	}
-
-	debugHintFallback(
-		document,
-		region,
-		"hover return type",
-		"hover entries did not contain a parseable return type"
-	);
 
 	return undefined;
 }
@@ -1063,7 +1037,7 @@ function extractReturnType(document: vscode.TextDocument, region: RegionNode): s
 			document,
 			region,
 			"typed signature",
-			"no parameter list found, using return-type fallbacks"
+			"parameter parse missed a list, using return-type fallbacks"
 		);
 		return extractFallbackReturnType(document, region);
 	}
@@ -1094,7 +1068,7 @@ function extractReturnType(document: vscode.TextDocument, region: RegionNode): s
 			document,
 			region,
 			"typed signature",
-			"parameter list did not close, using return-type fallbacks"
+			"parameter parse failed before close, using return-type fallbacks"
 		);
 		return extractFallbackReturnType(document, region);
 	}
@@ -1431,25 +1405,11 @@ function extractFallbackReturnType(document: vscode.TextDocument, region: Region
 		return jsDocReturnType;
 	}
 
-	debugHintFallback(
-		document,
-		region,
-		"JSDoc return type",
-		"no JSDoc return type found, trying body inference"
-	);
-
 	const inferredReturnType = inferReturnTypeFromBody(document, region);
 
 	if(inferredReturnType !== undefined) {
 		return inferredReturnType;
 	}
-
-	debugHintFallback(
-		document,
-		region,
-		"body return inference",
-		"no body return type inferred, considering language default"
-	);
 
 	if(shouldDefaultVoidReturnType(document.languageId)) {
 		debugHintFallback(
@@ -1460,13 +1420,6 @@ function extractFallbackReturnType(document: vscode.TextDocument, region: Region
 		);
 		return "void";
 	}
-
-	debugHintFallback(
-		document,
-		region,
-		"language default return type",
-		"no default return type for this language"
-	);
 
 	return undefined;
 }
@@ -1714,7 +1667,7 @@ function inferReturnTypeFromCallExpression(
 			document,
 			declarationRegion,
 			"call return declaration",
-			"matched declaration has no parameter list, trying JSDoc"
+			"matched declaration parameter parse missed a list, trying JSDoc"
 		);
 		return extractJsDocReturnType(document, declarationRegion);
 	}
@@ -1745,7 +1698,7 @@ function inferReturnTypeFromCallExpression(
 			document,
 			declarationRegion,
 			"call return declaration",
-			"matched declaration parameter list did not close, trying JSDoc"
+			"matched declaration parameter parse failed before close, trying JSDoc"
 		);
 		return extractJsDocReturnType(document, declarationRegion);
 	}

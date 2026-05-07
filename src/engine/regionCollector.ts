@@ -177,7 +177,10 @@ async function collectSymbols(
 ): Promise<SymbolProviderResult> {
 	try {
 		return await executeSymbolProvider(uri);
-	} catch {
+	} catch (error) {
+		console.debug(
+			`[semanticFold] Document symbol provider failed for ${uri.toString()}, falling back to folding ranges only: ${formatError(error)}`
+		);
 		return undefined;
 	}
 }
@@ -195,7 +198,10 @@ async function collectFoldingRanges(
 		const foldingRanges = await executeFoldingRangeProvider(uri);
 
 		return mergeWithInferredClauseFoldingRanges(document, foldingRanges);
-	} catch {
+	} catch (error) {
+		console.debug(
+			`[semanticFold] Folding range provider failed for ${uri.toString()}, using inferred clause ranges: ${formatError(error)}`
+		);
 		return mergeWithInferredClauseFoldingRanges(document, undefined);
 	}
 }

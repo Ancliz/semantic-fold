@@ -134,15 +134,30 @@ const regionKinds = new Set<string>(REGION_KINDS);
  */
 export function normaliseArgs(args: unknown, mode: CollapseArgs["mode"] = "collapse"): CollapseArgs {
 	const payload = isRecord(args) ? args : {};
-	const normalisedArgs: CollapseArgs = { mode: normaliseMode(payload.mode) ?? mode };
+	const normalisedMode = normaliseMode(payload.mode);
+	const normalisedArgs: CollapseArgs = { mode: normalisedMode ?? mode };
 	const filter = normaliseCollapseFilter(payload.filter);
+
+	if(!isRecord(args) && args !== undefined) {
+		console.debug("[semanticFold] Command payload is malformed, falling back to default arguments");
+	}
+
+	if(payload.mode !== undefined && normalisedMode === undefined) {
+		console.debug(
+			`[semanticFold] Command mode ${String(payload.mode)} is invalid, falling back to ${String(mode)}`
+		);
+	}
 
 	if(filter !== undefined) {
 		normalisedArgs.filter = filter;
+	} else if(payload.filter !== undefined) {
+		console.debug("[semanticFold] Command filter is invalid, falling back to unfiltered command");
 	}
 
 	if(typeof payload.preserveCursorContext === "boolean") {
 		normalisedArgs.preserveCursorContext = payload.preserveCursorContext;
+	} else if(payload.preserveCursorContext !== undefined) {
+		console.debug("[semanticFold] preserveCursorContext is invalid, falling back to default cursor behaviour");
 	}
 
 	return normalisedArgs;
@@ -156,15 +171,30 @@ export function normaliseCompositeArgs(
 	mode: CompositeCollapseArgs["mode"] = "toggle"
 ): CompositeCollapseArgs {
 	const payload = isRecord(args) ? args : {};
-	const normalisedArgs: CompositeCollapseArgs = { mode: normaliseMode(payload.mode) ?? mode };
+	const normalisedMode = normaliseMode(payload.mode);
+	const normalisedArgs: CompositeCollapseArgs = { mode: normalisedMode ?? mode };
 	const filters = normaliseCollapseFilters(payload.filters);
+
+	if(!isRecord(args) && args !== undefined) {
+		console.debug("[semanticFold] Composite payload is malformed, falling back to default arguments");
+	}
+
+	if(payload.mode !== undefined && normalisedMode === undefined) {
+		console.debug(
+			`[semanticFold] Composite mode ${String(payload.mode)} is invalid, falling back to ${String(mode)}`
+		);
+	}
 
 	if(filters.length > 0) {
 		normalisedArgs.filters = filters;
+	} else if(payload.filters !== undefined) {
+		console.debug("[semanticFold] Composite filters are invalid, falling back to no filters");
 	}
 
 	if(typeof payload.preserveCursorContext === "boolean") {
 		normalisedArgs.preserveCursorContext = payload.preserveCursorContext;
+	} else if(payload.preserveCursorContext !== undefined) {
+		console.debug("[semanticFold] composite preserveCursorContext is invalid, falling back to default cursor behaviour");
 	}
 
 	return normalisedArgs;
@@ -186,6 +216,9 @@ function normaliseMode(value: unknown): CommandMode | undefined {
  */
 export function normaliseCollapseFilter(filter: unknown): CollapseFilter | undefined {
 	if(!isRecord(filter)) {
+		if(filter !== undefined) {
+			console.debug("[semanticFold] Collapse filter is malformed, falling back to no filter");
+		}
 		return undefined;
 	}
 
@@ -196,6 +229,10 @@ export function normaliseCollapseFilter(filter: unknown): CollapseFilter | undef
 
 		if(kinds.length > 0) {
 			normalisedFilter[key] = kinds;
+		} else if(filter[key] !== undefined) {
+			console.debug(
+				`[semanticFold] Filter ${key} contains no supported kinds, dropping field`
+			);
 		}
 	}
 
@@ -204,14 +241,21 @@ export function normaliseCollapseFilter(filter: unknown): CollapseFilter | undef
 
 		if(depth !== undefined) {
 			normalisedFilter[key] = depth;
+		} else if(filter[key] !== undefined) {
+			console.debug(
+				`[semanticFold] Filter ${key} is invalid, dropping field`
+			);
 		}
 	}
 
 	if(typeof filter.nameRegex === "string" && isValidRegex(filter.nameRegex)) {
 		normalisedFilter.nameRegex = filter.nameRegex;
+	} else if(filter.nameRegex !== undefined) {
+		console.debug("[semanticFold] Filter nameRegex is invalid, dropping field");
 	}
 
 	if(Object.keys(normalisedFilter).length === 0) {
+		console.debug("[semanticFold] Collapse filter normalised to empty, falling back to no filter");
 		return undefined;
 	}
 
@@ -223,6 +267,9 @@ export function normaliseCollapseFilter(filter: unknown): CollapseFilter | undef
  */
 export function normaliseCollapseFilters(filters: unknown): CollapseFilter[] {
 	if(!Array.isArray(filters)) {
+		if(filters !== undefined) {
+			console.debug("[semanticFold] Composite filters payload is not an array, falling back to no filters");
+		}
 		return [];
 	}
 

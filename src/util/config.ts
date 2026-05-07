@@ -190,12 +190,22 @@ function getLanguagePresetOverride(
 	settingKey: PresetSettingKey
 ): unknown {
 	if(languageId === undefined || !isRecord(languageOverrides)) {
+		if(languageOverrides !== undefined) {
+			console.debug(
+				`[semanticFold] Language preset overrides malformed for ${settingKey}, falling back to global preset`
+			);
+		}
 		return undefined;
 	}
 
 	const languageEntry = languageOverrides[languageId];
 
 	if(!isRecord(languageEntry)) {
+		if(languageEntry !== undefined) {
+			console.debug(
+				`[semanticFold] Language preset override for ${languageId} is malformed, falling back to global preset`
+			);
+		}
 		return undefined;
 	}
 
@@ -207,6 +217,9 @@ function getLanguagePresetOverride(
  */
 function normaliseTogglePresetOverride(value: unknown): TogglePresetOverride {
 	if(!isRecord(value)) {
+		if(value !== undefined) {
+			console.debug("[semanticFold] Toggle preset override is malformed, falling back to defaults");
+		}
 		return {};
 	}
 
@@ -215,10 +228,14 @@ function normaliseTogglePresetOverride(value: unknown): TogglePresetOverride {
 
 	if(filter !== undefined) {
 		override.filter = filter;
+	} else if(value.filter !== undefined) {
+		console.debug("[semanticFold] Toggle preset filter override is invalid, falling back to default filter");
 	}
 
 	if(typeof value.enabled === "boolean") {
 		override.enabled = value.enabled;
+	} else if(value.enabled !== undefined) {
+		console.debug("[semanticFold] Toggle preset enabled override is invalid, falling back to previous enabled state");
 	}
 
 	return override;
@@ -229,6 +246,9 @@ function normaliseTogglePresetOverride(value: unknown): TogglePresetOverride {
  */
 function normaliseCompositePresetOverride(value: unknown): CompositePresetOverride {
 	if(!isRecord(value)) {
+		if(value !== undefined) {
+			console.debug("[semanticFold] Composite preset override is malformed, falling back to defaults");
+		}
 		return {};
 	}
 
@@ -237,10 +257,14 @@ function normaliseCompositePresetOverride(value: unknown): CompositePresetOverri
 
 	if(filters.length > 0) {
 		override.filters = filters;
+	} else if(value.filters !== undefined) {
+		console.debug("[semanticFold] Composite preset filters override is invalid, falling back to default filters");
 	}
 
 	if(typeof value.enabled === "boolean") {
 		override.enabled = value.enabled;
+	} else if(value.enabled !== undefined) {
+		console.debug("[semanticFold] Composite preset enabled override is invalid, falling back to previous enabled state");
 	}
 
 	return override;

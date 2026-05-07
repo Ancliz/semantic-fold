@@ -120,6 +120,12 @@ export function getAncestors(region: RegionNode): RegionNode[] {
 		ancestor = getParent(ancestor);
 	}
 
+	if(ancestor !== undefined) {
+		console.debug(
+			`[semanticFold] Ancestor cycle detected for ${formatRegion(region)}, falling back to visited ancestor chain`
+		);
+	}
+
 	return ancestors;
 }
 
@@ -148,4 +154,12 @@ function matchesSymbolDepth(region: RegionNode, filter: CollapseFilter): boolean
 function hasAnyRegionKind(region: RegionNode, kinds: readonly RegionNode["kind"][]): boolean {
 	return kinds.includes(region.kind)
 		|| (region.semanticKind !== undefined && kinds.includes(region.semanticKind));
+}
+
+function formatRegion(region: RegionNode): string {
+	const name = region.name === undefined || region.name.length === 0
+		? "unnamed"
+		: region.name;
+
+	return `${name}<${region.kind}>@${String(region.selectionLine)}-${String(region.rangeEndLine)}`;
 }

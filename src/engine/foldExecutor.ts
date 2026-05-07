@@ -247,6 +247,9 @@ export async function execFoldCommand(
 	);
 
 	if(!usedManualFoldingRanges) {
+		if(selectionLineOptions.executeManualFoldingRanges !== undefined) {
+			console.debug("[semanticFold] Manual folding route declined, using editor fold command");
+		}
 		// levels: 1 keeps Semantic Fold targeted instead of recursively folding children
 		await executeCommand(command, { selectionLines, levels: 1 });
 	}
@@ -293,6 +296,9 @@ export async function execCompositeFoldCommand(
 	);
 
 	if(!usedManualFoldingRanges) {
+		if(selectionLineOptions.executeManualFoldingRanges !== undefined) {
+			console.debug("[semanticFold] Manual folding route declined, using editor fold command");
+		}
 		// levels: 1 keeps Semantic Fold targeted instead of recursively folding children
 		await executeCommand(command, { selectionLines, levels: 1 });
 	}

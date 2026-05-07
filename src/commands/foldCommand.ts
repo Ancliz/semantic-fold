@@ -308,6 +308,9 @@ function selectionFromRegion(
 		|| region.rangeEndLine < 0
 		|| region.rangeEndLine >= document.lineCount
 	) {
+		console.debug(
+			`[semanticFold] Region ${formatRegion(region)} has invalid manual range bounds, falling back to editor command`
+		);
 		return undefined;
 	}
 
@@ -329,6 +332,9 @@ export function resolveRangeStartLine(region: RegionNode): number {
 		return region.selectionLine;
 	}
 
+	console.debug(
+		`[semanticFold] Selection line outside range for ${formatRegion(region)}, falling back to range start`
+	);
 	return region.rangeStartLine;
 }
 
@@ -429,6 +435,7 @@ export function resolveSelectionsAfterManualFold(
 	const targetCandidates = visibleContainingRegions.length > 0
 		? visibleContainingRegions
 		: containingRegions;
+
 	const targetRegion = targetCandidates.sort((left, right) => {
 		const leftStartLine = resolveRangeStartLine(left);
 		const rightStartLine = resolveRangeStartLine(right);
@@ -449,6 +456,9 @@ export function resolveSelectionsAfterManualFold(
 	})[0];
 
 	if(targetRegion.selectionLine < 0 || targetRegion.selectionLine >= document.lineCount) {
+		console.debug(
+			`[semanticFold] Fold target header ${formatRegion(targetRegion)} is outside the document, falling back to original selections`
+		);
 		return cloneSelections(originalSelections);
 	}
 
@@ -495,4 +505,12 @@ function maybeIncludeImmediateClosingDelimiterLine(
 	}
 
 	return nextLine;
+}
+
+function formatRegion(region: RegionNode): string {
+	const name = region.name === undefined || region.name.length === 0
+		? "unnamed"
+		: region.name;
+
+	return `${name}<${region.kind}>@${String(region.selectionLine)}-${String(region.rangeEndLine)}`;
 }
