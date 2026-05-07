@@ -123,6 +123,24 @@ suite("Folded Signature Hints", () => {
 		);
 	});
 
+	test("uses provider detail before source return fallbacks", async () => {
+		const document = await openDocument([
+			"function load(",
+			"\tvalue",
+			") {",
+			"\tcache.set(value);",
+			"}"
+		], "javascript");
+		const region = createRegion("function", 0, 4, "load", "(value: string): Promise<Result>");
+
+		assert.strictEqual(
+			buildFunctionLabel(document, region, {
+				collapseSignature: true
+			}),
+			"(value) : Promise<Result>"
+		);
+	});
+
 	test("renders only return type for zero-parameter collapsed signatures", async () => {
 		const document = await openDocument([
 			"function ready(): void {",
@@ -426,12 +444,14 @@ function createRegion(
 	kind: RegionNode["kind"],
 	startLine: number,
 	endLine: number,
-	name?: string
+	name?: string,
+	detail?: string
 ): RegionNode {
 	return {
 		id: `${kind}:${startLine}:${endLine}`,
 		kind,
 		name,
+		detail,
 		rangeStartLine: startLine,
 		rangeEndLine: endLine,
 		selectionLine: startLine,

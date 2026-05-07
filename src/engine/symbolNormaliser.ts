@@ -41,6 +41,7 @@ function symbolRegionNode(
 	const node: RegionNode = {
 		id: createNodeId(symbol, path),
 		name: symbol.name,
+		detail: normaliseSymbolDetail(symbol.detail),
 		kind: mapSymbolKind(symbol.kind),
 		rangeStartLine: symbol.range.start.line,
 		rangeEndLine: symbol.range.end.line,
@@ -78,6 +79,16 @@ function symbolInformationRegionNode(
 		source: "symbolInformation",
 		symbolKind: symbol.kind
 	};
+}
+
+function normaliseSymbolDetail(detail: string | undefined): string | undefined {
+	if(typeof detail !== "string") {
+		return undefined;
+	}
+
+	const trimmedDetail = detail.trim();
+
+	return trimmedDetail.length === 0 ? undefined : trimmedDetail;
 }
 
 /**

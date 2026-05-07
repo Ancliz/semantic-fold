@@ -622,6 +622,19 @@ suite("Document Symbol Normalisation", () => {
 		assert.strictEqual(propertyRegion.parent, classRegion);
 	});
 
+	test("preserves document symbol detail when supplied", () => {
+		const functionSymbol = createSymbol("load", vscode.SymbolKind.Function, 0, 4);
+
+		functionSymbol.detail = "(value: string): Promise<Result>";
+
+		const regions = normalizeSymbols([functionSymbol]);
+
+		assert.strictEqual(
+			regions[0].detail,
+			"(value: string): Promise<Result>"
+		);
+	});
+
 	test("ignores missing and malformed provider results", () => {
 		assert.deepStrictEqual(normalizeSymbols(undefined), []);
 		assert.deepStrictEqual(normalizeSymbols(null), []);

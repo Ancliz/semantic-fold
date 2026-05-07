@@ -43,6 +43,11 @@ export interface RegionNode {
 	name?: string;
 
 	/**
+	 * Extra provider detail such as a function signature when available
+	 */
+	detail?: string;
+
+	/**
 	 * Normalised region category used by command filters
 	 */
 	kind: RegionKind;

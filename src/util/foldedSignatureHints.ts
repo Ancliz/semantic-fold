@@ -26,6 +26,12 @@ interface HintPlacement {
 	anchorRange: vscode.Range;
 	hiddenRange?: vscode.Range;
 }
+
+interface ParsedSignatureLine {
+	parameterSource: string;
+	returnType?: string;
+}
+
 const foldedSignatureDecorationType = vscode.window.createTextEditorDecorationType({
 	after: {
 		margin: "0",
@@ -285,41 +291,37 @@ export function buildFunctionLabel(
 		returnTypeOverride?: string;
 	} = {}
 ): string | undefined {
-	const parameterDetails = extractParameterDetails(document, region);
+	const collapseSignature = options.collapseSignature ?? false;
+	const parameterDetails = collapseSignature
+		? undefined
+		: extractParameterDetails(document, region);
+	const providerLabel = buildFunctionLabelFromProviderDetail(region.detail, {
+		collapseSignature,
+		returnTypeOverride: options.returnTypeOverride,
+		spansMultipleLines: parameterDetails?.spansMultipleLines ?? false
+	});
 
-	if(parameterDetails === undefined) {
+	if(providerLabel !== undefined) {
+		return providerLabel;
+	}
+
+	const fallbackParameterDetails = parameterDetails ?? extractParameterDetails(document, region);
+
+	if(fallbackParameterDetails === undefined) {
 		return undefined;
 	}
 
-	const parameterNames = extractParameterNames(parameterDetails.parameterSource);
+	const parameterNames = extractParameterNames(fallbackParameterDetails.parameterSource);
 	const returnType = options.returnTypeOverride ?? extractReturnType(document, region);
-	const collapseSignature = options.collapseSignature ?? false;
-	const shouldShowParameters = collapseSignature || parameterDetails.spansMultipleLines;
 
 	if(returnType === undefined) {
 		return undefined;
 	}
 
-	if(!collapseSignature && !parameterDetails.spansMultipleLines) {
-		return undefined;
-	}
-
-	const parameterText = shouldShowParameters
-		? `(${parameterNames.join(", ")})`
-		: "()";
-	const label = collapseSignature
-		? buildCollapsedSignatureLabel(parameterNames, returnType)
-		: `${parameterText} : ${returnType}`;
-
-	if(label === undefined || label.length === 0) {
-		return undefined;
-	}
-
-	if(label.length <= maxHintLength) {
-		return label;
-	}
-
-	return `${label.slice(0, maxHintLength - 1)}…`;
+	return buildFunctionLabelFromParts(parameterNames, returnType, {
+		collapseSignature,
+		spansMultipleLines: fallbackParameterDetails.spansMultipleLines
+	});
 }
 
 export function buildFoldedRegionHint(
@@ -398,6 +400,71 @@ function buildCollapsedSignatureLabel(
 		: "()";
 
 	return `${collapsedParameterText} : ${returnType}`;
+}
+
+function buildFunctionLabelFromProviderDetail(
+	detail: string | undefined,
+	options: {
+		collapseSignature: boolean;
+		returnTypeOverride?: string;
+		spansMultipleLines: boolean;
+	}
+): string | undefined {
+	if(detail === undefined) {
+		return undefined;
+	}
+
+	const parsedSignature = parseSignatureLine(detail, false);
+
+	if(parsedSignature === undefined) {
+		return undefined;
+	}
+
+	const returnType = options.returnTypeOverride ?? parsedSignature.returnType;
+
+	if(returnType === undefined) {
+		return undefined;
+	}
+
+	return buildFunctionLabelFromParts(
+		extractParameterNames(parsedSignature.parameterSource),
+		returnType,
+		options
+	);
+}
+
+function buildFunctionLabelFromParts(
+	parameterNames: string[],
+	returnType: string | undefined,
+	options: {
+		collapseSignature: boolean;
+		spansMultipleLines: boolean;
+	}
+): string | undefined {
+	if(returnType === undefined) {
+		return undefined;
+	}
+
+	if(!options.collapseSignature && !options.spansMultipleLines) {
+		return undefined;
+	}
+
+	const parameterText = options.collapseSignature || options.spansMultipleLines
+		? `(${parameterNames.join(", ")})`
+		: "()";
+	const label = options.collapseSignature
+		? buildCollapsedSignatureLabel(parameterNames, returnType)
+		: `${parameterText} : ${returnType}`;
+
+	if(label === undefined || label.length === 0) {
+		return undefined;
+	}
+
+	if(label.length <= maxHintLength) {
+		return label;
+	}
+
+	return `${label.slice(0, maxHintLength - 1)}…`;
 }
 
 function applyHintDecorations(
@@ -848,7 +915,16 @@ function extractHoverSignatureCandidates(contentText: string): string[] {
 }
 
 function extractReturnTypeFromHoverSignature(signatureLine: string): string | undefined {
-	const cleanedLine = signatureLine.replace(/^\([^)]*\)\s*/, "").trim();
+	return parseSignatureLine(signatureLine, true)?.returnType;
+}
+
+function parseSignatureLine(
+	signatureLine: string,
+	stripHoverPrefix: boolean
+): ParsedSignatureLine | undefined {
+	const cleanedLine = stripHoverPrefix
+		? stripHoverMetadataPrefix(signatureLine)
+		: signatureLine.trim();
 	const openIndex = cleanedLine.indexOf("(");
 
 	if(openIndex < 0) {
@@ -880,10 +956,14 @@ function extractReturnTypeFromHoverSignature(signatureLine: string): string | un
 		return undefined;
 	}
 
+	const parameterSource = cleanedLine.slice(openIndex + 1, closeIndex);
 	const typedReturnType = extractTypedReturnType(cleanedLine, openIndex, closeIndex);
 
 	if(typedReturnType !== undefined) {
-		return typedReturnType;
+		return {
+			parameterSource,
+			returnType: typedReturnType
+		};
 	}
 
 	const arrowReturnMatch = cleanedLine
@@ -891,12 +971,28 @@ function extractReturnTypeFromHoverSignature(signatureLine: string): string | un
 		.match(/^\s*=>\s*([^={;]+?)\s*(?:\{|$)/);
 
 	if(arrowReturnMatch === null) {
-		return undefined;
+		return {
+			parameterSource
+		};
 	}
 
 	const arrowReturnType = arrowReturnMatch[1].trim();
 
-	return arrowReturnType.length === 0 ? undefined : arrowReturnType;
+	return {
+		parameterSource,
+		returnType: arrowReturnType.length === 0 ? undefined : arrowReturnType
+	};
+}
+
+function stripHoverMetadataPrefix(signatureLine: string): string {
+	const trimmedLine = signatureLine.trim();
+	const hoverPrefixMatch = trimmedLine.match(
+		/^\((?:function|method|constructor|property|field|variable|const|let|var|class|interface|enum|namespace|module)\)\s+/iu
+	);
+
+	return hoverPrefixMatch === null
+		? trimmedLine
+		: trimmedLine.slice(hoverPrefixMatch[0].length).trim();
 }
 
 function createTypeQueryPosition(document: vscode.TextDocument, region: RegionNode): vscode.Position {
