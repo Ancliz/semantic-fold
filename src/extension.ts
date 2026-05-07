@@ -31,6 +31,7 @@ import { getRegions } from "./engine/regionCollector";
 import { clearCache, handleDocumentChange, invalidateCache } from "./util/cache";
 import {
 	COLLAPSE_FUNCTION_SIGNATURE_HINTS_SETTING,
+	FOLDED_PREVIEW_LINE_LIMIT_SETTING,
 	FOLDED_FUNCTION_SIGNATURE_HINTS_SETTING,
 	INCLUDE_CLOSING_DELIMITER_SETTING,
 	SEMANTIC_REFINEMENT_ENABLED_SETTING
@@ -180,6 +181,7 @@ export function activate(context: vscode.ExtensionContext): void {
 			const signatureHintSettingsChanged = (
 				event.affectsConfiguration(FOLDED_FUNCTION_SIGNATURE_HINTS_SETTING)
 				|| event.affectsConfiguration(COLLAPSE_FUNCTION_SIGNATURE_HINTS_SETTING)
+				|| event.affectsConfiguration(FOLDED_PREVIEW_LINE_LIMIT_SETTING)
 			);
 			console.debug(
 				`[semanticFold] config changed includeClosingDelimiter=${String(includeClosingDelimiterChanged)} signatureHints=${String(signatureHintSettingsChanged)}`

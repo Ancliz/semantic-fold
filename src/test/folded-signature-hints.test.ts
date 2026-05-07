@@ -1,6 +1,6 @@
 import * as assert from "assert";
 import * as vscode from "vscode";
-import { buildFunctionLabel } from "../util/foldedSignatureHints";
+import { buildFoldedRegionHint, buildFunctionLabel } from "../util/foldedSignatureHints";
 import type { RegionNode } from "../model/region";
 
 suite("Folded Signature Hints", () => {
@@ -277,6 +277,147 @@ suite("Folded Signature Hints", () => {
 				collapseSignature: true
 			}),
 			"(item) : ReportBuilder"
+		);
+	});
+
+	test("previews folded object literal entries", async () => {
+		const document = await openDocument([
+			"const objectWithCallables = {",
+			"\tname: \"toolbox\",",
+			"\tversion: \"1.0.0\",",
+			"\tformat(value) {",
+			"\t\treturn `[${value}]`",
+			"\t},",
+			"\trun: function runTask(taskName) {",
+			"\t\treturn taskName.toLowerCase()",
+			"\t},",
+			"\tnested: {",
+			"\t\tparse(input) {",
+			"\t\t\treturn JSON.parse(input)",
+			"\t\t}",
+			"\t}",
+			"}"
+		], "javascript");
+		const region = createRegion("object", 0, 14, "objectWithCallables");
+		const hint = buildFoldedRegionHint(document, region);
+
+		assert.strictEqual(
+			hint?.text,
+			"{ name: \"toolbox\", version: \"1.0.0\", format(value), run(taskName), nested: {...} }"
+		);
+		assert.strictEqual(hint?.kind, "object");
+		assert.strictEqual(hint?.replaceSignature, false);
+		assert.strictEqual(hint?.hiddenDelimiter, "{");
+	});
+
+	test("adds object elision only when the preview exceeds the line budget", async () => {
+		const document = await openDocument([
+			"const veryLongObjectPreviewPrefixForBudgetTesting = {",
+			"\tfirst: \"alpha\",",
+			"\tsecond: \"beta\",",
+			"\tthird: \"gamma\",",
+			"\tfourth: \"delta\",",
+			"\tfifth: \"epsilon\",",
+			"\tsixth: \"zeta\"",
+			"}"
+		], "javascript");
+		const region = createRegion("object", 0, 7, "veryLongObjectPreviewPrefixForBudgetTesting");
+		const hint = buildFoldedRegionHint(document, region);
+		const delimiterColumn = document.lineAt(0).text.indexOf("{");
+
+		assert.ok(hint?.text.endsWith(", ... }"));
+		assert.ok(!hint?.text.includes("sixth"));
+		assert.ok(delimiterColumn + (hint?.text.length ?? 0) <= 140);
+
+		const stricterHint = buildFoldedRegionHint(document, region, {
+			maxVisiblePreviewLineLength: 80
+		});
+
+		assert.ok(stricterHint?.text.endsWith(", ... }"));
+		assert.ok(!stricterHint?.text.includes("fourth"));
+		assert.ok(delimiterColumn + (stricterHint?.text.length ?? 0) <= 80);
+	});
+
+	test("renders class headers as closed folded blocks", async () => {
+		const document = await openDocument([
+			"class ReportBuilder {",
+			"\tbuild() {",
+			"\t\treturn {};",
+			"\t}",
+			"}"
+		], "javascript");
+		const region = createRegion("class", 0, 4, "ReportBuilder");
+		const hint = buildFoldedRegionHint(document, region);
+
+		assert.strictEqual(hint?.text, "{...}");
+		assert.strictEqual(hint?.kind, "block");
+		assert.strictEqual(hint?.replaceSignature, false);
+		assert.strictEqual(hint?.hiddenDelimiter, "{");
+	});
+
+	test("previews multiline constructor call arguments", async () => {
+		const document = await openDocument([
+			"const report = new ReportBuilder(",
+			"\t\"weekly\",",
+			"\t{ includeDrafts: true },",
+			"\tcreateFormatter()",
+			")"
+		], "javascript");
+		const region = createRegion("variable", 0, 4, "report");
+		const hint = buildFoldedRegionHint(document, region);
+
+		assert.strictEqual(
+			hint?.text,
+			"(\"weekly\", {...}, createFormatter())"
+		);
+		assert.strictEqual(hint?.kind, "constructorCall");
+		assert.strictEqual(hint?.replaceSignature, false);
+		assert.strictEqual(hint?.hiddenDelimiter, "(");
+	});
+
+	test("keeps object preview when object contains constructor calls", async () => {
+		const document = await openDocument([
+			"const config = {",
+			"\tname: \"primary\",",
+			"\tservice: new Service(",
+			"\t\t\"alpha\",",
+			"\t\t{ enabled: true }",
+			"\t)",
+			"}"
+		], "javascript");
+		const region = createRegion("object", 0, 6, "config");
+		const hint = buildFoldedRegionHint(document, region);
+
+		assert.strictEqual(
+			hint?.text,
+			"{ name: \"primary\", service: new Service(...) }"
+		);
+		assert.strictEqual(hint?.kind, "object");
+	});
+
+	test("skips single-line constructor call arguments", async () => {
+		const document = await openDocument([
+			"const report = new ReportBuilder(\"weekly\")"
+		], "javascript");
+		const region = createRegion("variable", 0, 0, "report");
+
+		assert.strictEqual(
+			buildFoldedRegionHint(document, region),
+			undefined
+		);
+	});
+
+	test("keeps object previews language-specific", async () => {
+		const document = await openDocument([
+			"const config = {",
+			"\tname: \"toolbox\"",
+			"}"
+		], "plaintext");
+		const region = createRegion("object", 0, 2, "config");
+
+		assert.strictEqual(
+			buildFoldedRegionHint(document, region),
+			undefined
 		);
 	});
 });

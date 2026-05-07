@@ -172,7 +172,10 @@ Core settings:
 - `semanticFold.folding.includeClosingDelimiter` (default `true`)
 - `semanticFold.inlineHints.showFoldedFunctionSignatures` (default `true`)
 - `semanticFold.inlineHints.collapseFunctionSignatures` (default `true`)
+- `semanticFold.inlineHints.maxFoldedPreviewLineLength` (default `140`)
 - `semanticFold.presets.*` and `semanticFold.presets.languageOverrides`
+
+Inline hints show compact folded function signatures. Language preview providers can also add richer hints; the JavaScript/TypeScript provider shows folded object-literal fields and multiline constructor-call arguments with hint-owned delimiters. Object previews list top-level literal fields and show callable properties as `name(args)`, while class headers get a simple `{...}` placeholder rather than member previews. `maxFoldedPreviewLineLength` controls when object and constructor previews elide trailing entries
 
 Preset precedence:
 

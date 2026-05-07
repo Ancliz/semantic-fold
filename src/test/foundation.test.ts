@@ -54,6 +54,7 @@ suite("Semantic Fold Foundation", () => {
 		const includeClosingDelimiterSetting = extension.packageJSON.contributes.configuration.properties["semanticFold.folding.includeClosingDelimiter"];
 		const foldedFunctionSignatureHintSetting = extension.packageJSON.contributes.configuration.properties["semanticFold.inlineHints.showFoldedFunctionSignatures"];
 		const collapsedFunctionSignatureHintSetting = extension.packageJSON.contributes.configuration.properties["semanticFold.inlineHints.collapseFunctionSignatures"];
+		const foldedPreviewLineLimitSetting = extension.packageJSON.contributes.configuration.properties["semanticFold.inlineHints.maxFoldedPreviewLineLength"];
 		const readerModePresetSetting = extension.packageJSON.contributes.configuration.properties["semanticFold.presets.readerMode"];
 		const apiOverviewPresetSetting = extension.packageJSON.contributes.configuration.properties["semanticFold.presets.apiOverview"];
 		const languageOverridesSetting = extension.packageJSON.contributes.configuration.properties["semanticFold.presets.languageOverrides"];
@@ -65,11 +66,15 @@ suite("Semantic Fold Foundation", () => {
 		assert.strictEqual(typeof includeClosingDelimiterSetting.default, "boolean");
 		assert.strictEqual(includeClosingDelimiterSetting.scope, "resource");
 		assert.strictEqual(foldedFunctionSignatureHintSetting.type, "boolean");
-		assert.strictEqual(foldedFunctionSignatureHintSetting.default, false);
+		assert.strictEqual(foldedFunctionSignatureHintSetting.default, true);
 		assert.strictEqual(foldedFunctionSignatureHintSetting.scope, "resource");
 		assert.strictEqual(collapsedFunctionSignatureHintSetting.type, "boolean");
-		assert.strictEqual(collapsedFunctionSignatureHintSetting.default, false);
+		assert.strictEqual(collapsedFunctionSignatureHintSetting.default, true);
 		assert.strictEqual(collapsedFunctionSignatureHintSetting.scope, "resource");
+		assert.strictEqual(foldedPreviewLineLimitSetting.type, "number");
+		assert.strictEqual(foldedPreviewLineLimitSetting.default, 140);
+		assert.strictEqual(foldedPreviewLineLimitSetting.minimum, 40);
+		assert.strictEqual(foldedPreviewLineLimitSetting.scope, "resource");
 		assert.strictEqual(readerModePresetSetting.type, "object");
 		assert.strictEqual(apiOverviewPresetSetting.type, "object");
 		assert.strictEqual(languageOverridesSetting.type, "object");
@@ -90,8 +95,8 @@ suite("Semantic Fold Foundation", () => {
 		const findBinding = (key: string) => {
 			return keybindings.find((binding) => binding.key === key);
 		};
-		const collapseAtCursor = findBinding("ctrl+shift+[");
-		const expandAtCursor = findBinding("ctrl+shift+]");
+		const collapseAtCursor = findBinding("alt+shift+[");
+		const expandAtCursor = findBinding("alt+shift+]");
 		const collapseLevelOne = findBinding("alt+s alt+1");
 		const collapseLevelNine = findBinding("alt+s alt+9");
 

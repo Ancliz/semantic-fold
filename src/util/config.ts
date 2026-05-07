@@ -11,6 +11,7 @@ export const SEMANTIC_REFINEMENT_ENABLED_SETTING = "semanticFold.semanticRefinem
 export const INCLUDE_CLOSING_DELIMITER_SETTING = "semanticFold.folding.includeClosingDelimiter";
 export const FOLDED_FUNCTION_SIGNATURE_HINTS_SETTING = "semanticFold.inlineHints.showFoldedFunctionSignatures";
 export const COLLAPSE_FUNCTION_SIGNATURE_HINTS_SETTING = "semanticFold.inlineHints.collapseFunctionSignatures";
+export const FOLDED_PREVIEW_LINE_LIMIT_SETTING = "semanticFold.inlineHints.maxFoldedPreviewLineLength";
 export const PRESET_CONFIG_SECTION = "semanticFold.presets";
 export type TogglePresetSettingKey = "imports" | "comments" | "readerMode";
 export type CompositePresetSettingKey = "apiOverview";
@@ -19,6 +20,8 @@ const SEMANTIC_REFINEMENT_SECTION = "semanticFold.semanticRefinement";
 const FOLDING_SECTION = "semanticFold.folding";
 const INLINE_HINTS_SECTION = "semanticFold.inlineHints";
 const PRESET_LANGUAGE_OVERRIDES_SETTING = "languageOverrides";
+const DEFAULT_FOLDED_PREVIEW_LINE_LIMIT = 140;
+const MINIMUM_FOLDED_PREVIEW_LINE_LIMIT = 40;
 
 /**
  * Reads whether semantic-token refinement should participate for a resource
@@ -59,6 +62,21 @@ export function isCollapsedHintEnabled(resource?: vscode.Uri): boolean {
 	return vscode.workspace
 		.getConfiguration(INLINE_HINTS_SECTION, resource)
 		.get<boolean>("collapseFunctionSignatures", false);
+}
+
+/**
+ * Reads the visible line budget used before folded previews elide entries
+ */
+export function getFoldedPreviewLineLimit(resource?: vscode.Uri): number {
+	const configuredValue = vscode.workspace
+		.getConfiguration(INLINE_HINTS_SECTION, resource)
+		.get<number>("maxFoldedPreviewLineLength", DEFAULT_FOLDED_PREVIEW_LINE_LIMIT);
+
+	if(!Number.isInteger(configuredValue)) {
+		return DEFAULT_FOLDED_PREVIEW_LINE_LIMIT;
+	}
+
+	return Math.max(MINIMUM_FOLDED_PREVIEW_LINE_LIMIT, configuredValue);
 }
 
 /**

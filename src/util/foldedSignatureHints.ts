@@ -1,13 +1,31 @@
 import * as vscode from "vscode";
+import { buildFoldedPreview, type FoldedPreviewKind } from "../engine/foldedPreview";
+import { foldedPreviewProviders } from "../engine/foldedPreviewProviderRegistry";
 import type { FoldExecutionResult } from "../engine/foldExecutor";
 import type { RegionNode } from "../model/region";
-import { isCollapsedHintEnabled, isSignatureHintsEnabled } from "./config";
+import { getFoldedPreviewLineLimit, isCollapsedHintEnabled, isSignatureHintsEnabled } from "./config";
 
 const functionLikeKinds = new Set<string>(["function", "method"]);
+const containerHintKinds = new Set<string>(["object", "variable", "property", "field"]);
+const blockPlaceholderKinds = new Set<string>(["class"]);
 const maxHintLength = 80;
 const foldedFunctionRegionsByDocument = new Map<string, Map<number, RegionNode>>();
 const providerReturnTypeCacheByDocument = new Map<string, Map<string, string | null>>();
 const hintRefreshSequenceByDocument = new Map<string, number>();
+
+type FoldedHintKind = "signature" | "block" | FoldedPreviewKind;
+
+interface FoldedRegionHint {
+	text: string;
+	kind: FoldedHintKind;
+	replaceSignature: boolean;
+	hiddenDelimiter?: string;
+}
+
+interface HintPlacement {
+	anchorRange: vscode.Range;
+	hiddenRange?: vscode.Range;
+}
 const foldedSignatureDecorationType = vscode.window.createTextEditorDecorationType({
 	after: {
 		margin: "0",
@@ -37,14 +55,14 @@ export function applyFunctionSignatureHints(
 
 	if(executionResult !== undefined) {
 		const documentFunctionRegions = getDocumentFunctionRegions(documentUri);
-		const functionLikeRegions = executionResult.selectedRegions.filter(isFunctionLikeRegion);
+		const hintableRegions = executionResult.selectedRegions.filter(isHintableRegion);
 
 		if(executionResult.command === "editor.fold") {
-			for(const region of functionLikeRegions) {
+			for(const region of hintableRegions) {
 				documentFunctionRegions.set(region.selectionLine, region);
 			}
 		} else {
-			for(const region of functionLikeRegions) {
+			for(const region of hintableRegions) {
 				documentFunctionRegions.delete(region.selectionLine);
 			}
 		}
@@ -115,11 +133,11 @@ async function refreshFunctionHintsAsync(
 		return left.selectionLine - right.selectionLine;
 	});
 	const hintEntries = await Promise.all(sortedFoldedFunctionRegions.map(async (region) => {
-		const hintText = await buildFunctionLabelWithProviders(editor.document, region, {
+		const hint = await buildFoldedRegionHintWithProviders(editor.document, region, {
 			collapseSignature
 		});
 
-		return { region, hintText };
+		return { region, hint };
 	}));
 
 	if(isStaleHintRefresh(documentUri, refreshSequence)) {
@@ -135,9 +153,9 @@ async function refreshFunctionHintsAsync(
 		}
 
 		const line = editor.document.lineAt(lineNumber);
-		const hintText = entry.hintText;
+		const hint = entry.hint;
 
-		if(hintText === undefined) {
+		if(hint === undefined) {
 			continue;
 		}
 
@@ -145,37 +163,45 @@ async function refreshFunctionHintsAsync(
 			continue;
 		}
 
-		const anchorRange = createHintAnchorRange(line, lineNumber, region.name);
+		const placement = createHintPlacementForKind(line, lineNumber, region.name, hint);
+		const anchorRange = placement.anchorRange;
 
-		if(collapseSignature) {
+		if(hint.replaceSignature) {
 			const signatureRange = createSignatureReplacementRange(line, anchorRange);
 
 			if(signatureRange !== undefined) {
 				replacedSignatureDecorations.push({
 					range: signatureRange,
-					hoverMessage: hintText
+					hoverMessage: hint.text
 				});
 				collapsedHintDecorations.push({
 					range: anchorRange,
 					renderOptions: {
 						after: {
-							contentText: hintText
+							contentText: hint.text
 						}
 					},
-					hoverMessage: hintText
+					hoverMessage: hint.text
 				});
 				continue;
 			}
+		}
+
+		if(placement.hiddenRange !== undefined) {
+			replacedSignatureDecorations.push({
+				range: placement.hiddenRange,
+				hoverMessage: hint.text
+			});
 		}
 
 		trailingDecorations.push({
 			range: anchorRange,
 			renderOptions: {
 				after: {
-					contentText: hintText
+					contentText: hint.text
 				}
 			},
-			hoverMessage: hintText
+			hoverMessage: hint.text
 		});
 	}
 
@@ -223,7 +249,7 @@ export function pruneExpandedFunctionHints(editor: vscode.TextEditor): void {
 }
 
 /**
- * Adds hints for function-like regions that appear collapsed in the viewport
+ * Adds hints for supported regions that appear collapsed in the viewport
  */
 export function addCollapsedFunctionHintsFromRegions(
 	editor: vscode.TextEditor,
@@ -235,11 +261,11 @@ export function addCollapsedFunctionHintsFromRegions(
 
 	const documentUri = editor.document.uri.toString();
 	const foldedFunctionRegions = getDocumentFunctionRegions(documentUri);
-	const functionLikeRegions = flattenRegions(rootNodes).filter((region) => {
-		return isFunctionLikeRegion(region) && region.rangeEndLine > region.selectionLine;
+	const hintableRegions = flattenRegions(rootNodes).filter((region) => {
+		return isHintableRegion(region) && region.rangeEndLine > region.selectionLine;
 	});
 
-	for(const region of functionLikeRegions) {
+	for(const region of hintableRegions) {
 		if(!isRegionCollapsedInViewport(region, editor.visibleRanges)) {
 			continue;
 		}
@@ -296,16 +322,64 @@ export function buildFunctionLabel(
 	return `${label.slice(0, maxHintLength - 1)}…`;
 }
 
-async function buildFunctionLabelWithProviders(
+export function buildFoldedRegionHint(
+	document: vscode.TextDocument,
+	region: RegionNode,
+	options: {
+		collapseSignature?: boolean;
+		returnTypeOverride?: string;
+		maxVisiblePreviewLineLength?: number;
+	} = {}
+): FoldedRegionHint | undefined {
+	if(isFunctionLikeRegion(region)) {
+		const text = buildFunctionLabel(document, region, options);
+
+		return text === undefined
+			? undefined
+			: {
+				text,
+				kind: "signature",
+				replaceSignature: options.collapseSignature ?? false
+			};
+	}
+
+	if(isBlockPlaceholderRegion(region) && hasOpeningBrace(document, region)) {
+		return {
+			text: "{...}",
+			kind: "block",
+			replaceSignature: false,
+			hiddenDelimiter: "{"
+		};
+	}
+
+	const preview = buildFoldedPreview(document, region, foldedPreviewProviders, {
+		maxVisibleLineLength: options.maxVisiblePreviewLineLength
+			?? getFoldedPreviewLineLimit(document.uri)
+	});
+
+	return preview === undefined
+		? undefined
+		: {
+			...preview,
+			replaceSignature: false,
+			hiddenDelimiter: preview.kind === "object"
+				? "{"
+				: "("
+		};
+}
+
+async function buildFoldedRegionHintWithProviders(
 	document: vscode.TextDocument,
 	region: RegionNode,
 	options: {
 		collapseSignature?: boolean;
 	} = {}
-): Promise<string | undefined> {
-	const providerReturnType = await resolveProviderReturnType(document, region);
+): Promise<FoldedRegionHint | undefined> {
+	const providerReturnType = isFunctionLikeRegion(region)
+		? await resolveProviderReturnType(document, region)
+		: undefined;
 
-	return buildFunctionLabel(document, region, {
+	return buildFoldedRegionHint(document, region, {
 		...options,
 		returnTypeOverride: providerReturnType
 	});
@@ -413,6 +487,32 @@ function isFunctionLikeRegion(region: RegionNode): boolean {
 		|| (region.semanticKind !== undefined && functionLikeKinds.has(region.semanticKind));
 }
 
+function isHintableRegion(region: RegionNode): boolean {
+	return isFunctionLikeRegion(region)
+		|| isBlockPlaceholderRegion(region)
+		|| containerHintKinds.has(region.kind)
+		|| (
+			region.semanticKind !== undefined
+			&& containerHintKinds.has(region.semanticKind)
+		);
+}
+
+function isBlockPlaceholderRegion(region: RegionNode): boolean {
+	return blockPlaceholderKinds.has(region.kind)
+		|| (
+			region.semanticKind !== undefined
+			&& blockPlaceholderKinds.has(region.semanticKind)
+		);
+}
+
+function hasOpeningBrace(document: vscode.TextDocument, region: RegionNode): boolean {
+	if(region.selectionLine < 0 || region.selectionLine >= document.lineCount) {
+		return false;
+	}
+
+	return document.lineAt(region.selectionLine).text.includes("{");
+}
+
 /**
  * Returns or initialises the hint map for one document
  */
@@ -430,8 +530,46 @@ function getDocumentFunctionRegions(documentUri: string): Map<number, RegionNode
 	return createdRegions;
 }
 
+function createHintPlacementForKind(
+	line: vscode.TextLine,
+	lineNumber: number,
+	anchorName: string | undefined,
+	hint: FoldedRegionHint
+): HintPlacement {
+	if(hint.hiddenDelimiter !== undefined) {
+		return createDelimiterHintPlacement(line, lineNumber, hint.hiddenDelimiter);
+	}
+
+	return {
+		anchorRange: createHintAnchorRange(line, lineNumber, anchorName)
+	};
+}
+
+function createDelimiterHintPlacement(
+	line: vscode.TextLine,
+	lineNumber: number,
+	delimiter: string
+): HintPlacement {
+	const delimiterIndex = line.text.indexOf(delimiter);
+
+	if(delimiterIndex < 0) {
+		return {
+			anchorRange: line.range
+		};
+	}
+
+	const delimiterEndColumn = delimiterIndex + delimiter.length;
+	const anchorRange = new vscode.Range(lineNumber, delimiterIndex, lineNumber, delimiterIndex);
+	const hiddenRange = new vscode.Range(lineNumber, delimiterIndex, lineNumber, delimiterEndColumn);
+
+	return {
+		anchorRange,
+		hiddenRange
+	};
+}
+
 /**
- * Chooses the anchor point where the hint text should be appended
+ * Chooses the anchor point where function hint text should be appended
  */
 function createHintAnchorRange(
 	line: vscode.TextLine,

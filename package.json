@@ -222,13 +222,20 @@
           "type": "boolean",
           "default": true,
           "scope": "resource",
-          "description": "Show inline parameter and return signature hints on folded function and method headers."
+          "description": "Show inline hints on folded function and method regions, plus language-supported object and multiline constructor-call regions."
         },
         "semanticFold.inlineHints.collapseFunctionSignatures": {
           "type": "boolean",
           "default": true,
           "scope": "resource",
-          "description": "Render folded function and method signatures as inline hints in collapsed form."
+          "description": "Render folded function and method signatures as inline hints in collapsed form. Language-supported object and constructor-call previews are appended without replacing source text."
+        },
+        "semanticFold.inlineHints.maxFoldedPreviewLineLength": {
+          "type": "number",
+          "default": 140,
+          "minimum": 40,
+          "scope": "resource",
+          "description": "Maximum visible line length before folded object and constructor-call previews elide trailing entries."
         },
         "semanticFold.presets.imports": {
           "type": "object",
@@ -332,13 +339,15 @@
     "lint": "eslint src",
     "test": "vscode-test"
   },
+  "dependencies": {
+    "typescript": "^5.9.3"
+  },
   "devDependencies": {
     "@types/vscode": "^1.116.0",
     "@types/mocha": "^10.0.10",
     "@types/node": "22.x",
     "typescript-eslint": "^8.56.1",
     "eslint": "^9.39.3",
-    "typescript": "^5.9.3",
     "@vscode/test-cli": "^0.0.12",
     "@vscode/test-electron": "^2.5.2"
   }
