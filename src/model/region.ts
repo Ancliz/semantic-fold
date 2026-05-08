@@ -63,14 +63,34 @@ export interface RegionNode {
 	rangeStartLine: number;
 
 	/**
+	 * Optional zero-based start column for the full provider range
+	 */
+	rangeStartCharacter?: number;
+
+	/**
 	 * Inclusive zero-based end line for the full provider range
 	 */
 	rangeEndLine: number;
 
 	/**
+	 * Optional zero-based end column for the full provider range
+	 */
+	rangeEndCharacter?: number;
+
+	/**
 	 * Zero-based line passed to VS Code when executing fold commands
 	 */
 	selectionLine: number;
+
+	/**
+	 * Optional zero-based start column for the provider's selected symbol name
+	 */
+	selectionStartCharacter?: number;
+
+	/**
+	 * Optional zero-based end column for the provider's selected symbol name
+	 */
+	selectionEndCharacter?: number;
 
 	/**
 	 * Nesting depth from document-symbol hierarchy or fallback top-level placement

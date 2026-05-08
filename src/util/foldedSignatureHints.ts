@@ -1,6 +1,13 @@
 import * as vscode from "vscode";
 import { buildFoldedPreview, type FoldedPreviewKind } from "../engine/foldedPreview";
 import { foldedPreviewProviders } from "../engine/foldedPreviewProviderRegistry";
+import {
+	inferFoldedSignatureReturnType,
+	prefersLocalFoldedSignatureReturnType,
+	refineFoldedSignatureAnchor,
+	suppressesTypedReturnPrefix
+} from "../engine/foldedSignatureRefinement";
+import { foldedSignatureRefiners } from "../engine/foldedSignatureRefinerRegistry";
 import type { FoldExecutionResult } from "../engine/foldExecutor";
 import type { RegionNode } from "../model/region";
 import { getFoldedPreviewLineLimit, isCollapsedHintEnabled, isSignatureHintsEnabled } from "./config";
@@ -169,7 +176,7 @@ async function refreshFunctionHintsAsync(
 			continue;
 		}
 
-		const placement = createHintPlacementForKind(line, lineNumber, region.name, hint);
+		const placement = createHintPlacementForKind(editor.document, region, line, hint);
 		const anchorRange = placement.anchorRange;
 
 		if(hint.replaceSignature) {
@@ -295,11 +302,18 @@ export function buildFunctionLabel(
 	const parameterDetails = collapseSignature
 		? undefined
 		: extractParameterDetails(document, region);
-	const providerLabel = buildFunctionLabelFromProviderDetail(region.detail, {
-		collapseSignature,
-		returnTypeOverride: options.returnTypeOverride,
-		spansMultipleLines: parameterDetails?.spansMultipleLines ?? false
-	});
+	const preferLocalReturnType = prefersLocalFoldedSignatureReturnType({
+		document,
+		region,
+		providerReturnType: options.returnTypeOverride
+	}, foldedSignatureRefiners);
+	const providerLabel = preferLocalReturnType
+		? undefined
+		: buildFunctionLabelFromProviderDetail(region.detail, {
+			collapseSignature,
+			returnTypeOverride: options.returnTypeOverride,
+			spansMultipleLines: parameterDetails?.spansMultipleLines ?? false
+		});
 
 	if(providerLabel !== undefined) {
 		return providerLabel;
@@ -321,7 +335,12 @@ export function buildFunctionLabel(
 	}
 
 	const parameterNames = extractParameterNames(fallbackParameterDetails.parameterSource);
-	const returnType = options.returnTypeOverride ?? extractReturnType(document, region);
+	const returnType = resolveFunctionLabelReturnType(
+		document,
+		region,
+		options.returnTypeOverride,
+		preferLocalReturnType
+	);
 
 	if(returnType === undefined) {
 		return undefined;
@@ -331,6 +350,19 @@ export function buildFunctionLabel(
 		collapseSignature,
 		spansMultipleLines: fallbackParameterDetails.spansMultipleLines
 	});
+}
+
+function resolveFunctionLabelReturnType(
+	document: vscode.TextDocument,
+	region: RegionNode,
+	returnTypeOverride: string | undefined,
+	preferLocalReturnType: boolean
+): string | undefined {
+	if(preferLocalReturnType) {
+		return extractReturnType(document, region) ?? returnTypeOverride;
+	}
+
+	return returnTypeOverride ?? extractReturnType(document, region);
 }
 
 export function buildFoldedRegionHint(
@@ -607,17 +639,17 @@ function getDocumentFunctionRegions(documentUri: string): Map<number, RegionNode
 }
 
 function createHintPlacementForKind(
+	document: vscode.TextDocument,
+	region: RegionNode,
 	line: vscode.TextLine,
-	lineNumber: number,
-	anchorName: string | undefined,
 	hint: FoldedRegionHint
 ): HintPlacement {
 	if(hint.hiddenDelimiter !== undefined) {
-		return createDelimiterHintPlacement(line, lineNumber, hint.hiddenDelimiter);
+		return createDelimiterHintPlacement(line, region.selectionLine, hint.hiddenDelimiter);
 	}
 
 	return {
-		anchorRange: createHintAnchorRange(line, lineNumber, anchorName)
+		anchorRange: createHintAnchorRange(document, line, region)
 	};
 }
 
@@ -647,30 +679,101 @@ function createDelimiterHintPlacement(
 /**
  * Chooses the anchor point where function hint text should be appended
  */
-function createHintAnchorRange(
+export function createHintAnchorRange(
+	document: vscode.TextDocument,
 	line: vscode.TextLine,
-	lineNumber: number,
-	anchorName?: string
+	region: RegionNode
 ): vscode.Range {
+	const providerAnchorColumn = findProviderSelectionAnchorColumn(line, region);
+	const refinedAnchorColumn = refineFoldedSignatureAnchor({
+		document,
+		region,
+		line,
+		providerAnchorColumn
+	}, foldedSignatureRefiners);
+
+	if(refinedAnchorColumn !== undefined) {
+		return new vscode.Range(
+			line.lineNumber,
+			refinedAnchorColumn,
+			line.lineNumber,
+			refinedAnchorColumn
+		);
+	}
+
+	if(providerAnchorColumn !== undefined) {
+		return new vscode.Range(
+			line.lineNumber,
+			providerAnchorColumn,
+			line.lineNumber,
+			providerAnchorColumn
+		);
+	}
+
 	const callableAnchorColumn = findCallableNameAnchorColumn(line.text);
 
 	if(callableAnchorColumn !== undefined) {
-		return new vscode.Range(lineNumber, callableAnchorColumn, lineNumber, callableAnchorColumn);
+		return new vscode.Range(
+			line.lineNumber,
+			callableAnchorColumn,
+			line.lineNumber,
+			callableAnchorColumn
+		);
 	}
 
-	if(anchorName === undefined || anchorName.length === 0) {
+	const namedAnchorColumn = findRegionNameAnchorColumn(line.text, region.name);
+
+	if(namedAnchorColumn === undefined) {
 		return line.range;
 	}
 
-	const anchorIndex = line.text.indexOf(anchorName);
+	return new vscode.Range(
+		line.lineNumber,
+		namedAnchorColumn,
+		line.lineNumber,
+		namedAnchorColumn
+	);
+}
+
+function findProviderSelectionAnchorColumn(
+	line: vscode.TextLine,
+	region: RegionNode
+): number | undefined {
+	if(region.selectionLine !== line.lineNumber) {
+		return undefined;
+	}
+
+	const startColumn = region.selectionStartCharacter;
+	const endColumn = region.selectionEndCharacter;
+
+	if(startColumn === undefined || endColumn === undefined) {
+		return undefined;
+	}
+
+	if(startColumn < 0 || endColumn <= startColumn || endColumn > line.text.length) {
+		return undefined;
+	}
+
+	const selectedText = line.text.slice(startColumn, endColumn).trim();
+
+	return selectedText.length === 0 ? undefined : endColumn;
+}
+
+function findRegionNameAnchorColumn(
+	lineText: string,
+	anchorName: string | undefined
+): number | undefined {
+	if(anchorName === undefined || anchorName.length === 0) {
+		return undefined;
+	}
+
+	const anchorIndex = lineText.indexOf(anchorName);
 
 	if(anchorIndex < 0) {
-		return line.range;
+		return undefined;
 	}
 
-	const anchorColumn = anchorIndex + anchorName.length;
-
-	return new vscode.Range(lineNumber, anchorColumn, lineNumber, anchorColumn);
+	return anchorIndex + anchorName.length;
 }
 
 /**
@@ -711,7 +814,7 @@ function findCallableNameAnchorColumn(lineText: string): number | undefined {
 /**
  * Computes the hidden span for collapsed signature replacement
  */
-function createSignatureReplacementRange(
+export function createSignatureReplacementRange(
 	line: vscode.TextLine,
 	anchorRange: vscode.Range
 ): vscode.Range | undefined {
@@ -729,6 +832,10 @@ function createSignatureReplacementRange(
  * Finds where the replaceable signature section starts on a declaration line
  */
 function findSignatureStartColumn(lineText: string, fromColumn: number): number {
+	if(/=\s*$/u.test(lineText.slice(0, fromColumn))) {
+		return fromColumn;
+	}
+
 	for(let index = Math.max(0, fromColumn); index < lineText.length; index++) {
 		const character = lineText[index];
 
@@ -803,7 +910,7 @@ function extractParameterDetails(
 }
 
 /**
- * Resolves return type from typed syntax, JSDoc, or body inference fallbacks
+ * Resolves return type from hover providers before local fallbacks
  */
 async function resolveProviderReturnType(
 	document: vscode.TextDocument,
@@ -968,7 +1075,7 @@ function parseSignatureLine(
 	}
 
 	const parameterSource = cleanedLine.slice(openIndex + 1, closeIndex);
-	const typedReturnType = extractTypedReturnType(cleanedLine, openIndex, closeIndex);
+	const typedReturnType = extractTypedReturnType(undefined, cleanedLine, openIndex, closeIndex);
 
 	if(typedReturnType !== undefined) {
 		return {
@@ -1008,8 +1115,11 @@ function stripHoverMetadataPrefix(signatureLine: string): string {
 
 function createTypeQueryPosition(document: vscode.TextDocument, region: RegionNode): vscode.Position {
 	const line = document.lineAt(region.selectionLine);
-	const anchorRange = createHintAnchorRange(line, region.selectionLine, region.name);
-	const queryColumn = Math.max(0, anchorRange.start.character - 1);
+	const anchorColumn = findProviderSelectionAnchorColumn(line, region)
+		?? findRegionNameAnchorColumn(line.text, region.name)
+		?? findCallableNameAnchorColumn(line.text)
+		?? line.range.end.character;
+	const queryColumn = Math.max(0, anchorColumn - 1);
 
 	return new vscode.Position(region.selectionLine, queryColumn);
 }
@@ -1030,50 +1140,24 @@ function getProviderReturnTypeCache(documentUri: string): Map<string, string | n
 
 function extractReturnType(document: vscode.TextDocument, region: RegionNode): string | undefined {
 	const headerText = buildHeaderText(document, region);
-	const openIndex = headerText.indexOf("(");
+	const bounds = findHeaderParameterBounds(headerText);
 
-	if(openIndex < 0) {
+	if(bounds === undefined) {
 		debugHintFallback(
 			document,
 			region,
 			"typed signature",
-			"parameter parse missed a list, using return-type fallbacks"
+			"parameter parse failed, using return-type fallbacks"
 		);
 		return extractFallbackReturnType(document, region);
 	}
 
-	let depth = 0;
-	let closeIndex = -1;
-
-	for(let index = openIndex; index < headerText.length; index++) {
-		const current = headerText[index];
-
-		if(current === "(") {
-			depth++;
-			continue;
-		}
-
-		if(current === ")") {
-			depth--;
-
-			if(depth === 0) {
-				closeIndex = index;
-				break;
-			}
-		}
-	}
-
-	if(closeIndex < 0) {
-		debugHintFallback(
-			document,
-			region,
-			"typed signature",
-			"parameter parse failed before close, using return-type fallbacks"
-		);
-		return extractFallbackReturnType(document, region);
-	}
-
-	const typedReturnType = extractTypedReturnType(headerText, openIndex, closeIndex);
+	const typedReturnType = extractTypedReturnType(
+		document,
+		headerText,
+		bounds.openIndex,
+		bounds.closeIndex
+	);
 
 	if(typedReturnType !== undefined) {
 		return typedReturnType;
@@ -1106,6 +1190,40 @@ function buildHeaderText(document: vscode.TextDocument, region: RegionNode): str
 	}
 
 	return lines.join(" ");
+}
+
+function findHeaderParameterBounds(
+	headerText: string
+): { openIndex: number; closeIndex: number } | undefined {
+	const openIndex = headerText.indexOf("(");
+
+	if(openIndex < 0) {
+		return undefined;
+	}
+
+	let depth = 0;
+
+	for(let index = openIndex; index < headerText.length; index++) {
+		const current = headerText[index];
+
+		if(current === "(") {
+			depth++;
+			continue;
+		}
+
+		if(current === ")") {
+			depth--;
+
+			if(depth === 0) {
+				return {
+					openIndex,
+					closeIndex: index
+				};
+			}
+		}
+	}
+
+	return undefined;
 }
 
 /**
@@ -1328,6 +1446,7 @@ function stripLineComment(lineText: string): string {
  * Extracts explicit return types from TypeScript and Java-like signatures
  */
 function extractTypedReturnType(
+	document: vscode.TextDocument | undefined,
 	headerText: string,
 	openIndex: number,
 	closeIndex: number
@@ -1340,6 +1459,17 @@ function extractTypedReturnType(
 	}
 
 	const beforeParameters = headerText.slice(0, openIndex).trim();
+
+	if(
+		document !== undefined
+		&& suppressesTypedReturnPrefix({
+			document,
+			headerPrefix: beforeParameters
+		}, foldedSignatureRefiners)
+	) {
+		return undefined;
+	}
+
 	const methodName = extractTrailingIdentifier(beforeParameters);
 
 	if(methodName === undefined || methodName.length === 0) {
@@ -1396,16 +1526,16 @@ function extractFallbackReturnType(document: vscode.TextDocument, region: Region
 		document,
 		region,
 		"return type",
-		"entering JSDoc, body inference, and language default fallbacks"
+		"entering language return inference and default fallbacks"
 	);
 
-	const jsDocReturnType = extractJsDocReturnType(document, region);
-
-	if(jsDocReturnType !== undefined) {
-		return jsDocReturnType;
-	}
-
-	const inferredReturnType = inferReturnTypeFromBody(document, region);
+	const inferredReturnType = inferFoldedSignatureReturnType({
+		document,
+		region,
+		parseTypedReturnType(candidateRegion) {
+			return extractTypedReturnTypeFromRegionHeader(document, candidateRegion);
+		}
+	}, foldedSignatureRefiners);
 
 	if(inferredReturnType !== undefined) {
 		return inferredReturnType;
@@ -1424,365 +1554,23 @@ function extractFallbackReturnType(document: vscode.TextDocument, region: Region
 	return undefined;
 }
 
+function extractTypedReturnTypeFromRegionHeader(
+	document: vscode.TextDocument,
+	region: RegionNode
+): string | undefined {
+	const headerText = buildHeaderText(document, region);
+	const bounds = findHeaderParameterBounds(headerText);
+
+	return bounds === undefined
+		? undefined
+		: extractTypedReturnType(document, headerText, bounds.openIndex, bounds.closeIndex);
+}
+
 /**
  * Detects prefixes that contain only modifiers and no return type token
  */
 function isModifierOnlyPrefix(value: string): boolean {
 	return /^(?:public|private|protected|internal|static|abstract|final|native|synchronized|strictfp|default|async|readonly)$/.test(value);
-}
-
-/**
- * Extracts JSDoc return type annotations near the callable declaration
- */
-function extractJsDocReturnType(document: vscode.TextDocument, region: RegionNode): string | undefined {
-	let lineNumber = region.selectionLine - 1;
-	let foundCommentEnd = false;
-	const commentLines: string[] = [];
-
-	while(lineNumber >= 0 && region.selectionLine - lineNumber <= 24) {
-		const lineText = document.lineAt(lineNumber).text.trim();
-
-		if(lineText.length === 0) {
-			lineNumber--;
-			continue;
-		}
-
-		if(lineText.endsWith("*/")) {
-			foundCommentEnd = true;
-		}
-
-		if(!foundCommentEnd) {
-			break;
-		}
-
-		commentLines.unshift(lineText);
-
-		if(lineText.startsWith("/**") || lineText.startsWith("/*")) {
-			break;
-		}
-
-		lineNumber--;
-	}
-
-	if(commentLines.length === 0 || !commentLines[0].startsWith("/**")) {
-		return undefined;
-	}
-
-	const commentText = commentLines.join("\n");
-	const returnsMatch = commentText.match(/@returns?\s*\{([^}]+)\}/i);
-
-	if(returnsMatch === null) {
-		return undefined;
-	}
-
-	const returnType = returnsMatch[1].trim();
-
-	return returnType.length === 0 ? undefined : returnType;
-}
-
-/**
- * Infers return type from executable return statements in the callable body
- */
-function inferReturnTypeFromBody(document: vscode.TextDocument, region: RegionNode): string | undefined {
-	const startLine = Math.min(document.lineCount - 1, region.selectionLine + 1);
-	const endLine = Math.min(document.lineCount - 1, region.rangeEndLine);
-	const inferredTypes = new Set<string>();
-
-	for(let line = startLine; line <= endLine; line++) {
-		const text = stripLineComment(document.lineAt(line).text);
-		let searchIndex = 0;
-
-		while(searchIndex < text.length) {
-			const returnIndex = text.indexOf("return", searchIndex);
-
-			if(returnIndex < 0) {
-				break;
-			}
-
-			const prefix = returnIndex === 0 ? "" : text[returnIndex - 1];
-			const suffixIndex = returnIndex + "return".length;
-			const suffix = suffixIndex >= text.length ? "" : text[suffixIndex];
-
-			if(/\w/.test(prefix) || /\w/.test(suffix)) {
-				searchIndex = returnIndex + "return".length;
-				continue;
-			}
-
-			const expression = text.slice(suffixIndex).trim();
-
-			if(expression.length === 0 || expression.startsWith(";")) {
-				searchIndex = returnIndex + "return".length;
-				continue;
-			}
-
-			const expressionWithoutSemicolon = expression.replace(/;+\s*$/, "").trim();
-			const inferredType = inferExpressionType(document, region, expressionWithoutSemicolon);
-
-			if(inferredType !== undefined) {
-				inferredTypes.add(inferredType);
-			}
-
-			searchIndex = returnIndex + "return".length;
-		}
-	}
-
-	if(inferredTypes.size === 0) {
-		return undefined;
-	}
-
-	if(inferredTypes.size === 1) {
-		return [...inferredTypes][0];
-	}
-
-	return "mixed";
-}
-
-/**
- * Performs lightweight return-expression type inference
- */
-function inferExpressionType(
-	document: vscode.TextDocument,
-	region: RegionNode,
-	expression: string
-): string | undefined {
-	const value = expression.trim();
-
-	if(value === "this") {
-		return inferThisReturnType(document, region);
-	}
-
-	if(value === "true" || value === "false") {
-		return "boolean";
-	}
-
-	if(/^[-+]?\d+(?:\.\d+)?(?:[eE][-+]?\d+)?$/.test(value)) {
-		return "number";
-	}
-
-	if(
-		(value.startsWith("\"") && value.endsWith("\""))
-		|| (value.startsWith("'") && value.endsWith("'"))
-		|| (value.startsWith("`") && value.endsWith("`"))
-	) {
-		return "string";
-	}
-
-	if(value.startsWith("[")) {
-		return "array";
-	}
-
-	if(value.startsWith("{")) {
-		return "object";
-	}
-
-	if(value === "null") {
-		return "null";
-	}
-
-	if(value === "undefined") {
-		return "undefined";
-	}
-
-	const constructorMatch = value.match(/^new\s+([A-Za-z_$][\w$]*)\b/);
-
-	if(constructorMatch !== null) {
-		return constructorMatch[1];
-	}
-
-	const callReturnType = inferReturnTypeFromCallExpression(document, region, value);
-
-	if(callReturnType !== undefined) {
-		return callReturnType;
-	}
-
-	if(isLikelyNumericExpression(value)) {
-		return "number";
-	}
-
-	return undefined;
-}
-
-function inferThisReturnType(document: vscode.TextDocument, region: RegionNode): string | undefined {
-	let ancestor = region.parent;
-
-	while(ancestor !== undefined) {
-		if(
-			(ancestor.kind === "class" || ancestor.semanticKind === "class")
-			&& ancestor.name !== undefined
-			&& ancestor.name.length > 0
-		) {
-			return ancestor.name;
-		}
-
-		ancestor = ancestor.parent;
-	}
-
-	const classMatchPattern = /^(?:export\s+)?class\s+([A-Za-z_$][\w$]*)\b/;
-
-	for(let lineNumber = region.selectionLine; lineNumber >= 0; lineNumber--) {
-		const trimmedLine = stripLineComment(document.lineAt(lineNumber).text).trim();
-		const classMatch = trimmedLine.match(classMatchPattern);
-
-		if(classMatch !== null) {
-			return classMatch[1];
-		}
-	}
-
-	return undefined;
-}
-
-/**
- * Infers return type by mapping a call expression to a nearby callable declaration
- */
-function inferReturnTypeFromCallExpression(
-	document: vscode.TextDocument,
-	region: RegionNode,
-	expression: string
-): string | undefined {
-	const callMatch = expression.match(/^(?:this\.)?([A-Za-z_$][\w$]*)\s*\(/);
-
-	if(callMatch === null) {
-		return undefined;
-	}
-
-	const declarationLine = findCallableDeclarationLine(document, callMatch[1], region.selectionLine);
-
-	if(declarationLine === undefined) {
-		return undefined;
-	}
-
-	if(declarationLine === region.selectionLine) {
-		return undefined;
-	}
-
-	const declarationRegion: RegionNode = {
-		...region,
-		selectionLine: declarationLine
-	};
-	const headerText = buildHeaderText(document, declarationRegion);
-	const openIndex = headerText.indexOf("(");
-
-	if(openIndex < 0) {
-		debugHintFallback(
-			document,
-			declarationRegion,
-			"call return declaration",
-			"matched declaration parameter parse missed a list, trying JSDoc"
-		);
-		return extractJsDocReturnType(document, declarationRegion);
-	}
-
-	let depth = 0;
-	let closeIndex = -1;
-
-	for(let index = openIndex; index < headerText.length; index++) {
-		const current = headerText[index];
-
-		if(current === "(") {
-			depth++;
-			continue;
-		}
-
-		if(current === ")") {
-			depth--;
-
-			if(depth === 0) {
-				closeIndex = index;
-				break;
-			}
-		}
-	}
-
-	if(closeIndex < 0) {
-		debugHintFallback(
-			document,
-			declarationRegion,
-			"call return declaration",
-			"matched declaration parameter parse failed before close, trying JSDoc"
-		);
-		return extractJsDocReturnType(document, declarationRegion);
-	}
-
-	const typedReturnType = extractTypedReturnType(headerText, openIndex, closeIndex);
-
-	if(typedReturnType !== undefined) {
-		return typedReturnType;
-	}
-
-	debugHintFallback(
-		document,
-		declarationRegion,
-		"call return declaration",
-		"matched declaration had no explicit return type, trying JSDoc"
-	);
-
-	return extractJsDocReturnType(document, declarationRegion);
-}
-
-/**
- * Finds the nearest callable declaration line matching a call target name
- */
-function findCallableDeclarationLine(
-	document: vscode.TextDocument,
-	callableName: string,
-	fallbackLine: number
-): number | undefined {
-	const escapedName = callableName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-	const declarationPatterns = [
-		new RegExp(`^(?:export\\s+)?(?:async\\s+)?function\\s+${escapedName}\\s*\\(`),
-		new RegExp(`^(?:(?:public|private|protected|internal|static|abstract|final|override|readonly|async)\\s+)*${escapedName}\\s*\\(`),
-		new RegExp(`^(?:(?:public|private|protected|internal|static|abstract|final|override|readonly|async)\\s+)*(?:[A-Za-z_$][\\w$<>,\\[\\]\\s]+\\s+)${escapedName}\\s*\\(`)
-	];
-	const matches: number[] = [];
-
-	for(let lineNumber = 0; lineNumber < document.lineCount; lineNumber++) {
-		const trimmedLine = stripLineComment(document.lineAt(lineNumber).text).trim();
-
-		if(trimmedLine.length === 0) {
-			continue;
-		}
-
-		if(declarationPatterns.some((pattern) => pattern.test(trimmedLine))) {
-			matches.push(lineNumber);
-		}
-	}
-
-	if(matches.length === 0) {
-		return undefined;
-	}
-
-	let nearestLine = matches[0];
-	let nearestDistance = Math.abs(nearestLine - fallbackLine);
-
-	for(const lineNumber of matches) {
-		const distance = Math.abs(lineNumber - fallbackLine);
-
-		if(distance < nearestDistance) {
-			nearestLine = lineNumber;
-			nearestDistance = distance;
-		}
-	}
-
-	return nearestLine;
-}
-
-/**
- * Heuristically detects numeric arithmetic expressions
- */
-function isLikelyNumericExpression(expression: string): boolean {
-	if(!/[+\-*/%]/.test(expression)) {
-		return false;
-	}
-
-	if(/["'`]/.test(expression)) {
-		return false;
-	}
-
-	if(/^[A-Za-z_$][\w$]*\s*\(/.test(expression)) {
-		return false;
-	}
-
-	return true;
 }
 
 function debugHintFallback(

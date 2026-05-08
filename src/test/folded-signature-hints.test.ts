@@ -1,6 +1,11 @@
 import * as assert from "assert";
 import * as vscode from "vscode";
-import { buildFoldedRegionHint, buildFunctionLabel } from "../util/foldedSignatureHints";
+import {
+	buildFoldedRegionHint,
+	buildFunctionLabel,
+	createHintAnchorRange,
+	createSignatureReplacementRange
+} from "../util/foldedSignatureHints";
 import type { RegionNode } from "../model/region";
 
 suite("Folded Signature Hints", () => {
@@ -253,6 +258,93 @@ suite("Folded Signature Hints", () => {
 				collapseSignature: true
 			}),
 			"(other) : number"
+		);
+	});
+
+	test("infers function expression assignment return types from the body", async () => {
+		const document = await openDocument([
+			"const functionExpression = function makeGreeting(prefix, value) {",
+			"\treturn `${prefix}: ${value}`",
+			"}"
+		], "javascript");
+		const region = createRegion("function", 0, 2, "functionExpression");
+
+		assert.strictEqual(
+			buildFunctionLabel(document, region, {
+				collapseSignature: true,
+				returnTypeOverride: "const functionExpression = function"
+			}),
+			"(prefix, value) : string"
+		);
+	});
+
+	test("prefers arrow function body inference over weak provider types", async () => {
+		const document = await openDocument([
+			"const arrowFunction = (a, b) => {",
+			"\treturn a + b",
+			"}"
+		], "javascript");
+		const region = createRegion("function", 0, 2, "arrowFunction");
+
+		assert.strictEqual(
+			buildFunctionLabel(document, region, {
+				collapseSignature: true,
+				returnTypeOverride: "any"
+			}),
+			"(a, b) : number"
+		);
+	});
+
+	test("places collapsed assignment callable hints after the equals sign", async () => {
+		const document = await openDocument([
+			"const arrowFunction = (a, b) => {",
+			"\treturn a + b",
+			"}"
+		], "javascript");
+		const line = document.lineAt(0);
+		const region = createRegion("function", 0, 2, "arrowFunction");
+
+		region.selectionStartCharacter = line.text.indexOf("arrowFunction");
+		region.selectionEndCharacter = region.selectionStartCharacter + "arrowFunction".length;
+
+		const anchorRange = createHintAnchorRange(document, line, region);
+		const replacementRange = createSignatureReplacementRange(line, anchorRange);
+		const expectedColumn = line.text.indexOf("=") + 2;
+
+		assert.strictEqual(anchorRange.start.character, expectedColumn);
+		assert.strictEqual(replacementRange?.start.character, expectedColumn);
+	});
+
+	test("uses provider selection as the generic hint anchor", async () => {
+		const document = await openDocument([
+			"public boolean onCommand(CommandSender sender) {",
+			"\treturn true;",
+			"}"
+		], "java");
+		const line = document.lineAt(0);
+		const region = createRegion("method", 0, 2, "onCommand");
+
+		region.selectionStartCharacter = line.text.indexOf("onCommand");
+		region.selectionEndCharacter = region.selectionStartCharacter + "onCommand".length;
+
+		const anchorRange = createHintAnchorRange(document, line, region);
+
+		assert.strictEqual(anchorRange.start.character, region.selectionEndCharacter);
+	});
+
+	test("keeps assignment anchors language-specific", async () => {
+		const document = await openDocument([
+			"const arrowFunction = (a, b) => {",
+			"\treturn a + b",
+			"}"
+		], "plaintext");
+		const line = document.lineAt(0);
+		const region = createRegion("function", 0, 2, "arrowFunction");
+		const anchorRange = createHintAnchorRange(document, line, region);
+
+		assert.strictEqual(
+			anchorRange.start.character,
+			line.text.indexOf("arrowFunction") + "arrowFunction".length
 		);
 	});
 
