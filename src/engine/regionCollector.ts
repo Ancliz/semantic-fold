@@ -19,6 +19,21 @@ type FoldingRangeProviderResult = vscode.FoldingRange[] | null | undefined;
 type SemanticTokenProviderResult = vscode.SemanticTokens | null | undefined;
 type SemanticTokenLegendProviderResult = vscode.SemanticTokensLegend | null | undefined;
 
+interface SymbolCollection {
+	symbols: SymbolProviderResult;
+	hasSymbols: boolean;
+	cacheable: boolean;
+}
+
+export interface RegionCollectionOptions {
+	requireSymbols?: boolean;
+	symbolRetryDelaysMs?: readonly number[];
+	onMissingRequiredSymbols?: (document: vscode.TextDocument) => void;
+}
+
+const defaultSymbolProviderRetryDelaysMs = [100, 250, 500];
+const requiredSymbolProviderRetryDelaysMs = [100, 250, 500, 1000, 1500, 2500, 4000];
+
 /**
  * Injectable document-symbol provider executor for tests and command isolation
  */
@@ -47,7 +62,8 @@ export async function getRegions(
 	executeSymbolProvider: SymbolProviderExecutor = defaultSymbolProviderExecutor,
 	executeFoldingRangeProvider: FoldingRangeProviderExecutor = defaultFoldingRangeProviderExecutor,
 	executeSemanticTokenProvider: SemanticTokenProviderExecutor = defaultSemanticTokenProviderExecutor,
-	executeSemanticTokenLegendProvider: SemanticTokenLegendProviderExecutor = defaultSemanticTokenLegendProviderExecutor
+	executeSemanticTokenLegendProvider: SemanticTokenLegendProviderExecutor = defaultSemanticTokenLegendProviderExecutor,
+	options: RegionCollectionOptions = {}
 ): Promise<RegionNode[]> {
 	const uri = document.uri.toString();
 	const semanticRefinementEnabled = isSemanticRefinementEnabled(document.uri);
@@ -62,8 +78,8 @@ export async function getRegions(
 	}
 
 	// Structural and semantic data come from separate VS Code providers
-	const [symbols, foldingRanges, semanticTokens, semanticTokenLegend] = await Promise.all([
-		collectSymbols(document.uri, executeSymbolProvider),
+	const [symbolCollection, foldingRanges, semanticTokens, semanticTokenLegend] = await Promise.all([
+		collectSymbols(document.uri, executeSymbolProvider, options),
 		collectFoldingRanges(document, executeFoldingRangeProvider),
 		semanticRefinementEnabled
 			? collectSemanticTokens(document.uri, executeSemanticTokenProvider)
@@ -73,7 +89,16 @@ export async function getRegions(
 			: undefined
 	]);
 
-	const symbolNodes = normalizeSymbols(symbols);
+	if(options.requireSymbols && !symbolCollection.hasSymbols) {
+		console.debug(
+			`[semanticFold] Symbol-dependent command for ${uri} has no document symbols after retries, skipping folding-range fallback`
+		);
+		options.onMissingRequiredSymbols?.(document);
+
+		return [];
+	}
+
+	const symbolNodes = normalizeSymbols(symbolCollection.symbols);
 
 	realignSelectionLines(document, symbolNodes);
 
@@ -91,11 +116,17 @@ export async function getRegions(
 		console.debug(`[semanticFold] Semantic refinement disabled for ${uri}`);
 	}
 
-	setCachedRegions(uri, {
-		documentVersion: document.version,
-		semanticRefinementEnabled,
-		nodes
-	});
+	if(symbolCollection.cacheable) {
+		setCachedRegions(uri, {
+			documentVersion: document.version,
+			semanticRefinementEnabled,
+			nodes
+		});
+	} else {
+		console.debug(
+			`[semanticFold] Skipping region cache for ${uri} after document symbol fallback`
+		);
+	}
 
 	return nodes;
 }
@@ -173,16 +204,108 @@ function isDeclarationPrefix(lineText: string): boolean {
  */
 async function collectSymbols(
 	uri: vscode.Uri,
-	executeSymbolProvider: SymbolProviderExecutor
-): Promise<SymbolProviderResult> {
+	executeSymbolProvider: SymbolProviderExecutor,
+	options: RegionCollectionOptions
+): Promise<SymbolCollection> {
 	try {
-		return await executeSymbolProvider(uri);
+		const symbols = await executeSymbolProvider(uri);
+
+		if(hasProviderSymbols(symbols)) {
+			return {
+				symbols,
+				hasSymbols: true,
+				cacheable: true
+			};
+		}
+
+		return await retryMissingSymbols(uri, executeSymbolProvider, symbols, options);
 	} catch (error) {
 		console.debug(
-			`[semanticFold] Document symbol provider failed for ${uri.toString()}, falling back to folding ranges only: ${formatError(error)}`
+			`[semanticFold] Document symbol provider failed for ${uri.toString()}, ${formatMissingSymbolAction(options)}: ${formatError(error)}`
 		);
-		return undefined;
+		return {
+			symbols: undefined,
+			hasSymbols: false,
+			cacheable: false
+		};
 	}
+}
+
+async function retryMissingSymbols(
+	uri: vscode.Uri,
+	executeSymbolProvider: SymbolProviderExecutor,
+	initialSymbols: SymbolProviderResult,
+	options: RegionCollectionOptions
+): Promise<SymbolCollection> {
+	let symbols = initialSymbols;
+
+	for(const delayMs of getSymbolProviderRetryDelays(options)) {
+		await wait(delayMs);
+
+		try {
+			symbols = await executeSymbolProvider(uri);
+		} catch (error) {
+			console.debug(
+				`[semanticFold] Document symbol provider failed after empty result for ${uri.toString()}, ${formatMissingSymbolAction(options)}: ${formatError(error)}`
+			);
+
+			return {
+				symbols,
+				hasSymbols: false,
+				cacheable: false
+			};
+		}
+
+		if(hasProviderSymbols(symbols)) {
+			console.debug(
+				`[semanticFold] Document symbol provider produced symbols for ${uri.toString()} after startup retry`
+			);
+
+			return {
+				symbols,
+				hasSymbols: true,
+				cacheable: true
+			};
+		}
+	}
+
+	console.debug(
+		`[semanticFold] Document symbol provider returned no symbols for ${uri.toString()}, ${formatMissingSymbolAction(options)}`
+	);
+
+	return {
+		symbols,
+		hasSymbols: false,
+		cacheable: false
+	};
+}
+
+function formatMissingSymbolAction(options: RegionCollectionOptions): string {
+	return options.requireSymbols
+		? "skipping symbol-dependent command"
+		: "using uncached folding-range fallback";
+}
+
+function getSymbolProviderRetryDelays(options: RegionCollectionOptions): readonly number[] {
+	if(options.symbolRetryDelaysMs !== undefined) {
+		return options.symbolRetryDelaysMs;
+	}
+
+	if(options.requireSymbols) {
+		return requiredSymbolProviderRetryDelaysMs;
+	}
+
+	return defaultSymbolProviderRetryDelaysMs;
+}
+
+function hasProviderSymbols(symbols: SymbolProviderResult): boolean {
+	return Array.isArray(symbols) && symbols.length > 0;
+}
+
+function wait(delayMs: number): Promise<void> {
+	return new Promise((resolve) => {
+		setTimeout(resolve, delayMs);
+	});
 }
 
 /**

@@ -151,6 +151,10 @@ export async function toggleMethodsInClassesCommand(): Promise<void> {
 	await collapseCommand(methodsInClassesArgs);
 }
 
+export async function toggleFunctionsInClassesCommand(): Promise<void> {
+	await toggleMethodsInClassesCommand();
+}
+
 export async function toggleClassMembersCommand(): Promise<void> {
 	await collapseCommand(classMembersArgs);
 }

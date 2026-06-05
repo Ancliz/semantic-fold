@@ -17,7 +17,7 @@ const containerHintKinds = new Set<string>(["object", "variable", "property", "f
 const blockPlaceholderKinds = new Set<string>(["class"]);
 const maxHintLength = 80;
 const foldedFunctionRegionsByDocument = new Map<string, Map<number, RegionNode>>();
-const providerReturnTypeCacheByDocument = new Map<string, Map<string, string | null>>();
+const providerReturnTypeCacheByDocument = new Map<string, Map<string, string>>();
 const hintRefreshSequenceByDocument = new Map<string, number>();
 
 type FoldedHintKind = "signature" | "block" | FoldedPreviewKind;
@@ -486,6 +486,8 @@ function buildFunctionLabelFromParts(
 		return undefined;
 	}
 
+	returnType = normaliseReturnTypeForDisplay(returnType);
+
 	if(!options.collapseSignature && !options.spansMultipleLines) {
 		return undefined;
 	}
@@ -922,12 +924,14 @@ async function resolveProviderReturnType(
 	const cachedValue = documentCache.get(cacheKey);
 
 	if(cachedValue !== undefined) {
-		return cachedValue === null ? undefined : cachedValue;
+		return cachedValue;
 	}
 
 	const providerReturnType = await queryProviderReturnType(document, region);
 
-	documentCache.set(cacheKey, providerReturnType ?? null);
+	if(providerReturnType !== undefined) {
+		documentCache.set(cacheKey, providerReturnType);
+	}
 
 	return providerReturnType;
 }
@@ -1124,14 +1128,14 @@ function createTypeQueryPosition(document: vscode.TextDocument, region: RegionNo
 	return new vscode.Position(region.selectionLine, queryColumn);
 }
 
-function getProviderReturnTypeCache(documentUri: string): Map<string, string | null> {
+function getProviderReturnTypeCache(documentUri: string): Map<string, string> {
 	const existingCache = providerReturnTypeCacheByDocument.get(documentUri);
 
 	if(existingCache !== undefined) {
 		return existingCache;
 	}
 
-	const createdCache = new Map<string, string | null>();
+	const createdCache = new Map<string, string>();
 
 	providerReturnTypeCacheByDocument.set(documentUri, createdCache);
 
@@ -1481,6 +1485,7 @@ function extractTypedReturnType(
 	returnPrefix = stripLeadingAnnotations(returnPrefix);
 	returnPrefix = stripLeadingModifiers(returnPrefix);
 	returnPrefix = stripLeadingTypeParameterClause(returnPrefix);
+	returnPrefix = stripTrailingDeclaringQualifier(returnPrefix);
 
 	if(returnPrefix.length === 0) {
 		return undefined;
@@ -1497,6 +1502,17 @@ function extractTypedReturnType(
 	}
 
 	return returnPrefix;
+}
+
+function stripTrailingDeclaringQualifier(value: string): string {
+	return value
+		.replace(/\s+[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*\.$/, "")
+		.replace(/\s+[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)+$/, "")
+		.trim();
+}
+
+function normaliseReturnTypeForDisplay(returnType: string): string {
+	return stripTrailingDeclaringQualifier(returnType);
 }
 
 /**

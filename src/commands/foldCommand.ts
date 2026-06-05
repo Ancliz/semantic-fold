@@ -5,9 +5,10 @@ import { execCompositeFoldCommand, execFoldCommand } from "../engine/foldExecuto
 import { isClosingDelimiterLine } from "../engine/foldExecutor";
 import {
 	type CollapseArgs,
+	type CollapseFilter,
 	type CompositeCollapseArgs,
 	normaliseArgs,
-	normaliseCompositeArgs,
+	normaliseCompositeArgs
 } from "../model/filters";
 import type { RegionNode } from "../model/region";
 import { isIncludeClosingDelimiterEnabled } from "../util/config";
@@ -15,11 +16,22 @@ import { applyFunctionSignatureHints } from "../util/foldedSignatureHints";
 
 const lastManualFoldSelectionsByDocument = new Map<string, vscode.Selection[]>();
 const lastFoldExecutionByDocument = new Map<string, LastFoldExecution>();
+const foldCommandSequenceByDocument = new Map<string, number>();
+const missingSymbolNotificationTimeByDocument = new Map<string, number>();
+const foldingRangeOnlyKinds = new Set<string>(["import", "comment", "region"]);
+const missingSymbolNotificationCooldownMs = 5000;
+const missingSymbolNotificationMessage = "Semantic Fold is waiting for document symbols before folding this file. Try again once the language server has finished loading.";
 
 interface LastFoldExecution {
 	kind: "single" | "composite";
 	args: CollapseArgs | CompositeCollapseArgs;
 	lastResult?: FoldExecutionResult;
+}
+
+interface FoldCommandRequest {
+	documentUri: string;
+	documentVersion: number;
+	sequence: number;
 }
 
 /**
@@ -37,8 +49,26 @@ export async function runFoldCommand(args: unknown, defaultMode: CollapseArgs["m
 
 	const normalisedArgs = normaliseArgs(args, defaultMode);
 	const includeClosingDelimiter = isIncludeClosingDelimiterEnabled(editor.document.uri);
+	const request = beginFoldCommandRequest(editor.document.uri.toString(), editor.document.version);
+
 	console.debug(`[semanticFold] runFoldCommand includeClosingDelimiter=${String(includeClosingDelimiter)}`);
-	const regions = await getRegions(editor.document);
+	const regions = await getRegions(
+		editor.document,
+		undefined,
+		undefined,
+		undefined,
+		undefined,
+		{
+			requireSymbols: filterRequiresDocumentSymbols(normalisedArgs.filter),
+			onMissingRequiredSymbols: showMissingDocumentSymbolsNotification
+		}
+	);
+
+	if(!isFoldCommandRequestCurrent(request, editor.document.version)) {
+		console.debug(`[semanticFold] Fold command for ${request.documentUri} was superseded while waiting for providers`);
+		return;
+	}
+
 	const executionResult = await execFoldCommand(
 		normalisedArgs,
 		regions,
@@ -74,8 +104,25 @@ export async function runCompositeFoldCommand(
 
 	const normalisedArgs = normaliseCompositeArgs(args, defaultMode);
 	const includeClosingDelimiter = isIncludeClosingDelimiterEnabled(editor.document.uri);
+	const request = beginFoldCommandRequest(editor.document.uri.toString(), editor.document.version);
+
 	console.debug(`[semanticFold] runCompositeFoldCommand includeClosingDelimiter=${String(includeClosingDelimiter)}`);
-	const regions = await getRegions(editor.document);
+	const regions = await getRegions(
+		editor.document,
+		undefined,
+		undefined,
+		undefined,
+		undefined,
+		{
+			requireSymbols: compositeRequiresDocumentSymbols(normalisedArgs.filters),
+			onMissingRequiredSymbols: showMissingDocumentSymbolsNotification
+		}
+	);
+
+	if(!isFoldCommandRequestCurrent(request, editor.document.version)) {
+		console.debug(`[semanticFold] Composite fold command for ${request.documentUri} was superseded while waiting for providers`);
+		return;
+	}
 
 	const executionResult = await execCompositeFoldCommand(
 		normalisedArgs,
@@ -135,10 +182,37 @@ export async function reapplyLastFoldExecutionForVisibleEditors(
 export function clearLastFoldExecution(documentUri?: string): void {
 	if(documentUri !== undefined) {
 		lastFoldExecutionByDocument.delete(documentUri);
+		foldCommandSequenceByDocument.delete(documentUri);
+		missingSymbolNotificationTimeByDocument.delete(documentUri);
 		return;
 	}
 
 	lastFoldExecutionByDocument.clear();
+	foldCommandSequenceByDocument.clear();
+	missingSymbolNotificationTimeByDocument.clear();
+}
+
+export function beginFoldCommandRequest(
+	documentUri: string,
+	documentVersion: number
+): FoldCommandRequest {
+	const sequence = (foldCommandSequenceByDocument.get(documentUri) ?? 0) + 1;
+
+	foldCommandSequenceByDocument.set(documentUri, sequence);
+
+	return {
+		documentUri,
+		documentVersion,
+		sequence
+	};
+}
+
+export function isFoldCommandRequestCurrent(
+	request: FoldCommandRequest,
+	currentDocumentVersion: number
+): boolean {
+	return foldCommandSequenceByDocument.get(request.documentUri) === request.sequence
+		&& request.documentVersion === currentDocumentVersion;
 }
 
 function rememberLastFoldExecution(documentUri: string, execution: LastFoldExecution): void {
@@ -183,12 +257,65 @@ async function reapplyLastFoldExecutionForEditor(
 	}
 }
 
+export function filterRequiresDocumentSymbols(filter: CollapseFilter | undefined): boolean {
+	if(filter === undefined) {
+		return true;
+	}
+
+	if(hasSymbolRelationshipFilter(filter) || hasSymbolDepthFilter(filter) || filter.nameRegex !== undefined) {
+		return true;
+	}
+
+	if(filter.kinds === undefined || filter.kinds.length === 0) {
+		return !hasFoldDepthFilter(filter);
+	}
+
+	return filter.kinds.some((kind) => {
+		return !foldingRangeOnlyKinds.has(kind);
+	});
+}
+
+function compositeRequiresDocumentSymbols(filters: CollapseFilter[] | undefined): boolean {
+	if(filters === undefined || filters.length === 0) {
+		return false;
+	}
+
+	return filters.some(filterRequiresDocumentSymbols);
+}
+
+function hasSymbolRelationshipFilter(filter: CollapseFilter): boolean {
+	return (filter.parentKinds !== undefined && filter.parentKinds.length > 0)
+		|| (filter.ancestorKinds !== undefined && filter.ancestorKinds.length > 0);
+}
+
+function hasSymbolDepthFilter(filter: CollapseFilter): boolean {
+	return filter.exactSymbolDepth !== undefined
+		|| filter.minSymbolDepth !== undefined
+		|| filter.maxSymbolDepth !== undefined;
+}
+
+function hasFoldDepthFilter(filter: CollapseFilter): boolean {
+	return filter.exactFoldDepth !== undefined
+		|| filter.minFoldDepth !== undefined
+		|| filter.maxFoldDepth !== undefined;
+}
+
 async function rerunLastFoldAsCollapse(
 	editor: vscode.TextEditor,
 	lastExecution: LastFoldExecution
 ): Promise<FoldExecutionResult | undefined> {
 	const includeClosingDelimiter = isIncludeClosingDelimiterEnabled(editor.document.uri);
-	const regions = await getRegions(editor.document);
+	const regions = await getRegions(
+		editor.document,
+		undefined,
+		undefined,
+		undefined,
+		undefined,
+		{
+			requireSymbols: lastExecutionRequiresDocumentSymbols(lastExecution),
+			onMissingRequiredSymbols: showMissingDocumentSymbolsNotification
+		}
+	);
 
 	if(lastExecution.kind === "single") {
 		const args: CollapseArgs = {
@@ -227,6 +354,31 @@ async function rerunLastFoldAsCollapse(
 			executeManualFoldingRanges: createManualFoldingRangeExecutor(editor, includeClosingDelimiter)
 		}
 	);
+}
+
+function lastExecutionRequiresDocumentSymbols(lastExecution: LastFoldExecution): boolean {
+	if(lastExecution.kind === "single") {
+		return filterRequiresDocumentSymbols((lastExecution.args as CollapseArgs).filter);
+	}
+
+	return compositeRequiresDocumentSymbols((lastExecution.args as CompositeCollapseArgs).filters);
+}
+
+function showMissingDocumentSymbolsNotification(document: vscode.TextDocument): void {
+	const documentUri = document.uri.toString();
+	const now = Date.now();
+	const lastNotificationTime = missingSymbolNotificationTimeByDocument.get(documentUri);
+
+	if(
+		lastNotificationTime !== undefined
+		&& now - lastNotificationTime < missingSymbolNotificationCooldownMs
+	) {
+		return;
+	}
+
+	missingSymbolNotificationTimeByDocument.set(documentUri, now);
+
+	void vscode.window.showWarningMessage(missingSymbolNotificationMessage);
 }
 
 function createLineTextReader(document: vscode.TextDocument): (lineNumber: number) => string | undefined {

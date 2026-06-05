@@ -16,6 +16,7 @@ import {
 	toggleDepth8Command,
 	toggleDepth9Command,
 	toggleFunctionsInVariablesCommand,
+	toggleFunctionsInClassesCommand,
 	toggleFunctionsCommand,
 	toggleImportsCommand,
 	toggleMethodsInClassesCommand,
@@ -62,28 +63,32 @@ export function activate(context: vscode.ExtensionContext): void {
 	context.subscriptions.push(
 		vscode.commands.registerCommand("semanticFold.collapse", collapseCommand),
 		vscode.commands.registerCommand("semanticFold.expand", expandCommand),
-			vscode.commands.registerCommand("semanticFold.toggle", toggleCommand),
-			vscode.commands.registerCommand("semanticFold.toggleAtCursor", toggleAtCursorCommand),
-			vscode.commands.registerCommand("semanticFold.toggleDepth1", toggleDepth1Command),
-			vscode.commands.registerCommand("semanticFold.toggleDepth2", toggleDepth2Command),
-			vscode.commands.registerCommand("semanticFold.toggleDepth3", toggleDepth3Command),
-			vscode.commands.registerCommand("semanticFold.toggleDepth4", toggleDepth4Command),
-			vscode.commands.registerCommand("semanticFold.toggleDepth5", toggleDepth5Command),
-			vscode.commands.registerCommand("semanticFold.toggleDepth6", toggleDepth6Command),
-			vscode.commands.registerCommand("semanticFold.toggleDepth7", toggleDepth7Command),
-			vscode.commands.registerCommand("semanticFold.toggleDepth8", toggleDepth8Command),
-			vscode.commands.registerCommand("semanticFold.toggleDepth9", toggleDepth9Command),
-			vscode.commands.registerCommand(
-				"semanticFold.toggleFunctions",
-				toggleFunctionsCommand
-			),
-			vscode.commands.registerCommand("semanticFold.toggleAll", toggleAllCommand),
-			vscode.commands.registerCommand("semanticFold.inspectRegions", async () => {
-				await inspectRegionsCommand(getDiagnosticsOutputChannel());
-			}),
+		vscode.commands.registerCommand("semanticFold.toggle", toggleCommand),
+		vscode.commands.registerCommand("semanticFold.toggleAtCursor", toggleAtCursorCommand),
+		vscode.commands.registerCommand("semanticFold.toggleDepth1", toggleDepth1Command),
+		vscode.commands.registerCommand("semanticFold.toggleDepth2", toggleDepth2Command),
+		vscode.commands.registerCommand("semanticFold.toggleDepth3", toggleDepth3Command),
+		vscode.commands.registerCommand("semanticFold.toggleDepth4", toggleDepth4Command),
+		vscode.commands.registerCommand("semanticFold.toggleDepth5", toggleDepth5Command),
+		vscode.commands.registerCommand("semanticFold.toggleDepth6", toggleDepth6Command),
+		vscode.commands.registerCommand("semanticFold.toggleDepth7", toggleDepth7Command),
+		vscode.commands.registerCommand("semanticFold.toggleDepth8", toggleDepth8Command),
+		vscode.commands.registerCommand("semanticFold.toggleDepth9", toggleDepth9Command),
+		vscode.commands.registerCommand(
+			"semanticFold.toggleFunctions",
+			toggleFunctionsCommand
+		),
+		vscode.commands.registerCommand("semanticFold.toggleAll", toggleAllCommand),
+		vscode.commands.registerCommand("semanticFold.inspectRegions", async () => {
+			await inspectRegionsCommand(getDiagnosticsOutputChannel());
+		}),
 		vscode.commands.registerCommand(
 			"semanticFold.toggleMethodsInClasses",
 			toggleMethodsInClassesCommand
+		),
+		vscode.commands.registerCommand(
+			"semanticFold.toggleFunctionsInClasses",
+			toggleFunctionsInClassesCommand
 		),
 		vscode.commands.registerCommand(
 			"semanticFold.toggleClassMembers",
@@ -121,25 +126,25 @@ export function activate(context: vscode.ExtensionContext): void {
 			"semanticFold.runComposite",
 			runCompositeCommand
 		),
-			// Text changes use structural checks to decide whether cache remains valid
-			vscode.workspace.onDidChangeTextDocument((event) => {
-				if(event.contentChanges.length === 0) {
-					return;
-				}
+		// Text changes use structural checks to decide whether cache remains valid
+		vscode.workspace.onDidChangeTextDocument((event) => {
+			if(event.contentChanges.length === 0) {
+				return;
+			}
 
-				handleDocumentChange(
-					event.document.uri.toString(),
-					event.document.version,
-					event.contentChanges.map((change) => {
-						return {
-							startLine: change.range.start.line,
-							endLine: change.range.end.line,
-							text: change.text
-						};
-					})
-				);
-				clearFunctionSignatureHints(event.document.uri.toString());
-			}),
+			handleDocumentChange(
+				event.document.uri.toString(),
+				event.document.version,
+				event.contentChanges.map((change) => {
+					return {
+						startLine: change.range.start.line,
+						endLine: change.range.end.line,
+						text: change.text
+					};
+				})
+			);
+			clearFunctionSignatureHints(event.document.uri.toString());
+		}),
 		vscode.workspace.onDidCloseTextDocument((document) => {
 			const documentUri = document.uri.toString();
 			invalidateCache(documentUri);

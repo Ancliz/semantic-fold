@@ -40,6 +40,7 @@ suite("Semantic Fold Foundation", () => {
 		assert.ok(commands.includes("semanticFold.toggleAll"));
 		assert.ok(commands.includes("semanticFold.inspectRegions"));
 		assert.ok(commands.includes("semanticFold.toggleMethodsInClasses"));
+		assert.ok(commands.includes("semanticFold.toggleFunctionsInClasses"));
 		assert.ok(commands.includes("semanticFold.toggleClassMembers"));
 		assert.ok(commands.includes("semanticFold.toggleTypes"));
 		assert.ok(commands.includes("semanticFold.toggleVariables"));
@@ -444,6 +445,185 @@ suite("Document Region Collection", () => {
 				"comment:foldingRange:3"
 			]
 		);
+	});
+
+	test("retries empty symbol results before folding-range fallback", async () => {
+		clearCache();
+
+		const document = await vscode.workspace.openTextDocument({
+			content: "import value from \"module\";\nimport other from \"other\";\n\nclass Example {\n\tmethod() {}\n}\n",
+			language: "typescript"
+		});
+		const expectedSymbol = createSymbol("Example", vscode.SymbolKind.Class, 3, 5);
+		let symbolProviderCallCount = 0;
+
+		const regions = await getRegions(document, async () => {
+			symbolProviderCallCount++;
+
+			return symbolProviderCallCount === 1
+				? undefined
+				: [expectedSymbol];
+		}, async () => {
+			return [new vscode.FoldingRange(0, 1, vscode.FoldingRangeKind.Imports)];
+		}, undefined, undefined, {
+			symbolRetryDelaysMs: [0, 0, 0]
+		});
+
+		assert.strictEqual(symbolProviderCallCount, 2);
+		assert.deepStrictEqual(
+			regions.map((region) => `${region.kind}:${region.source}:${region.selectionLine}`),
+			[
+				"import:foldingRange:0",
+				"class:documentSymbol:3"
+			]
+		);
+		assert.ok(getCache(document.uri.toString()));
+
+		clearCache();
+	});
+
+	test("does not cache folding fallback while symbols stay missing", async () => {
+		clearCache();
+
+		const document = await vscode.workspace.openTextDocument({
+			content: "import value from \"module\";\nimport other from \"other\";\n\nclass Example {\n\tmethod() {}\n}\n",
+			language: "typescript"
+		});
+		const expectedSymbol = createSymbol("Example", vscode.SymbolKind.Class, 3, 5);
+		let symbolsReady = false;
+		let symbolProviderCallCount = 0;
+		const symbolProvider = async () => {
+			symbolProviderCallCount++;
+
+			return symbolsReady
+				? [expectedSymbol]
+				: undefined;
+		};
+		const foldingRangeProvider = async () => {
+			return [new vscode.FoldingRange(0, 1, vscode.FoldingRangeKind.Imports)];
+		};
+
+		const regionsBeforeSymbols = await getRegions(
+			document,
+			symbolProvider,
+			foldingRangeProvider,
+			undefined,
+			undefined,
+			{
+				symbolRetryDelaysMs: [0, 0, 0]
+			}
+		);
+		const callCountAfterFallback = symbolProviderCallCount;
+
+		assert.deepStrictEqual(
+			regionsBeforeSymbols.map((region) => `${region.kind}:${region.source}:${region.selectionLine}`),
+			[
+				"import:foldingRange:0"
+			]
+		);
+		assert.strictEqual(getCache(document.uri.toString()), undefined);
+
+		symbolsReady = true;
+
+		const regionsAfterSymbols = await getRegions(
+			document,
+			symbolProvider,
+			foldingRangeProvider,
+			undefined,
+			undefined,
+			{
+				symbolRetryDelaysMs: [0, 0, 0]
+			}
+		);
+
+		assert.ok(symbolProviderCallCount > callCountAfterFallback);
+		assert.deepStrictEqual(
+			regionsAfterSymbols.map((region) => `${region.kind}:${region.source}:${region.selectionLine}`),
+			[
+				"import:foldingRange:0",
+				"class:documentSymbol:3"
+			]
+		);
+		assert.ok(getCache(document.uri.toString()));
+
+		clearCache();
+	});
+
+	test("skips folding fallback when symbols are required but unavailable", async () => {
+		clearCache();
+
+		const document = await vscode.workspace.openTextDocument({
+			content: "class Example {\n\tmethod() {}\n}\n",
+			language: "java"
+		});
+		let missingSymbolNotificationCount = 0;
+
+		const regions = await getRegions(
+			document,
+			async () => {
+				return undefined;
+			},
+			async () => {
+				return [new vscode.FoldingRange(0, 2)];
+			},
+			undefined,
+			undefined,
+			{
+				requireSymbols: true,
+				symbolRetryDelaysMs: [0, 0],
+				onMissingRequiredSymbols: () => {
+					missingSymbolNotificationCount++;
+				}
+			}
+		);
+
+		assert.deepStrictEqual(regions, []);
+		assert.strictEqual(getCache(document.uri.toString()), undefined);
+		assert.strictEqual(missingSymbolNotificationCount, 1);
+
+		clearCache();
+	});
+
+	test("waits through required symbol retries before skipping fallback", async () => {
+		clearCache();
+
+		const document = await vscode.workspace.openTextDocument({
+			content: "class Example {\n\tmethod() {}\n}\n",
+			language: "java"
+		});
+		const expectedSymbol = createSymbol("Example", vscode.SymbolKind.Class, 0, 2);
+		let symbolProviderCallCount = 0;
+
+		const regions = await getRegions(
+			document,
+			async () => {
+				symbolProviderCallCount++;
+
+				return symbolProviderCallCount < 4
+					? undefined
+					: [expectedSymbol];
+			},
+			async () => {
+				return [new vscode.FoldingRange(0, 2)];
+			},
+			undefined,
+			undefined,
+			{
+				requireSymbols: true,
+				symbolRetryDelaysMs: [0, 0, 0, 0]
+			}
+		);
+
+		assert.strictEqual(symbolProviderCallCount, 4);
+		assert.deepStrictEqual(
+			regions.map((region) => `${region.kind}:${region.source}:${region.selectionLine}`),
+			[
+				"class:documentSymbol:0"
+			]
+		);
+		assert.ok(getCache(document.uri.toString()));
+
+		clearCache();
 	});
 
 	test("accepts flat symbol information provider results", async () => {

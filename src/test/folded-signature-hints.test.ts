@@ -178,6 +178,41 @@ suite("Folded Signature Hints", () => {
 		);
 	});
 
+	test("strips java hover owner qualifiers from return types", async () => {
+		const document = await openDocument([
+			"public static Sample from(",
+			"\tMap<String, Runnable> handlers,",
+			"\tList<String> initialItems",
+			") {",
+			"\treturn new Sample(handlers);",
+			"}",
+			"",
+			"public CompletableFuture<List<Record>> buildAsync(",
+			"\tString sourceName,",
+			"\tboolean includeEmpty",
+			") {",
+			"\treturn CompletableFuture.completedFuture(List.of());",
+			"}"
+		], "java");
+		const fromRegion = createRegion("method", 0, 5, "from");
+		const buildAsyncRegion = createRegion("method", 7, 12, "buildAsync");
+
+		assert.strictEqual(
+			buildFunctionLabel(document, fromRegion, {
+				collapseSignature: true,
+				returnTypeOverride: "Sample temp.Sample"
+			}),
+			"(handlers, initialItems) : Sample"
+		);
+		assert.strictEqual(
+			buildFunctionLabel(document, buildAsyncRegion, {
+				collapseSignature: true,
+				returnTypeOverride: "CompletableFuture<List<Record>> temp.Sample"
+			}),
+			"(sourceName, includeEmpty) : CompletableFuture<List<Record>>"
+		);
+	});
+
 	test("renders java void for collapsed methods with no value return", async () => {
 		const document = await openDocument([
 			"public void onEnable() {",

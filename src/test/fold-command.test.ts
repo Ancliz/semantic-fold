@@ -1,11 +1,44 @@
 import * as assert from "assert";
 import * as vscode from "vscode";
+import { beginFoldCommandRequest } from "../commands/foldCommand";
+import { filterRequiresDocumentSymbols } from "../commands/foldCommand";
+import { isFoldCommandRequestCurrent } from "../commands/foldCommand";
 import { resolveRangeEndLine } from "../commands/foldCommand";
 import { resolveRangeStartLine } from "../commands/foldCommand";
 import { resolveSelectionsAfterManualFold } from "../commands/foldCommand";
 import type { RegionNode } from "../model/region";
 
 suite("Fold Command Manual Range Resolution", () => {
+	test("supersedes stale fold requests for the same document", () => {
+		const firstRequest = beginFoldCommandRequest("test://fold-buffered", 1);
+		const secondRequest = beginFoldCommandRequest("test://fold-buffered", 1);
+
+		assert.strictEqual(isFoldCommandRequestCurrent(firstRequest, 1), false);
+		assert.strictEqual(isFoldCommandRequestCurrent(secondRequest, 1), true);
+	});
+
+	test("drops fold requests after document version changes", () => {
+		const request = beginFoldCommandRequest("test://fold-versioned", 1);
+
+		assert.strictEqual(isFoldCommandRequestCurrent(request, 2), false);
+	});
+
+	test("requires symbols for depth and callable filters", () => {
+		assert.strictEqual(filterRequiresDocumentSymbols(undefined), true);
+		assert.strictEqual(filterRequiresDocumentSymbols({
+			exactSymbolDepth: 1
+		}), true);
+		assert.strictEqual(filterRequiresDocumentSymbols({
+			kinds: ["method", "function"]
+		}), true);
+		assert.strictEqual(filterRequiresDocumentSymbols({
+			kinds: ["import", "comment", "region"]
+		}), false);
+		assert.strictEqual(filterRequiresDocumentSymbols({
+			exactFoldDepth: 1
+		}), false);
+	});
+
 	test("excludes closing delimiter end lines when delimiter mode is disabled", async () => {
 		const document = await openDocument([
 			"function run() {",
