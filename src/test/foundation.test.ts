@@ -270,6 +270,29 @@ suite("Document Region Collection", () => {
 		);
 	});
 
+	test("does not realign annotation-like prefixes outside java", async () => {
+		const document = await vscode.workspace.openTextDocument({
+			content: "@tracked\nfunction run() {\n\treturn true;\n}\n",
+			language: "typescript"
+		});
+		const annotatedFunctionSymbol = new vscode.DocumentSymbol(
+			"run",
+			"",
+			vscode.SymbolKind.Function,
+			new vscode.Range(0, 0, 3, 1),
+			new vscode.Range(0, 0, 0, 1)
+		);
+
+		const regions = await getRegions(document, async () => {
+			return [annotatedFunctionSymbol];
+		}, async () => {
+			return [];
+		});
+
+		assert.strictEqual(regions.length, 1);
+		assert.strictEqual(regions[0].selectionLine, 0);
+	});
+
 	test("requests semantic tokens and legend for the supplied document uri", async () => {
 		const document = await vscode.workspace.openTextDocument({
 			content: "const handler = () => {\n\treturn true;\n}\n",

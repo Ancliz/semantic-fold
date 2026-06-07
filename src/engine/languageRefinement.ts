@@ -6,8 +6,7 @@ import type { RegionNode } from "../model/region";
  *
  * Core collection and generic semantic refinement stay language-neutral. This
  * module defines the small adapter contract used when a language provider has
- * known structural quirks that can be refined with already-collected semantic
- * token data
+ * known structural or token quirks that need language-aware correction
  */
 
 export interface DecodedSemanticToken {
@@ -22,9 +21,16 @@ export interface LanguageRefinementContext {
 	semanticTokens: readonly DecodedSemanticToken[];
 }
 
+export interface LanguageStructureRefinementContext {
+	document: vscode.TextDocument;
+}
+
 export interface LanguageRefiner {
 	languageIds: readonly string[];
-	refine(rootNodes: RegionNode[], context: LanguageRefinementContext): void;
+	/* Refines kinds/depths after semantic-token enrichment */
+	refine?(rootNodes: RegionNode[], context: LanguageRefinementContext): void;
+	/* Refines raw symbol tree shape before folding ranges are merged in */
+	refineStructure?(rootNodes: RegionNode[], context: LanguageStructureRefinementContext): void;
 }
 
 /**
@@ -40,11 +46,44 @@ export function applyLanguageRefinements(
 			continue;
 		}
 
+		if(refiner.refine === undefined) {
+			continue;
+		}
+
 		try {
 			refiner.refine(rootNodes, context);
-		} catch (error) {
+		} catch(error) {
 			console.debug(
 				`[semanticFold] Language refinement failed for ${context.document.languageId}: ${formatError(error)}`
+			);
+		}
+	}
+
+	return rootNodes;
+}
+
+/**
+ * Applies matching language-specific refiners after symbol normalisation
+ */
+export function applyLanguageStructureRefinements(
+	rootNodes: RegionNode[],
+	context: LanguageStructureRefinementContext,
+	refiners: readonly LanguageRefiner[]
+): RegionNode[] {
+	for(const refiner of refiners) {
+		if(!refiner.languageIds.includes(context.document.languageId)) {
+			continue;
+		}
+
+		if(refiner.refineStructure === undefined) {
+			continue;
+		}
+
+		try {
+			refiner.refineStructure(rootNodes, context);
+		} catch(error) {
+			console.debug(
+				`[semanticFold] Language structure refinement failed for ${context.document.languageId}: ${formatError(error)}`
 			);
 		}
 	}

@@ -2,7 +2,11 @@ import * as vscode from "vscode";
 import { buildFoldedPreview, type FoldedPreviewKind } from "../engine/foldedPreview";
 import { foldedPreviewProviders } from "../engine/foldedPreviewProviderRegistry";
 import {
+	defaultFoldedSignatureReturnType,
+	extractFoldedSignatureReturnTypeFromPrefix,
 	inferFoldedSignatureReturnType,
+	normaliseFoldedSignatureParameterName,
+	normaliseFoldedSignatureReturnType,
 	prefersLocalFoldedSignatureReturnType,
 	refineFoldedSignatureAnchor,
 	suppressesTypedReturnPrefix
@@ -309,7 +313,7 @@ export function buildFunctionLabel(
 	}, foldedSignatureRefiners);
 	const providerLabel = preferLocalReturnType
 		? undefined
-		: buildFunctionLabelFromProviderDetail(region.detail, {
+		: buildFunctionLabelFromProviderDetail(document, region.detail, {
 			collapseSignature,
 			returnTypeOverride: options.returnTypeOverride,
 			spansMultipleLines: parameterDetails?.spansMultipleLines ?? false
@@ -334,7 +338,7 @@ export function buildFunctionLabel(
 		return undefined;
 	}
 
-	const parameterNames = extractParameterNames(fallbackParameterDetails.parameterSource);
+	const parameterNames = extractParameterNames(document, fallbackParameterDetails.parameterSource);
 	const returnType = resolveFunctionLabelReturnType(
 		document,
 		region,
@@ -346,7 +350,7 @@ export function buildFunctionLabel(
 		return undefined;
 	}
 
-	return buildFunctionLabelFromParts(parameterNames, returnType, {
+	return buildFunctionLabelFromParts(document, parameterNames, returnType, {
 		collapseSignature,
 		spansMultipleLines: fallbackParameterDetails.spansMultipleLines
 	});
@@ -444,6 +448,7 @@ function buildCollapsedSignatureLabel(
 }
 
 function buildFunctionLabelFromProviderDetail(
+	document: vscode.TextDocument,
 	detail: string | undefined,
 	options: {
 		collapseSignature: boolean;
@@ -455,7 +460,7 @@ function buildFunctionLabelFromProviderDetail(
 		return undefined;
 	}
 
-	const parsedSignature = parseSignatureLine(detail, false);
+	const parsedSignature = parseSignatureLine(document, detail, false);
 
 	if(parsedSignature === undefined) {
 		return undefined;
@@ -468,13 +473,15 @@ function buildFunctionLabelFromProviderDetail(
 	}
 
 	return buildFunctionLabelFromParts(
-		extractParameterNames(parsedSignature.parameterSource),
+		document,
+		extractParameterNames(document, parsedSignature.parameterSource),
 		returnType,
 		options
 	);
 }
 
 function buildFunctionLabelFromParts(
+	document: vscode.TextDocument,
 	parameterNames: string[],
 	returnType: string | undefined,
 	options: {
@@ -486,7 +493,10 @@ function buildFunctionLabelFromParts(
 		return undefined;
 	}
 
-	returnType = normaliseReturnTypeForDisplay(returnType);
+	returnType = normaliseFoldedSignatureReturnType({
+		document,
+		returnType
+	}, foldedSignatureRefiners);
 
 	if(!options.collapseSignature && !options.spansMultipleLines) {
 		return undefined;
@@ -949,7 +959,7 @@ async function queryProviderReturnType(
 			document.uri,
 			position
 		);
-	} catch (error) {
+	} catch(error) {
 		console.debug(
 			`[semanticFold] Hover type query failed, falling back to local return type inference: ${formatError(error)}`
 		);
@@ -961,7 +971,7 @@ async function queryProviderReturnType(
 	}
 
 	for(const hover of hovers) {
-		const returnType = extractReturnTypeFromHover(hover);
+		const returnType = extractReturnTypeFromHover(hover, document);
 
 		if(returnType !== undefined) {
 			return returnType;
@@ -971,7 +981,10 @@ async function queryProviderReturnType(
 	return undefined;
 }
 
-function extractReturnTypeFromHover(hover: vscode.Hover): string | undefined {
+function extractReturnTypeFromHover(
+	hover: vscode.Hover,
+	document: vscode.TextDocument
+): string | undefined {
 	for(const content of hover.contents) {
 		const contentText = toHoverContentText(content);
 
@@ -982,7 +995,7 @@ function extractReturnTypeFromHover(hover: vscode.Hover): string | undefined {
 		const signatureLines = extractHoverSignatureCandidates(contentText);
 
 		for(const signatureLine of signatureLines) {
-			const returnType = extractReturnTypeFromHoverSignature(signatureLine);
+			const returnType = extractReturnTypeFromHoverSignature(signatureLine, document);
 
 			if(returnType !== undefined) {
 				return returnType;
@@ -1036,11 +1049,15 @@ function extractHoverSignatureCandidates(contentText: string): string[] {
 	return signatureLines;
 }
 
-function extractReturnTypeFromHoverSignature(signatureLine: string): string | undefined {
-	return parseSignatureLine(signatureLine, true)?.returnType;
+function extractReturnTypeFromHoverSignature(
+	signatureLine: string,
+	document: vscode.TextDocument
+): string | undefined {
+	return parseSignatureLine(document, signatureLine, true)?.returnType;
 }
 
 function parseSignatureLine(
+	document: vscode.TextDocument,
 	signatureLine: string,
 	stripHoverPrefix: boolean
 ): ParsedSignatureLine | undefined {
@@ -1079,7 +1096,7 @@ function parseSignatureLine(
 	}
 
 	const parameterSource = cleanedLine.slice(openIndex + 1, closeIndex);
-	const typedReturnType = extractTypedReturnType(undefined, cleanedLine, openIndex, closeIndex);
+	const typedReturnType = extractTypedReturnType(document, cleanedLine, openIndex, closeIndex);
 
 	if(typedReturnType !== undefined) {
 		return {
@@ -1233,12 +1250,12 @@ function findHeaderParameterBounds(
 /**
  * Normalises parsed parameter entries into display names
  */
-function extractParameterNames(parameterSource: string): string[] {
+function extractParameterNames(document: vscode.TextDocument, parameterSource: string): string[] {
 	const entries = splitTopLevel(parameterSource, ",");
 	const names: string[] = [];
 
 	for(const entry of entries) {
-		const name = normaliseParameterName(entry);
+		const name = normaliseParameterName(document, entry);
 
 		if(name !== undefined) {
 			names.push(name);
@@ -1301,7 +1318,10 @@ function splitTopLevel(value: string, separator: string): string[] {
 /**
  * Reduces one parameter expression to a concise display token
  */
-function normaliseParameterName(parameterText: string): string | undefined {
+function normaliseParameterName(
+	document: vscode.TextDocument,
+	parameterText: string
+): string | undefined {
 	let parameter = stripTopLevelDefault(parameterText).trim();
 	let isRestParameter = false;
 
@@ -1322,10 +1342,6 @@ function normaliseParameterName(parameterText: string): string | undefined {
 		return isRestParameter ? "...[…]" : "[…]";
 	}
 
-	parameter = parameter.replace(
-		/^(public|private|protected|readonly|override|final)\s+/,
-		""
-	);
 	parameter = stripTopLevelTypeAnnotation(parameter).trim().replace(/\?$/, "");
 
 	if(parameter.length === 0 || parameter === "this") {
@@ -1338,15 +1354,16 @@ function normaliseParameterName(parameterText: string): string | undefined {
 		return isRestParameter ? `...${parameter}` : parameter;
 	}
 
-	const javaStyleMatch = parameter.match(
-		/([A-Za-z_$][\w$]*)\s*(?:\[\s*\])*\s*$/
-	);
+	const refinedName = normaliseFoldedSignatureParameterName({
+		document,
+		parameterText
+	}, foldedSignatureRefiners);
 
-	if(javaStyleMatch === null) {
+	if(refinedName === undefined) {
 		return undefined;
 	}
 
-	return isRestParameter ? `...${javaStyleMatch[1]}` : javaStyleMatch[1];
+	return isRestParameter ? `...${refinedName}` : refinedName;
 }
 
 /**
@@ -1447,26 +1464,25 @@ function stripLineComment(lineText: string): string {
 }
 
 /**
- * Extracts explicit return types from TypeScript and Java-like signatures
+ * Extracts explicit return types from typed signatures
  */
 function extractTypedReturnType(
-	document: vscode.TextDocument | undefined,
+	document: vscode.TextDocument,
 	headerText: string,
 	openIndex: number,
 	closeIndex: number
 ): string | undefined {
 	const afterParameters = headerText.slice(closeIndex + 1);
-	const typeScriptMatch = afterParameters.match(/^\s*:\s*([^={]+?)(?:\s*\{|[\s]*=>|$)/);
+	const postfixReturnMatch = afterParameters.match(/^\s*:\s*([^={]+?)(?:\s*\{|[\s]*=>|$)/);
 
-	if(typeScriptMatch !== null) {
-		return typeScriptMatch[1].trim();
+	if(postfixReturnMatch !== null) {
+		return postfixReturnMatch[1].trim();
 	}
 
 	const beforeParameters = headerText.slice(0, openIndex).trim();
 
 	if(
-		document !== undefined
-		&& suppressesTypedReturnPrefix({
+		suppressesTypedReturnPrefix({
 			document,
 			headerPrefix: beforeParameters
 		}, foldedSignatureRefiners)
@@ -1474,64 +1490,10 @@ function extractTypedReturnType(
 		return undefined;
 	}
 
-	const methodName = extractTrailingIdentifier(beforeParameters);
-
-	if(methodName === undefined || methodName.length === 0) {
-		return undefined;
-	}
-
-	let returnPrefix = beforeParameters.slice(0, beforeParameters.length - methodName.length).trim();
-
-	returnPrefix = stripLeadingAnnotations(returnPrefix);
-	returnPrefix = stripLeadingModifiers(returnPrefix);
-	returnPrefix = stripLeadingTypeParameterClause(returnPrefix);
-	returnPrefix = stripTrailingDeclaringQualifier(returnPrefix);
-
-	if(returnPrefix.length === 0) {
-		return undefined;
-	}
-
-	const lowerCasePrefix = returnPrefix.toLowerCase();
-
-	if(isModifierOnlyPrefix(lowerCasePrefix)) {
-		return undefined;
-	}
-
-	if(lowerCasePrefix === "function" || lowerCasePrefix === "async function") {
-		return undefined;
-	}
-
-	return returnPrefix;
-}
-
-function stripTrailingDeclaringQualifier(value: string): string {
-	return value
-		.replace(/\s+[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*\.$/, "")
-		.replace(/\s+[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)+$/, "")
-		.trim();
-}
-
-function normaliseReturnTypeForDisplay(returnType: string): string {
-	return stripTrailingDeclaringQualifier(returnType);
-}
-
-/**
- * Returns the trailing identifier token from a declaration prefix
- */
-function extractTrailingIdentifier(value: string): string | undefined {
-	const match = value.match(/([A-Za-z_$][\w$]*)\s*$/);
-
-	return match === null ? undefined : match[1];
-}
-
-/**
- * Controls whether void should be synthesised when no return hint can be inferred
- */
-function shouldDefaultVoidReturnType(languageId: string): boolean {
-	return languageId !== "javascript"
-		&& languageId !== "javascriptreact"
-		&& languageId !== "typescript"
-		&& languageId !== "typescriptreact";
+	return extractFoldedSignatureReturnTypeFromPrefix({
+		document,
+		headerPrefix: beforeParameters
+	}, foldedSignatureRefiners);
 }
 
 /**
@@ -1557,14 +1519,19 @@ function extractFallbackReturnType(document: vscode.TextDocument, region: Region
 		return inferredReturnType;
 	}
 
-	if(shouldDefaultVoidReturnType(document.languageId)) {
+	const defaultReturnType = defaultFoldedSignatureReturnType({
+		document,
+		region
+	}, foldedSignatureRefiners);
+
+	if(defaultReturnType !== undefined) {
 		debugHintFallback(
 			document,
 			region,
 			"language default return type",
-			"using void for language without inferred return type"
+			`using ${defaultReturnType} for language without inferred return type`
 		);
-		return "void";
+		return defaultReturnType;
 	}
 
 	return undefined;
@@ -1580,13 +1547,6 @@ function extractTypedReturnTypeFromRegionHeader(
 	return bounds === undefined
 		? undefined
 		: extractTypedReturnType(document, headerText, bounds.openIndex, bounds.closeIndex);
-}
-
-/**
- * Detects prefixes that contain only modifiers and no return type token
- */
-function isModifierOnlyPrefix(value: string): boolean {
-	return /^(?:public|private|protected|internal|static|abstract|final|native|synchronized|strictfp|default|async|readonly)$/.test(value);
 }
 
 function debugHintFallback(
@@ -1607,56 +1567,6 @@ function formatDebugRegion(region: RegionNode): string {
 		: region.name;
 
 	return `${name}<${region.kind}>@${region.selectionLine}-${region.rangeEndLine}`;
-}
-
-/**
- * Removes annotation prefixes from declaration fragments
- */
-function stripLeadingAnnotations(value: string): string {
-	return value.replace(/^(@[A-Za-z_$][\w$.]*(?:\([^)]*\))?\s+)*/u, "");
-}
-
-/**
- * Removes modifier prefixes from declaration fragments
- */
-function stripLeadingModifiers(value: string): string {
-	const modifierPattern = /^(?:public|private|protected|internal|static|abstract|final|native|synchronized|strictfp|default|async|readonly)\s+/;
-	let remaining = value;
-
-	while(modifierPattern.test(remaining)) {
-		remaining = remaining.replace(modifierPattern, "");
-	}
-
-	return remaining.trim();
-}
-
-/**
- * Removes leading generic type parameter clauses from declaration fragments
- */
-function stripLeadingTypeParameterClause(value: string): string {
-	const trimmed = value.trim();
-
-	if(!trimmed.startsWith("<")) {
-		return trimmed;
-	}
-
-	let depth = 0;
-
-	for(let index = 0; index < trimmed.length; index++) {
-		const character = trimmed[index];
-
-		if(character === "<") {
-			depth++;
-		} else if(character === ">") {
-			depth = Math.max(0, depth - 1);
-
-			if(depth === 0) {
-				return trimmed.slice(index + 1).trim();
-			}
-		}
-	}
-
-	return trimmed;
 }
 
 function formatError(error: unknown): string {

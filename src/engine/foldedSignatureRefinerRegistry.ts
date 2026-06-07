@@ -1,5 +1,6 @@
 import type { FoldedSignatureRefiner } from "./foldedSignatureRefinement";
-import { typescriptJavascriptFoldedSignatureRefiner } from "./foldedSignatureRefiners/typescriptJavascript";
+import { javaFoldedSignatureRefiner } from "./foldedSignatureRefiners/javaSigRefiner";
+import { typescriptJavascriptFoldedSignatureRefiner } from "./foldedSignatureRefiners/typescriptJavascriptSigRefiner";
 
 /*
  * Central registry for folded-signature adapters
@@ -9,5 +10,6 @@ import { typescriptJavascriptFoldedSignatureRefiner } from "./foldedSignatureRef
  */
 
 export const foldedSignatureRefiners: readonly FoldedSignatureRefiner[] = [
+	javaFoldedSignatureRefiner,
 	typescriptJavascriptFoldedSignatureRefiner
 ];

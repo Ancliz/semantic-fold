@@ -37,8 +37,127 @@ export const typescriptJavascriptFoldedSignatureRefiner: FoldedSignatureRefiner 
 	inferReturnType(context) {
 		return extractJsDocReturnType(context.document, context.region)
 			?? inferReturnTypeFromBody(context.document, context.region, context.parseTypedReturnType);
+	},
+	normaliseParameterName(context) {
+		return normaliseTypescriptParameterName(context.parameterText);
 	}
 };
+
+function normaliseTypescriptParameterName(parameterText: string): string | undefined {
+	let parameter = stripTopLevelDefault(parameterText).trim();
+	let isRestParameter = false;
+
+	if(parameter.startsWith("...")) {
+		isRestParameter = true;
+		parameter = parameter.slice(3).trim();
+	}
+
+	parameter = stripTypescriptLeadingModifiers(parameter);
+	parameter = stripTopLevelTypeAnnotation(parameter).trim().replace(/\?$/, "");
+
+	const match = parameter.match(/^[A-Za-z_$][\w$]*$/);
+
+	if(match === null) {
+		return undefined;
+	}
+
+	return isRestParameter ? `...${parameter}` : parameter;
+}
+
+function stripTypescriptLeadingModifiers(value: string): string {
+	const modifierPattern = /^(?:public|private|protected|readonly|override)\s+/;
+	let remaining = value;
+
+	while(modifierPattern.test(remaining)) {
+		remaining = remaining.replace(modifierPattern, "");
+	}
+
+	return remaining.trim();
+}
+
+function stripTopLevelDefault(parameterText: string): string {
+	let depthRound = 0;
+	let depthSquare = 0;
+	let depthCurly = 0;
+	let depthAngle = 0;
+	let result = "";
+
+	for(const character of parameterText) {
+		if(character === "(") {
+			depthRound++;
+		} else if(character === ")") {
+			depthRound = Math.max(0, depthRound - 1);
+		} else if(character === "[") {
+			depthSquare++;
+		} else if(character === "]") {
+			depthSquare = Math.max(0, depthSquare - 1);
+		} else if(character === "{") {
+			depthCurly++;
+		} else if(character === "}") {
+			depthCurly = Math.max(0, depthCurly - 1);
+		} else if(character === "<") {
+			depthAngle++;
+		} else if(character === ">") {
+			depthAngle = Math.max(0, depthAngle - 1);
+		}
+
+		if(
+			character === "="
+			&& depthRound === 0
+			&& depthSquare === 0
+			&& depthCurly === 0
+			&& depthAngle === 0
+		) {
+			return result;
+		}
+
+		result += character;
+	}
+
+	return result;
+}
+
+function stripTopLevelTypeAnnotation(parameterText: string): string {
+	let depthRound = 0;
+	let depthSquare = 0;
+	let depthCurly = 0;
+	let depthAngle = 0;
+	let result = "";
+
+	for(const character of parameterText) {
+		if(character === "(") {
+			depthRound++;
+		} else if(character === ")") {
+			depthRound = Math.max(0, depthRound - 1);
+		} else if(character === "[") {
+			depthSquare++;
+		} else if(character === "]") {
+			depthSquare = Math.max(0, depthSquare - 1);
+		} else if(character === "{") {
+			depthCurly++;
+		} else if(character === "}") {
+			depthCurly = Math.max(0, depthCurly - 1);
+		} else if(character === "<") {
+			depthAngle++;
+		} else if(character === ">") {
+			depthAngle = Math.max(0, depthAngle - 1);
+		}
+
+		if(
+			character === ":"
+			&& depthRound === 0
+			&& depthSquare === 0
+			&& depthCurly === 0
+			&& depthAngle === 0
+		) {
+			return result;
+		}
+
+		result += character;
+	}
+
+	return result;
+}
 
 function findCallableAssignmentAnchorColumn(lineText: string): number | undefined {
 	const assignmentIndex = findTopLevelAssignmentIndex(lineText);
@@ -366,8 +485,8 @@ function findCallableDeclarationLine(
 	const escapedName = callableName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 	const declarationPatterns = [
 		new RegExp(`^(?:export\\s+)?(?:async\\s+)?function\\s+${escapedName}\\s*\\(`),
-		new RegExp(`^(?:(?:public|private|protected|internal|static|abstract|final|override|readonly|async)\\s+)*${escapedName}\\s*\\(`),
-		new RegExp(`^(?:(?:public|private|protected|internal|static|abstract|final|override|readonly|async)\\s+)*(?:[A-Za-z_$][\\w$<>,\\[\\]\\s]+\\s+)${escapedName}\\s*\\(`)
+		new RegExp(`^(?:(?:public|private|protected|internal|static|abstract|override|readonly|async)\\s+)*${escapedName}\\s*\\(`),
+		new RegExp(`^(?:(?:public|private|protected|internal|static|abstract|override|readonly|async)\\s+)*(?:[A-Za-z_$][\\w$<>,\\[\\]\\s]+\\s+)${escapedName}\\s*\\(`)
 	];
 	const matches: number[] = [];
 

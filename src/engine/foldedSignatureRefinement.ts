@@ -33,12 +33,36 @@ export interface FoldedSignatureReturnInferenceContext {
 	parseTypedReturnType(region: RegionNode): string | undefined;
 }
 
+export interface FoldedSignatureParameterContext {
+	document: vscode.TextDocument;
+	parameterText: string;
+}
+
+export interface FoldedSignatureReturnPrefixContext {
+	document: vscode.TextDocument;
+	headerPrefix: string;
+}
+
+export interface FoldedSignatureReturnNormalisationContext {
+	document: vscode.TextDocument;
+	returnType: string;
+}
+
+export interface FoldedSignatureDefaultReturnContext {
+	document: vscode.TextDocument;
+	region: RegionNode;
+}
+
 export interface FoldedSignatureRefiner {
 	languageIds: readonly string[];
 	refineHintAnchor?(context: FoldedSignatureAnchorContext): number | undefined;
 	shouldPreferLocalReturnType?(context: FoldedSignatureReturnContext): boolean;
 	shouldSuppressTypedReturnPrefix?(context: FoldedSignatureTypedReturnContext): boolean;
 	inferReturnType?(context: FoldedSignatureReturnInferenceContext): string | undefined;
+	normaliseParameterName?(context: FoldedSignatureParameterContext): string | undefined;
+	extractReturnTypeFromPrefix?(context: FoldedSignatureReturnPrefixContext): string | undefined;
+	normaliseReturnType?(context: FoldedSignatureReturnNormalisationContext): string | undefined;
+	defaultReturnType?(context: FoldedSignatureDefaultReturnContext): string | undefined;
 }
 
 export function refineFoldedSignatureAnchor(
@@ -56,7 +80,7 @@ export function refineFoldedSignatureAnchor(
 			if(anchorColumn !== undefined) {
 				return anchorColumn;
 			}
-		} catch (error) {
+		} catch(error) {
 			console.debug(
 				`[semanticFold] Folded signature anchor refinement failed for ${context.document.languageId}: ${formatError(error)}`
 			);
@@ -79,7 +103,7 @@ export function prefersLocalFoldedSignatureReturnType(
 			if(refiner.shouldPreferLocalReturnType(context)) {
 				return true;
 			}
-		} catch (error) {
+		} catch(error) {
 			console.debug(
 				`[semanticFold] Folded signature return refinement failed for ${context.document.languageId}: ${formatError(error)}`
 			);
@@ -102,7 +126,7 @@ export function suppressesTypedReturnPrefix(
 			if(refiner.shouldSuppressTypedReturnPrefix(context)) {
 				return true;
 			}
-		} catch (error) {
+		} catch(error) {
 			console.debug(
 				`[semanticFold] Folded signature typed-return refinement failed for ${context.document.languageId}: ${formatError(error)}`
 			);
@@ -127,9 +151,109 @@ export function inferFoldedSignatureReturnType(
 			if(returnType !== undefined) {
 				return returnType;
 			}
-		} catch (error) {
+		} catch(error) {
 			console.debug(
 				`[semanticFold] Folded signature return inference failed for ${context.document.languageId}: ${formatError(error)}`
+			);
+		}
+	}
+
+	return undefined;
+}
+
+export function normaliseFoldedSignatureParameterName(
+	context: FoldedSignatureParameterContext,
+	refiners: readonly FoldedSignatureRefiner[]
+): string | undefined {
+	for(const refiner of matchingRefiners(context.document, refiners)) {
+		if(refiner.normaliseParameterName === undefined) {
+			continue;
+		}
+
+		try {
+			const parameterName = refiner.normaliseParameterName(context);
+
+			if(parameterName !== undefined) {
+				return parameterName;
+			}
+		} catch(error) {
+			console.debug(
+				`[semanticFold] Folded signature parameter refinement failed for ${context.document.languageId}: ${formatError(error)}`
+			);
+		}
+	}
+
+	return undefined;
+}
+
+export function extractFoldedSignatureReturnTypeFromPrefix(
+	context: FoldedSignatureReturnPrefixContext,
+	refiners: readonly FoldedSignatureRefiner[]
+): string | undefined {
+	for(const refiner of matchingRefiners(context.document, refiners)) {
+		if(refiner.extractReturnTypeFromPrefix === undefined) {
+			continue;
+		}
+
+		try {
+			const returnType = refiner.extractReturnTypeFromPrefix(context);
+
+			if(returnType !== undefined) {
+				return returnType;
+			}
+		} catch(error) {
+			console.debug(
+				`[semanticFold] Folded signature prefix refinement failed for ${context.document.languageId}: ${formatError(error)}`
+			);
+		}
+	}
+
+	return undefined;
+}
+
+export function normaliseFoldedSignatureReturnType(
+	context: FoldedSignatureReturnNormalisationContext,
+	refiners: readonly FoldedSignatureRefiner[]
+): string {
+	for(const refiner of matchingRefiners(context.document, refiners)) {
+		if(refiner.normaliseReturnType === undefined) {
+			continue;
+		}
+
+		try {
+			const returnType = refiner.normaliseReturnType(context);
+
+			if(returnType !== undefined) {
+				return returnType;
+			}
+		} catch(error) {
+			console.debug(
+				`[semanticFold] Folded signature return normalisation failed for ${context.document.languageId}: ${formatError(error)}`
+			);
+		}
+	}
+
+	return context.returnType;
+}
+
+export function defaultFoldedSignatureReturnType(
+	context: FoldedSignatureDefaultReturnContext,
+	refiners: readonly FoldedSignatureRefiner[]
+): string | undefined {
+	for(const refiner of matchingRefiners(context.document, refiners)) {
+		if(refiner.defaultReturnType === undefined) {
+			continue;
+		}
+
+		try {
+			const returnType = refiner.defaultReturnType(context);
+
+			if(returnType !== undefined) {
+				return returnType;
+			}
+		} catch(error) {
+			console.debug(
+				`[semanticFold] Folded signature default return refinement failed for ${context.document.languageId}: ${formatError(error)}`
 			);
 		}
 	}
