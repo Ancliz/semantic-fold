@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+import * as ts from "typescript";
 import type { RegionNode } from "../../model/region";
 import type { FoldedSignatureRefiner } from "../foldedSignatureRefinement";
 
@@ -27,12 +28,11 @@ export const typescriptJavascriptFoldedSignatureRefiner: FoldedSignatureRefiner 
 			return false;
 		}
 
-		return findCallableAssignmentAnchorColumn(
+		const isCallableAssignment = findCallableAssignmentAnchorColumn(
 			context.document.lineAt(context.region.selectionLine).text
 		) !== undefined;
-	},
-	shouldSuppressTypedReturnPrefix(context) {
-		return isCallableAssignmentPrefix(context.headerPrefix);
+
+		return isCallableAssignment && isWeakProviderReturnType(context.providerReturnType);
 	},
 	inferReturnType(context) {
 		return extractJsDocReturnType(context.document, context.region)
@@ -40,6 +40,21 @@ export const typescriptJavascriptFoldedSignatureRefiner: FoldedSignatureRefiner 
 	},
 	normaliseParameterName(context) {
 		return normaliseTypescriptParameterName(context.parameterText);
+	},
+	extractReturnTypeFromHeader(context) {
+		return extractTypescriptReturnTypeFromHeader(context.headerPrefix, context.afterParameters);
+	},
+	normaliseReturnType(context) {
+		return normaliseTypescriptReturnType(context.returnType);
+	},
+	isCallableRegion(context) {
+		if(context.region.selectionLine < 0 || context.region.selectionLine >= context.document.lineCount) {
+			return false;
+		}
+
+		return findCallableAssignmentAnchorColumn(
+			context.document.lineAt(context.region.selectionLine).text
+		) !== undefined;
 	}
 };
 
@@ -189,6 +204,290 @@ function isCallableAssignmentPrefix(value: string): boolean {
 	return partialRightHandSide.length === 0
 		|| partialRightHandSide === "async"
 		|| /^(?:async\s+)?function\b/.test(partialRightHandSide);
+}
+
+function isWeakProviderReturnType(returnType: string | undefined): boolean {
+	if(returnType === undefined) {
+		return true;
+	}
+
+	const normalisedReturnType = returnType.trim();
+
+	return normalisedReturnType.length === 0
+		|| normalisedReturnType === "any"
+		|| normalisedReturnType === "unknown"
+		|| /^(?:const|let|var)\s+\S+\s*=\s*(?:async\s+)?function\b/u.test(normalisedReturnType);
+}
+
+function extractTypescriptReturnTypeFromHeader(
+	headerPrefix: string,
+	afterParameters: string
+): string | undefined {
+	if(isCallableAssignmentPrefix(headerPrefix)) {
+		return undefined;
+	}
+
+	const trimmedAfterParameters = afterParameters.trimStart();
+
+	if(trimmedAfterParameters.startsWith(":")) {
+		const returnType = readTypescriptReturnType(trimmedAfterParameters.slice(1));
+
+		return returnType.length === 0 ? undefined : returnType;
+	}
+
+	if(!trimmedAfterParameters.startsWith("=>")) {
+		return undefined;
+	}
+
+	const arrowReturnType = readTypescriptReturnType(trimmedAfterParameters.slice(2));
+
+	return arrowReturnType.length === 0 ? undefined : arrowReturnType;
+}
+
+function readTypescriptReturnType(value: string): string {
+	let depthRound = 0;
+	let depthSquare = 0;
+	let depthCurly = 0;
+	let depthAngle = 0;
+	let result = "";
+	const trimmedValue = value.trimStart();
+
+	for(let index = 0; index < trimmedValue.length; index++) {
+		const character = trimmedValue[index];
+		const atTopLevel = depthRound === 0
+			&& depthSquare === 0
+			&& depthCurly === 0
+			&& depthAngle === 0;
+
+		if(atTopLevel && character === "{") {
+			if(result.trim().length > 0) {
+				break;
+			}
+
+			depthCurly++;
+			result += character;
+			continue;
+		}
+
+		if(
+			atTopLevel
+			&& character === "="
+		) {
+			if(trimmedValue[index + 1] === ">" && result.trimEnd().endsWith(")")) {
+				result += character;
+				continue;
+			}
+
+			break;
+		}
+
+		if(
+			atTopLevel
+			&& character === ";"
+		) {
+			break;
+		}
+
+		if(character === "(") {
+			depthRound++;
+		} else if(character === ")") {
+			depthRound = Math.max(0, depthRound - 1);
+		} else if(character === "[") {
+			depthSquare++;
+		} else if(character === "]") {
+			depthSquare = Math.max(0, depthSquare - 1);
+		} else if(character === "{") {
+			depthCurly++;
+		} else if(character === "}") {
+			depthCurly = Math.max(0, depthCurly - 1);
+		} else if(character === "<") {
+			depthAngle++;
+		} else if(character === ">") {
+			depthAngle = Math.max(0, depthAngle - 1);
+		}
+
+		result += character;
+	}
+
+	return result.trim();
+}
+
+function normaliseTypescriptReturnType(returnType: string): string {
+	return replaceObjectTypeLiterals(returnType);
+}
+
+function replaceObjectTypeLiterals(returnType: string): string {
+	let result = "";
+
+	for(let index = 0; index < returnType.length; index++) {
+		const character = returnType[index];
+
+		if(character !== "{") {
+			result += character;
+			continue;
+		}
+
+		const closeIndex = findMatchingBrace(returnType, index);
+
+		if(closeIndex < 0) {
+			result += character;
+			continue;
+		}
+
+		result += formatObjectTypeSummary(parseObjectTypeMembers(
+			returnType.slice(index + 1, closeIndex)
+		));
+		index = closeIndex;
+	}
+
+	return result;
+}
+
+function findMatchingBrace(value: string, openIndex: number): number {
+	let depth = 0;
+
+	for(let index = openIndex; index < value.length; index++) {
+		const character = value[index];
+
+		if(character === "{") {
+			depth++;
+		} else if(character === "}") {
+			depth--;
+
+			if(depth === 0) {
+				return index;
+			}
+		}
+	}
+
+	return -1;
+}
+
+function parseObjectTypeMembers(memberSource: string): string[] {
+	const members = splitTopLevelObjectMembers(memberSource);
+	const memberTypes: string[] = [];
+
+	for(const member of members) {
+		const typeText = extractObjectMemberType(member);
+
+		if(typeText !== undefined) {
+			memberTypes.push(replaceObjectTypeLiterals(typeText));
+		}
+	}
+
+	return memberTypes;
+}
+
+function splitTopLevelObjectMembers(memberSource: string): string[] {
+	const members: string[] = [];
+	let depthRound = 0;
+	let depthSquare = 0;
+	let depthCurly = 0;
+	let depthAngle = 0;
+	let current = "";
+
+	for(const character of memberSource) {
+		if(character === "(") {
+			depthRound++;
+		} else if(character === ")") {
+			depthRound = Math.max(0, depthRound - 1);
+		} else if(character === "[") {
+			depthSquare++;
+		} else if(character === "]") {
+			depthSquare = Math.max(0, depthSquare - 1);
+		} else if(character === "{") {
+			depthCurly++;
+		} else if(character === "}") {
+			depthCurly = Math.max(0, depthCurly - 1);
+		} else if(character === "<") {
+			depthAngle++;
+		} else if(character === ">") {
+			depthAngle = Math.max(0, depthAngle - 1);
+		}
+
+		if(
+			(character === ";" || character === ",")
+			&& depthRound === 0
+			&& depthSquare === 0
+			&& depthCurly === 0
+			&& depthAngle === 0
+		) {
+			members.push(current);
+			current = "";
+			continue;
+		}
+
+		current += character;
+	}
+
+	members.push(current);
+
+	return members.map((member) => member.trim()).filter((member) => member.length > 0);
+}
+
+function extractObjectMemberType(memberText: string): string | undefined {
+	const colonIndex = findTopLevelColon(memberText);
+
+	if(colonIndex < 0) {
+		return "unknown";
+	}
+
+	const typeText = memberText.slice(colonIndex + 1).trim();
+
+	return typeText.length === 0 ? "unknown" : typeText;
+}
+
+function findTopLevelColon(value: string): number {
+	let depthRound = 0;
+	let depthSquare = 0;
+	let depthCurly = 0;
+	let depthAngle = 0;
+
+	for(let index = 0; index < value.length; index++) {
+		const character = value[index];
+
+		if(character === "(") {
+			depthRound++;
+		} else if(character === ")") {
+			depthRound = Math.max(0, depthRound - 1);
+		} else if(character === "[") {
+			depthSquare++;
+		} else if(character === "]") {
+			depthSquare = Math.max(0, depthSquare - 1);
+		} else if(character === "{") {
+			depthCurly++;
+		} else if(character === "}") {
+			depthCurly = Math.max(0, depthCurly - 1);
+		} else if(character === "<") {
+			depthAngle++;
+		} else if(character === ">") {
+			depthAngle = Math.max(0, depthAngle - 1);
+		}
+
+		if(
+			character === ":"
+			&& depthRound === 0
+			&& depthSquare === 0
+			&& depthCurly === 0
+			&& depthAngle === 0
+		) {
+			return index;
+		}
+	}
+
+	return -1;
+}
+
+function formatObjectTypeSummary(memberTypes: readonly string[]): string {
+	if(memberTypes.length === 0) {
+		return "object";
+	}
+
+	if(memberTypes.length > 5) {
+		return `obj..${memberTypes.length}`;
+	}
+
+	return `obj<${memberTypes.join(", ")}>`;
 }
 
 function findTopLevelAssignmentIndex(value: string): number {
@@ -386,7 +685,7 @@ function inferExpressionType(
 	}
 
 	if(value.startsWith("{")) {
-		return "object";
+		return inferObjectLiteralReturnType(document, region, value, parseTypedReturnType);
 	}
 
 	if(value === "null") {
@@ -415,6 +714,174 @@ function inferExpressionType(
 	}
 
 	if(isLikelyNumericExpression(value)) {
+		return "number";
+	}
+
+	return undefined;
+}
+
+function inferObjectLiteralReturnType(
+	document: vscode.TextDocument,
+	region: RegionNode,
+	expression: string,
+	parseTypedReturnType: (region: RegionNode) => string | undefined
+): string {
+	const objectLiteral = parseObjectLiteralExpression(document, expression);
+
+	if(objectLiteral === undefined) {
+		return "object";
+	}
+
+	const memberTypes = objectLiteral.node.properties.map((property) => {
+		return inferObjectPropertyType(
+			document,
+			region,
+			objectLiteral.sourceFile,
+			property,
+			parseTypedReturnType
+		);
+	});
+
+	return formatObjectTypeSummary(memberTypes);
+}
+
+function parseObjectLiteralExpression(
+	document: vscode.TextDocument,
+	expression: string
+): { node: ts.ObjectLiteralExpression; sourceFile: ts.SourceFile } | undefined {
+	const sourceFile = ts.createSourceFile(
+		document.fileName,
+		`const __semanticFoldValue = ${expression}`,
+		ts.ScriptTarget.Latest,
+		true,
+		scriptKindForLanguage(document.languageId)
+	);
+	const statement = sourceFile.statements[0];
+
+	if(!ts.isVariableStatement(statement)) {
+		return undefined;
+	}
+
+	const declaration = statement.declarationList.declarations[0];
+	const initializer = declaration.initializer;
+
+	if(initializer === undefined || !ts.isObjectLiteralExpression(initializer)) {
+		return undefined;
+	}
+
+	return {
+		node: initializer,
+		sourceFile
+	};
+}
+
+function scriptKindForLanguage(languageId: string): ts.ScriptKind {
+	if(languageId === "javascript" || languageId === "javascriptreact") {
+		return languageId === "javascriptreact" ? ts.ScriptKind.JSX : ts.ScriptKind.JS;
+	}
+
+	return languageId === "typescriptreact" ? ts.ScriptKind.TSX : ts.ScriptKind.TS;
+}
+
+function inferObjectPropertyType(
+	document: vscode.TextDocument,
+	region: RegionNode,
+	sourceFile: ts.SourceFile,
+	property: ts.ObjectLiteralElementLike,
+	parseTypedReturnType: (region: RegionNode) => string | undefined
+): string {
+	if(ts.isPropertyAssignment(property)) {
+		return inferExpressionNodeType(
+			document,
+			region,
+			sourceFile,
+			property.initializer,
+			parseTypedReturnType
+		) ?? "unknown";
+	}
+
+	if(ts.isShorthandPropertyAssignment(property)) {
+		return "unknown";
+	}
+
+	if(ts.isMethodDeclaration(property) || ts.isGetAccessor(property) || ts.isSetAccessor(property)) {
+		return "function";
+	}
+
+	return "unknown";
+}
+
+function inferExpressionNodeType(
+	document: vscode.TextDocument,
+	region: RegionNode,
+	sourceFile: ts.SourceFile,
+	node: ts.Expression,
+	parseTypedReturnType: (region: RegionNode) => string | undefined
+): string | undefined {
+	if(ts.isStringLiteral(node) || node.kind === ts.SyntaxKind.NoSubstitutionTemplateLiteral) {
+		return "string";
+	}
+
+	if(ts.isNumericLiteral(node)) {
+		return "number";
+	}
+
+	if(node.kind === ts.SyntaxKind.TrueKeyword || node.kind === ts.SyntaxKind.FalseKeyword) {
+		return "boolean";
+	}
+
+	if(node.kind === ts.SyntaxKind.NullKeyword) {
+		return "null";
+	}
+
+	if(node.kind === ts.SyntaxKind.UndefinedKeyword) {
+		return "undefined";
+	}
+
+	if(ts.isArrayLiteralExpression(node)) {
+		return "array";
+	}
+
+	if(ts.isObjectLiteralExpression(node)) {
+		const memberTypes = node.properties.map((property) => {
+			return inferObjectPropertyType(document, region, sourceFile, property, parseTypedReturnType);
+		});
+
+		return formatObjectTypeSummary(memberTypes);
+	}
+
+	if(ts.isNewExpression(node)) {
+		return node.expression.getText(sourceFile);
+	}
+
+	if(ts.isPropertyAccessExpression(node) && node.name.text === "length") {
+		return "number";
+	}
+
+	if(ts.isCallExpression(node)) {
+		const expressionText = node.expression.getText(sourceFile);
+
+		if(expressionText === "String") {
+			return "string";
+		}
+
+		if(expressionText === "Number") {
+			return "number";
+		}
+
+		if(expressionText === "Boolean") {
+			return "boolean";
+		}
+
+		return inferReturnTypeFromCallExpression(
+			document,
+			region,
+			node.getText(sourceFile),
+			parseTypedReturnType
+		);
+	}
+
+	if(ts.isBinaryExpression(node) && isLikelyNumericExpression(node.getText(sourceFile))) {
 		return "number";
 	}
 

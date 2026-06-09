@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import type { RegionNode } from "../model/region";
+import { debugOnce } from "../util/debug";
 
 /*
  * Generic language-refinement entry point
@@ -53,9 +54,7 @@ export function applyLanguageRefinements(
 		try {
 			refiner.refine(rootNodes, context);
 		} catch(error) {
-			console.debug(
-				`[semanticFold] Language refinement failed for ${context.document.languageId}: ${formatError(error)}`
-			);
+			debugLanguageRefinementFailure(context.document, "semantic", error);
 		}
 	}
 
@@ -82,13 +81,23 @@ export function applyLanguageStructureRefinements(
 		try {
 			refiner.refineStructure(rootNodes, context);
 		} catch(error) {
-			console.debug(
-				`[semanticFold] Language structure refinement failed for ${context.document.languageId}: ${formatError(error)}`
-			);
+			debugLanguageRefinementFailure(context.document, "structure", error);
 		}
 	}
 
 	return rootNodes;
+}
+
+function debugLanguageRefinementFailure(
+	document: vscode.TextDocument,
+	phase: string,
+	error: unknown
+): void {
+	debugOnce(
+		`language-refinement-failed:${document.languageId}:${phase}:${formatError(error)}`,
+		`[semanticFold] Language ${phase} refinement failed for `
+			+ `${document.languageId}: ${formatError(error)}`
+	);
 }
 
 function formatError(error: unknown): string {

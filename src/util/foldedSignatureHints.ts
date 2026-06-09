@@ -3,25 +3,27 @@ import { buildFoldedPreview, type FoldedPreviewKind } from "../engine/foldedPrev
 import { foldedPreviewProviders } from "../engine/foldedPreviewProviderRegistry";
 import {
 	defaultFoldedSignatureReturnType,
-	extractFoldedSignatureReturnTypeFromPrefix,
+	extractFoldedSignatureReturnTypeFromHeader,
 	inferFoldedSignatureReturnType,
+	isFoldedSignatureBlockRegion,
+	isFoldedSignatureCallableRegion,
 	normaliseFoldedSignatureParameterName,
 	normaliseFoldedSignatureReturnType,
 	prefersLocalFoldedSignatureReturnType,
-	refineFoldedSignatureAnchor,
-	suppressesTypedReturnPrefix
+	refineFoldedSignatureAnchor
 } from "../engine/foldedSignatureRefinement";
 import { foldedSignatureRefiners } from "../engine/foldedSignatureRefinerRegistry";
 import type { FoldExecutionResult } from "../engine/foldExecutor";
 import type { RegionNode } from "../model/region";
 import { getFoldedPreviewLineLimit, isCollapsedHintEnabled, isSignatureHintsEnabled } from "./config";
+import { debugOnce } from "./debug";
 
 const functionLikeKinds = new Set<string>(["function", "method"]);
 const containerHintKinds = new Set<string>(["object", "variable", "property", "field"]);
-const blockPlaceholderKinds = new Set<string>(["class"]);
+const blockPlaceholderKinds = new Set<string>(["class", "enum", "interface", "namespace", "struct"]);
 const maxHintLength = 80;
 const foldedFunctionRegionsByDocument = new Map<string, Map<number, RegionNode>>();
-const providerReturnTypeCacheByDocument = new Map<string, Map<string, string>>();
+const providerSignatureCacheByDocument = new Map<string, Map<string, ParsedSignatureLine>>();
 const hintRefreshSequenceByDocument = new Map<string, number>();
 
 type FoldedHintKind = "signature" | "block" | FoldedPreviewKind;
@@ -31,6 +33,7 @@ interface FoldedRegionHint {
 	kind: FoldedHintKind;
 	replaceSignature: boolean;
 	hiddenDelimiter?: string;
+	hiddenDelimiterPlacement?: "first" | "last";
 }
 
 interface HintPlacement {
@@ -58,7 +61,8 @@ const collapsedSignatureHintDecorationType = vscode.window.createTextEditorDecor
 	}
 });
 const replacedSignatureDecorationType = vscode.window.createTextEditorDecorationType({
-	opacity: "0"
+	opacity: "0",
+	textDecoration: "none; display: none;"
 });
 
 /**
@@ -72,7 +76,9 @@ export function applyFunctionSignatureHints(
 
 	if(executionResult !== undefined) {
 		const documentFunctionRegions = getDocumentFunctionRegions(documentUri);
-		const hintableRegions = executionResult.selectedRegions.filter(isHintableRegion);
+		const hintableRegions = executionResult.selectedRegions.filter((region) => {
+			return isHintableRegion(editor.document, region);
+		});
 
 		if(executionResult.command === "editor.fold") {
 			for(const region of hintableRegions) {
@@ -98,14 +104,14 @@ export function applyFunctionSignatureHints(
 export function clearFunctionSignatureHints(documentUri?: string): void {
 	if(documentUri !== undefined) {
 		foldedFunctionRegionsByDocument.delete(documentUri);
-		providerReturnTypeCacheByDocument.delete(documentUri);
+		providerSignatureCacheByDocument.delete(documentUri);
 		hintRefreshSequenceByDocument.delete(documentUri);
 		refreshFunctionHints(vscode.window.activeTextEditor);
 		return;
 	}
 
 	foldedFunctionRegionsByDocument.clear();
-	providerReturnTypeCacheByDocument.clear();
+	providerSignatureCacheByDocument.clear();
 	hintRefreshSequenceByDocument.clear();
 	refreshFunctionHints(vscode.window.activeTextEditor);
 }
@@ -279,7 +285,7 @@ export function addCollapsedFunctionHintsFromRegions(
 	const documentUri = editor.document.uri.toString();
 	const foldedFunctionRegions = getDocumentFunctionRegions(documentUri);
 	const hintableRegions = flattenRegions(rootNodes).filter((region) => {
-		return isHintableRegion(region) && region.rangeEndLine > region.selectionLine;
+		return isHintableRegion(editor.document, region) && region.rangeEndLine > region.selectionLine;
 	});
 
 	for(const region of hintableRegions) {
@@ -299,40 +305,48 @@ export function buildFunctionLabel(
 	region: RegionNode,
 	options: {
 		collapseSignature?: boolean;
+		providerSignatureOverride?: ParsedSignatureLine;
 		returnTypeOverride?: string;
 	} = {}
 ): string | undefined {
 	const collapseSignature = options.collapseSignature ?? false;
-	const parameterDetails = collapseSignature
-		? undefined
-		: extractParameterDetails(document, region);
+	const detailSignature = options.providerSignatureOverride === undefined
+		? parseProviderDetailSignature(document, region.detail)
+		: undefined;
+	const signature = options.providerSignatureOverride ?? detailSignature;
+
+	if(options.providerSignatureOverride === undefined && detailSignature !== undefined) {
+		debugHintFallback(
+			document,
+			"document symbol detail",
+			"using symbol detail after provider signature was unavailable"
+		);
+	}
+
+	const providerReturnType = options.returnTypeOverride ?? signature?.returnType;
 	const preferLocalReturnType = prefersLocalFoldedSignatureReturnType({
 		document,
 		region,
-		providerReturnType: options.returnTypeOverride
+		providerReturnType
 	}, foldedSignatureRefiners);
-	const providerLabel = preferLocalReturnType
+	const providerLabel = preferLocalReturnType || signature === undefined
 		? undefined
-		: buildFunctionLabelFromProviderDetail(document, region.detail, {
+		: buildFunctionLabelFromProviderSignature(document, signature, {
 			collapseSignature,
-			returnTypeOverride: options.returnTypeOverride,
-			spansMultipleLines: parameterDetails?.spansMultipleLines ?? false
+			returnTypeOverride: providerReturnType,
+			spansMultipleLines: false
 		});
 
 	if(providerLabel !== undefined) {
 		return providerLabel;
 	}
 
-	if(region.detail !== undefined) {
-		debugHintFallback(
-			document,
-			region,
-			"provider detail",
-			"provider detail was unusable, reading source signature"
-		);
-	}
-
-	const fallbackParameterDetails = parameterDetails ?? extractParameterDetails(document, region);
+	debugSourceSignatureFallback(document, sourceSignatureFallbackReason(
+		signature,
+		preferLocalReturnType,
+		region.detail
+	));
+	const fallbackParameterDetails = extractParameterDetails(document, region);
 
 	if(fallbackParameterDetails === undefined) {
 		return undefined;
@@ -342,11 +356,11 @@ export function buildFunctionLabel(
 	const returnType = resolveFunctionLabelReturnType(
 		document,
 		region,
-		options.returnTypeOverride,
+		providerReturnType,
 		preferLocalReturnType
 	);
 
-	if(returnType === undefined) {
+	if(returnType === undefined && region.kind === "constructor") {
 		return undefined;
 	}
 
@@ -354,6 +368,24 @@ export function buildFunctionLabel(
 		collapseSignature,
 		spansMultipleLines: fallbackParameterDetails.spansMultipleLines
 	});
+}
+
+function sourceSignatureFallbackReason(
+	providerSignature: ParsedSignatureLine | undefined,
+	preferLocalReturnType: boolean,
+	detail: string | undefined
+): string {
+	if(preferLocalReturnType && providerSignature !== undefined) {
+		return "weak provider signature";
+	}
+
+	if(providerSignature === undefined) {
+		return "missing provider signature";
+	}
+
+	return detail === undefined
+		? "provider signature unusable"
+		: "document symbol detail unusable";
 }
 
 function resolveFunctionLabelReturnType(
@@ -375,28 +407,30 @@ export function buildFoldedRegionHint(
 	options: {
 		collapseSignature?: boolean;
 		returnTypeOverride?: string;
+		providerSignatureOverride?: ParsedSignatureLine;
 		maxVisiblePreviewLineLength?: number;
 	} = {}
 ): FoldedRegionHint | undefined {
-	if(isFunctionLikeRegion(region)) {
+	if(isFunctionLikeRegion(document, region)) {
+		if(!(options.collapseSignature ?? false)) {
+			return createFoldedBlockMarkerHint(document, region, "signature");
+		}
+
 		const text = buildFunctionLabel(document, region, options);
 
-		return text === undefined
-			? undefined
-			: {
-				text,
+		if(text !== undefined) {
+			return {
+				text: `${text} {} `,
 				kind: "signature",
-				replaceSignature: options.collapseSignature ?? false
+				replaceSignature: true
 			};
+		}
+
+		return createFoldedBlockMarkerHint(document, region, "signature");
 	}
 
-	if(isBlockPlaceholderRegion(region) && hasOpeningBrace(document, region)) {
-		return {
-			text: "{...}",
-			kind: "block",
-			replaceSignature: false,
-			hiddenDelimiter: "{"
-		};
+	if(isBlockPlaceholderRegion(document, region)) {
+		return createFoldedBlockMarkerHint(document, region, "block");
 	}
 
 	const preview = buildFoldedPreview(document, region, foldedPreviewProviders, {
@@ -415,6 +449,22 @@ export function buildFoldedRegionHint(
 		};
 }
 
+function createFoldedBlockMarkerHint(
+	document: vscode.TextDocument,
+	region: RegionNode,
+	kind: FoldedHintKind
+): FoldedRegionHint | undefined {
+	return hasOpeningBrace(document, region)
+		? {
+			text: "{} ",
+			kind,
+			replaceSignature: false,
+			hiddenDelimiter: "{",
+			hiddenDelimiterPlacement: "last"
+		}
+		: undefined;
+}
+
 async function buildFoldedRegionHintWithProviders(
 	document: vscode.TextDocument,
 	region: RegionNode,
@@ -422,13 +472,13 @@ async function buildFoldedRegionHintWithProviders(
 		collapseSignature?: boolean;
 	} = {}
 ): Promise<FoldedRegionHint | undefined> {
-	const providerReturnType = isFunctionLikeRegion(region)
-		? await resolveProviderReturnType(document, region)
+	const providerSignature = isFunctionLikeRegion(document, region)
+		? await resolveProviderSignature(document, region)
 		: undefined;
 
 	return buildFoldedRegionHint(document, region, {
 		...options,
-		returnTypeOverride: providerReturnType
+		providerSignatureOverride: providerSignature
 	});
 }
 
@@ -436,45 +486,38 @@ function buildCollapsedSignatureLabel(
 	parameterNames: string[],
 	returnType: string | undefined
 ): string | undefined {
-	if(returnType === undefined) {
-		return undefined;
-	}
-
 	const collapsedParameterText = parameterNames.length > 0
 		? `(${parameterNames.join(", ")})`
 		: "()";
 
-	return `${collapsedParameterText} : ${returnType}`;
+	return returnType === undefined
+		? collapsedParameterText
+		: `${collapsedParameterText} : ${returnType}`;
 }
 
-function buildFunctionLabelFromProviderDetail(
+function parseProviderDetailSignature(
 	document: vscode.TextDocument,
-	detail: string | undefined,
+	detail: string | undefined
+): ParsedSignatureLine | undefined {
+	return detail === undefined
+		? undefined
+		: parseSignatureLine(document, detail, false);
+}
+
+function buildFunctionLabelFromProviderSignature(
+	document: vscode.TextDocument,
+	providerSignature: ParsedSignatureLine,
 	options: {
 		collapseSignature: boolean;
 		returnTypeOverride?: string;
 		spansMultipleLines: boolean;
 	}
 ): string | undefined {
-	if(detail === undefined) {
-		return undefined;
-	}
-
-	const parsedSignature = parseSignatureLine(document, detail, false);
-
-	if(parsedSignature === undefined) {
-		return undefined;
-	}
-
-	const returnType = options.returnTypeOverride ?? parsedSignature.returnType;
-
-	if(returnType === undefined) {
-		return undefined;
-	}
+	const returnType = options.returnTypeOverride ?? providerSignature.returnType;
 
 	return buildFunctionLabelFromParts(
 		document,
-		extractParameterNames(document, parsedSignature.parameterSource),
+		extractParameterNames(document, providerSignature.parameterSource),
 		returnType,
 		options
 	);
@@ -489,14 +532,16 @@ function buildFunctionLabelFromParts(
 		spansMultipleLines: boolean;
 	}
 ): string | undefined {
-	if(returnType === undefined) {
-		return undefined;
+	if(returnType !== undefined) {
+		returnType = normaliseFoldedSignatureReturnType({
+			document,
+			returnType
+		}, foldedSignatureRefiners);
 	}
 
-	returnType = normaliseFoldedSignatureReturnType({
-		document,
-		returnType
-	}, foldedSignatureRefiners);
+	if(returnType === undefined && !options.collapseSignature) {
+		return undefined;
+	}
 
 	if(!options.collapseSignature && !options.spansMultipleLines) {
 		return undefined;
@@ -602,14 +647,18 @@ function appendRegion(region: RegionNode, regions: RegionNode[]): void {
 /**
  * Checks whether a region is callable for signature hint rendering
  */
-function isFunctionLikeRegion(region: RegionNode): boolean {
+function isFunctionLikeRegion(document: vscode.TextDocument, region: RegionNode): boolean {
 	return functionLikeKinds.has(region.kind)
-		|| (region.semanticKind !== undefined && functionLikeKinds.has(region.semanticKind));
+		|| (region.semanticKind !== undefined && functionLikeKinds.has(region.semanticKind))
+		|| isFoldedSignatureCallableRegion({
+			document,
+			region
+		}, foldedSignatureRefiners);
 }
 
-function isHintableRegion(region: RegionNode): boolean {
-	return isFunctionLikeRegion(region)
-		|| isBlockPlaceholderRegion(region)
+function isHintableRegion(document: vscode.TextDocument, region: RegionNode): boolean {
+	return isFunctionLikeRegion(document, region)
+		|| isBlockPlaceholderRegion(document, region)
 		|| containerHintKinds.has(region.kind)
 		|| (
 			region.semanticKind !== undefined
@@ -617,12 +666,16 @@ function isHintableRegion(region: RegionNode): boolean {
 		);
 }
 
-function isBlockPlaceholderRegion(region: RegionNode): boolean {
+function isBlockPlaceholderRegion(document: vscode.TextDocument, region: RegionNode): boolean {
 	return blockPlaceholderKinds.has(region.kind)
 		|| (
 			region.semanticKind !== undefined
 			&& blockPlaceholderKinds.has(region.semanticKind)
-		);
+		)
+		|| isFoldedSignatureBlockRegion({
+			document,
+			region
+		}, foldedSignatureRefiners);
 }
 
 function hasOpeningBrace(document: vscode.TextDocument, region: RegionNode): boolean {
@@ -650,14 +703,19 @@ function getDocumentFunctionRegions(documentUri: string): Map<number, RegionNode
 	return createdRegions;
 }
 
-function createHintPlacementForKind(
+export function createHintPlacementForKind(
 	document: vscode.TextDocument,
 	region: RegionNode,
 	line: vscode.TextLine,
 	hint: FoldedRegionHint
 ): HintPlacement {
 	if(hint.hiddenDelimiter !== undefined) {
-		return createDelimiterHintPlacement(line, region.selectionLine, hint.hiddenDelimiter);
+		return createDelimiterHintPlacement(
+			line,
+			region.selectionLine,
+			hint.hiddenDelimiter,
+			hint.hiddenDelimiterPlacement ?? "first"
+		);
 	}
 
 	return {
@@ -668,9 +726,12 @@ function createHintPlacementForKind(
 function createDelimiterHintPlacement(
 	line: vscode.TextLine,
 	lineNumber: number,
-	delimiter: string
+	delimiter: string,
+	placement: "first" | "last"
 ): HintPlacement {
-	const delimiterIndex = line.text.indexOf(delimiter);
+	const delimiterIndex = placement === "last"
+		? line.text.lastIndexOf(delimiter)
+		: line.text.indexOf(delimiter);
 
 	if(delimiterIndex < 0) {
 		return {
@@ -922,34 +983,34 @@ function extractParameterDetails(
 }
 
 /**
- * Resolves return type from hover providers before local fallbacks
+ * Resolves provider-backed callable signatures for folded hints
  */
-async function resolveProviderReturnType(
+async function resolveProviderSignature(
 	document: vscode.TextDocument,
 	region: RegionNode
-): Promise<string | undefined> {
+): Promise<ParsedSignatureLine | undefined> {
 	const documentUri = document.uri.toString();
 	const cacheKey = `${document.version}:${region.selectionLine}:${region.rangeEndLine}`;
-	const documentCache = getProviderReturnTypeCache(documentUri);
+	const documentCache = getProviderSignatureCache(documentUri);
 	const cachedValue = documentCache.get(cacheKey);
 
 	if(cachedValue !== undefined) {
 		return cachedValue;
 	}
 
-	const providerReturnType = await queryProviderReturnType(document, region);
+	const providerSignature = await queryProviderSignature(document, region);
 
-	if(providerReturnType !== undefined) {
-		documentCache.set(cacheKey, providerReturnType);
+	if(providerSignature !== undefined) {
+		documentCache.set(cacheKey, providerSignature);
 	}
 
-	return providerReturnType;
+	return providerSignature;
 }
 
-async function queryProviderReturnType(
+async function queryProviderSignature(
 	document: vscode.TextDocument,
 	region: RegionNode
-): Promise<string | undefined> {
+): Promise<ParsedSignatureLine | undefined> {
 	const position = createTypeQueryPosition(document, region);
 	let hovers: vscode.Hover[] | undefined;
 
@@ -960,31 +1021,35 @@ async function queryProviderReturnType(
 			position
 		);
 	} catch(error) {
-		console.debug(
-			`[semanticFold] Hover type query failed, falling back to local return type inference: ${formatError(error)}`
+		debugProviderSignatureUnavailable(
+			document,
+			`hover query failed: ${formatError(error)}`
 		);
 		return undefined;
 	}
 
 	if(hovers === undefined || hovers.length === 0) {
+		debugProviderSignatureUnavailable(document, "hover provider returned no signatures");
 		return undefined;
 	}
 
 	for(const hover of hovers) {
-		const returnType = extractReturnTypeFromHover(hover, document);
+		const providerSignature = extractSignatureFromHover(hover, document);
 
-		if(returnType !== undefined) {
-			return returnType;
+		if(providerSignature !== undefined) {
+			return providerSignature;
 		}
 	}
+
+	debugProviderSignatureUnavailable(document, "hover signatures were not parseable");
 
 	return undefined;
 }
 
-function extractReturnTypeFromHover(
+function extractSignatureFromHover(
 	hover: vscode.Hover,
 	document: vscode.TextDocument
-): string | undefined {
+): ParsedSignatureLine | undefined {
 	for(const content of hover.contents) {
 		const contentText = toHoverContentText(content);
 
@@ -995,10 +1060,10 @@ function extractReturnTypeFromHover(
 		const signatureLines = extractHoverSignatureCandidates(contentText);
 
 		for(const signatureLine of signatureLines) {
-			const returnType = extractReturnTypeFromHoverSignature(signatureLine, document);
+			const providerSignature = parseSignatureLine(document, signatureLine, true);
 
-			if(returnType !== undefined) {
-				return returnType;
+			if(providerSignature !== undefined) {
+				return providerSignature;
 			}
 		}
 	}
@@ -1035,6 +1100,16 @@ function extractHoverSignatureCandidates(contentText: string): string[] {
 	const signatureLines: string[] = [];
 
 	for(const candidate of candidates) {
+		const collapsedCandidate = candidate
+			.split(/\r?\n/u)
+			.map((line) => line.trim())
+			.filter((line) => line.length > 0)
+			.join(" ");
+
+		if(collapsedCandidate.includes("(")) {
+			signatureLines.push(collapsedCandidate);
+		}
+
 		for(const line of candidate.split(/\r?\n/u)) {
 			const trimmedLine = line.trim();
 
@@ -1047,13 +1122,6 @@ function extractHoverSignatureCandidates(contentText: string): string[] {
 	}
 
 	return signatureLines;
-}
-
-function extractReturnTypeFromHoverSignature(
-	signatureLine: string,
-	document: vscode.TextDocument
-): string | undefined {
-	return parseSignatureLine(document, signatureLine, true)?.returnType;
 }
 
 function parseSignatureLine(
@@ -1105,21 +1173,8 @@ function parseSignatureLine(
 		};
 	}
 
-	const arrowReturnMatch = cleanedLine
-		.slice(closeIndex + 1)
-		.match(/^\s*=>\s*([^={;]+?)\s*(?:\{|$)/);
-
-	if(arrowReturnMatch === null) {
-		return {
-			parameterSource
-		};
-	}
-
-	const arrowReturnType = arrowReturnMatch[1].trim();
-
 	return {
-		parameterSource,
-		returnType: arrowReturnType.length === 0 ? undefined : arrowReturnType
+		parameterSource
 	};
 }
 
@@ -1145,16 +1200,16 @@ function createTypeQueryPosition(document: vscode.TextDocument, region: RegionNo
 	return new vscode.Position(region.selectionLine, queryColumn);
 }
 
-function getProviderReturnTypeCache(documentUri: string): Map<string, string> {
-	const existingCache = providerReturnTypeCacheByDocument.get(documentUri);
+function getProviderSignatureCache(documentUri: string): Map<string, ParsedSignatureLine> {
+	const existingCache = providerSignatureCacheByDocument.get(documentUri);
 
 	if(existingCache !== undefined) {
 		return existingCache;
 	}
 
-	const createdCache = new Map<string, string>();
+	const createdCache = new Map<string, ParsedSignatureLine>();
 
-	providerReturnTypeCacheByDocument.set(documentUri, createdCache);
+	providerSignatureCacheByDocument.set(documentUri, createdCache);
 
 	return createdCache;
 }
@@ -1166,7 +1221,6 @@ function extractReturnType(document: vscode.TextDocument, region: RegionNode): s
 	if(bounds === undefined) {
 		debugHintFallback(
 			document,
-			region,
 			"typed signature",
 			"parameter parse failed, using return-type fallbacks"
 		);
@@ -1186,7 +1240,6 @@ function extractReturnType(document: vscode.TextDocument, region: RegionNode): s
 
 	debugHintFallback(
 		document,
-		region,
 		"typed signature",
 		"explicit return type missing, using return-type fallbacks"
 	);
@@ -1342,28 +1395,52 @@ function normaliseParameterName(
 		return isRestParameter ? "...[…]" : "[…]";
 	}
 
+	const rawRefinedName = normaliseParameterNameWithRefiners(document, parameter, isRestParameter);
+
+	if(rawRefinedName !== undefined) {
+		return rawRefinedName ?? undefined;
+	}
+
 	parameter = stripTopLevelTypeAnnotation(parameter).trim().replace(/\?$/, "");
 
 	if(parameter.length === 0 || parameter === "this") {
 		return undefined;
 	}
 
-	const simpleMatch = parameter.match(/^[A-Za-z_$][\w$]*$/);
+	const strippedRefinedName = normaliseParameterNameWithRefiners(document, parameter, isRestParameter);
 
-	if(simpleMatch !== null) {
-		return isRestParameter ? `...${parameter}` : parameter;
+	if(strippedRefinedName !== undefined) {
+		return strippedRefinedName ?? undefined;
 	}
 
+	const simpleMatch = parameter.match(/^[A-Za-z_$][\w$]*$/);
+
+	return simpleMatch === null
+		? undefined
+		: isRestParameter ? `...${parameter}` : parameter;
+}
+
+function normaliseParameterNameWithRefiners(
+	document: vscode.TextDocument,
+	parameter: string,
+	isRestParameter: boolean
+): string | null | undefined {
 	const refinedName = normaliseFoldedSignatureParameterName({
 		document,
-		parameterText
+		parameterText: parameter
 	}, foldedSignatureRefiners);
+
+	if(refinedName === null) {
+		return null;
+	}
 
 	if(refinedName === undefined) {
 		return undefined;
 	}
 
-	return isRestParameter ? `...${refinedName}` : refinedName;
+	return isRestParameter && !refinedName.startsWith("...")
+		? `...${refinedName}`
+		: refinedName;
 }
 
 /**
@@ -1473,26 +1550,15 @@ function extractTypedReturnType(
 	closeIndex: number
 ): string | undefined {
 	const afterParameters = headerText.slice(closeIndex + 1);
-	const postfixReturnMatch = afterParameters.match(/^\s*:\s*([^={]+?)(?:\s*\{|[\s]*=>|$)/);
-
-	if(postfixReturnMatch !== null) {
-		return postfixReturnMatch[1].trim();
-	}
-
 	const beforeParameters = headerText.slice(0, openIndex).trim();
 
-	if(
-		suppressesTypedReturnPrefix({
-			document,
-			headerPrefix: beforeParameters
-		}, foldedSignatureRefiners)
-	) {
-		return undefined;
-	}
-
-	return extractFoldedSignatureReturnTypeFromPrefix({
+	return extractFoldedSignatureReturnTypeFromHeader({
 		document,
-		headerPrefix: beforeParameters
+		headerText,
+		headerPrefix: beforeParameters,
+		afterParameters,
+		openIndex,
+		closeIndex
 	}, foldedSignatureRefiners);
 }
 
@@ -1502,7 +1568,6 @@ function extractTypedReturnType(
 function extractFallbackReturnType(document: vscode.TextDocument, region: RegionNode): string | undefined {
 	debugHintFallback(
 		document,
-		region,
 		"return type",
 		"entering language return inference and default fallbacks"
 	);
@@ -1527,7 +1592,6 @@ function extractFallbackReturnType(document: vscode.TextDocument, region: Region
 	if(defaultReturnType !== undefined) {
 		debugHintFallback(
 			document,
-			region,
 			"language default return type",
 			`using ${defaultReturnType} for language without inferred return type`
 		);
@@ -1551,22 +1615,36 @@ function extractTypedReturnTypeFromRegionHeader(
 
 function debugHintFallback(
 	document: vscode.TextDocument,
-	region: RegionNode,
 	path: string,
 	reason: string
 ): void {
-	console.debug(
-		`[semanticFold] Folded hint fallback (${path}) for ${formatDebugRegion(region)} `
-			+ `in ${document.uri.toString()}: ${reason}`
+	const scope = `${document.languageId}:${document.uri.toString()}:${path}:${reason}`;
+
+	debugOnce(
+		`folded-hint-fallback:${scope}`,
+		`[semanticFold] Folded hint fallback (${path}) for ${document.languageId} `
+			+ `file ${document.uri.toString()}: ${reason}`
 	);
 }
 
-function formatDebugRegion(region: RegionNode): string {
-	const name = region.name === undefined || region.name.length === 0
-		? "unnamed"
-		: region.name;
+function debugSourceSignatureFallback(
+	document: vscode.TextDocument,
+	reason: string
+): void {
+	debugHintFallback(document, "source signature", reason);
+}
 
-	return `${name}<${region.kind}>@${region.selectionLine}-${region.rangeEndLine}`;
+function debugProviderSignatureUnavailable(
+	document: vscode.TextDocument,
+	reason: string
+): void {
+	const scope = `${document.languageId}:${document.uri.toString()}:${reason}`;
+
+	debugOnce(
+		`provider-signature-unavailable:${scope}`,
+		`[semanticFold] Provider signature unavailable for ${document.languageId} `
+			+ `file ${document.uri.toString()}: ${reason}`
+	);
 }
 
 function formatError(error: unknown): string {

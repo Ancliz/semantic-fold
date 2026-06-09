@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import type { RegionKind, RegionNode } from "../model/region";
+import { debugOnce } from "../util/debug";
 import { languageRefiners } from "./languageRefinerRegistry";
 import { applyLanguageRefinements, type DecodedSemanticToken } from "./languageRefinement";
 
@@ -50,19 +51,28 @@ export function refineWithSemanticTokens(
 	context?: SemanticTokenRefinementContext
 ): RegionNode[] {
 	if(!context) {
-		console.debug("[semanticFold] Semantic refinement skipped because no semantic context was provided");
+		debugOnce(
+			"semantic-refinement-missing-context",
+			"[semanticFold] Semantic refinement skipped because no semantic context was provided"
+		);
 		return rootNodes;
 	}
 
 	const uri = context.document.uri.toString();
 
 	if(!isSemanticTokens(context.semanticTokens)) {
-		console.debug(`[semanticFold] Semantic refinement skipped for ${uri}: semantic tokens unavailable`);
+		debugOnce(
+			`semantic-refinement-tokens-unavailable:${uri}`,
+			`[semanticFold] Semantic refinement skipped for ${uri}: semantic tokens unavailable`
+		);
 		return rootNodes;
 	}
 
 	if(!isSemanticTokenLegend(context.semanticTokenLegend)) {
-		console.debug(`[semanticFold] Semantic refinement skipped for ${uri}: semantic token legend unavailable`);
+		debugOnce(
+			`semantic-refinement-legend-unavailable:${uri}`,
+			`[semanticFold] Semantic refinement skipped for ${uri}: semantic token legend unavailable`
+		);
 		return rootNodes;
 	}
 
@@ -70,7 +80,10 @@ export function refineWithSemanticTokens(
 		const semanticTokens = decodeSemanticTokens(context.semanticTokens, context.semanticTokenLegend);
 
 		if(semanticTokens.length === 0) {
-			console.debug(`[semanticFold] Semantic refinement skipped for ${uri}: no semantic tokens returned`);
+			debugOnce(
+				`semantic-refinement-empty-tokens:${uri}`,
+				`[semanticFold] Semantic refinement skipped for ${uri}: no semantic tokens returned`
+			);
 			return rootNodes;
 		}
 
@@ -87,7 +100,10 @@ export function refineWithSemanticTokens(
 			semanticTokens
 		}, languageRefiners);
 	} catch (error) {
-		console.debug(`[semanticFold] Semantic refinement failed for ${uri}: ${formatError(error)}`);
+		debugOnce(
+			`semantic-refinement-failed:${uri}:${formatError(error)}`,
+			`[semanticFold] Semantic refinement failed for ${uri}: ${formatError(error)}`
+		);
 		return rootNodes;
 	}
 

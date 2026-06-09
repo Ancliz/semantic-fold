@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import type { RegionNode } from "../model/region";
+import { debugOnce } from "../util/debug";
 import { mapSymbolKind } from "../util/symbolKindMap";
 
 /**
@@ -21,15 +22,22 @@ export function normalizeSymbols(
 		}
 
 		if(isSymbolInformation(symbol)) {
-			console.debug(
-				`[semanticFold] Using flat SymbolInformation fallback for ${symbol.name} at index ${String(index)}`
-			);
+			debugFlatSymbolFallback(symbol);
 			return symbolInformationRegionNode(symbol, index);
 		}
 
 		return undefined;
 	})
 	.filter((region): region is RegionNode => region !== undefined);
+}
+
+function debugFlatSymbolFallback(symbol: vscode.SymbolInformation): void {
+	const uri = symbol.location.uri.toString();
+
+	debugOnce(
+		`flat-symbol-information-fallback:${uri}`,
+		`[semanticFold] Using flat SymbolInformation fallback for ${uri}`
+	);
 }
 
 /**

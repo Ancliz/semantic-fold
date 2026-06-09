@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import type { RegionNode } from "../model/region";
+import { debugOnce } from "../util/debug";
 
 /*
  * Generic folded-signature refinement entry point
@@ -22,11 +23,6 @@ export interface FoldedSignatureReturnContext {
 	providerReturnType?: string;
 }
 
-export interface FoldedSignatureTypedReturnContext {
-	document: vscode.TextDocument;
-	headerPrefix: string;
-}
-
 export interface FoldedSignatureReturnInferenceContext {
 	document: vscode.TextDocument;
 	region: RegionNode;
@@ -38,9 +34,13 @@ export interface FoldedSignatureParameterContext {
 	parameterText: string;
 }
 
-export interface FoldedSignatureReturnPrefixContext {
+export interface FoldedSignatureHeaderReturnContext {
 	document: vscode.TextDocument;
+	headerText: string;
 	headerPrefix: string;
+	afterParameters: string;
+	openIndex: number;
+	closeIndex: number;
 }
 
 export interface FoldedSignatureReturnNormalisationContext {
@@ -53,16 +53,27 @@ export interface FoldedSignatureDefaultReturnContext {
 	region: RegionNode;
 }
 
+export interface FoldedSignatureCallableContext {
+	document: vscode.TextDocument;
+	region: RegionNode;
+}
+
+export interface FoldedSignatureBlockContext {
+	document: vscode.TextDocument;
+	region: RegionNode;
+}
+
 export interface FoldedSignatureRefiner {
 	languageIds: readonly string[];
 	refineHintAnchor?(context: FoldedSignatureAnchorContext): number | undefined;
 	shouldPreferLocalReturnType?(context: FoldedSignatureReturnContext): boolean;
-	shouldSuppressTypedReturnPrefix?(context: FoldedSignatureTypedReturnContext): boolean;
 	inferReturnType?(context: FoldedSignatureReturnInferenceContext): string | undefined;
-	normaliseParameterName?(context: FoldedSignatureParameterContext): string | undefined;
-	extractReturnTypeFromPrefix?(context: FoldedSignatureReturnPrefixContext): string | undefined;
+	normaliseParameterName?(context: FoldedSignatureParameterContext): string | null | undefined;
+	extractReturnTypeFromHeader?(context: FoldedSignatureHeaderReturnContext): string | undefined;
 	normaliseReturnType?(context: FoldedSignatureReturnNormalisationContext): string | undefined;
 	defaultReturnType?(context: FoldedSignatureDefaultReturnContext): string | undefined;
+	isCallableRegion?(context: FoldedSignatureCallableContext): boolean;
+	isBlockRegion?(context: FoldedSignatureBlockContext): boolean;
 }
 
 export function refineFoldedSignatureAnchor(
@@ -81,9 +92,7 @@ export function refineFoldedSignatureAnchor(
 				return anchorColumn;
 			}
 		} catch(error) {
-			console.debug(
-				`[semanticFold] Folded signature anchor refinement failed for ${context.document.languageId}: ${formatError(error)}`
-			);
+			debugRefinementFailure(context.document, "anchor", error);
 		}
 	}
 
@@ -104,32 +113,7 @@ export function prefersLocalFoldedSignatureReturnType(
 				return true;
 			}
 		} catch(error) {
-			console.debug(
-				`[semanticFold] Folded signature return refinement failed for ${context.document.languageId}: ${formatError(error)}`
-			);
-		}
-	}
-
-	return false;
-}
-
-export function suppressesTypedReturnPrefix(
-	context: FoldedSignatureTypedReturnContext,
-	refiners: readonly FoldedSignatureRefiner[]
-): boolean {
-	for(const refiner of matchingRefiners(context.document, refiners)) {
-		if(refiner.shouldSuppressTypedReturnPrefix === undefined) {
-			continue;
-		}
-
-		try {
-			if(refiner.shouldSuppressTypedReturnPrefix(context)) {
-				return true;
-			}
-		} catch(error) {
-			console.debug(
-				`[semanticFold] Folded signature typed-return refinement failed for ${context.document.languageId}: ${formatError(error)}`
-			);
+			debugRefinementFailure(context.document, "return preference", error);
 		}
 	}
 
@@ -152,9 +136,7 @@ export function inferFoldedSignatureReturnType(
 				return returnType;
 			}
 		} catch(error) {
-			console.debug(
-				`[semanticFold] Folded signature return inference failed for ${context.document.languageId}: ${formatError(error)}`
-			);
+			debugRefinementFailure(context.document, "return inference", error);
 		}
 	}
 
@@ -164,7 +146,7 @@ export function inferFoldedSignatureReturnType(
 export function normaliseFoldedSignatureParameterName(
 	context: FoldedSignatureParameterContext,
 	refiners: readonly FoldedSignatureRefiner[]
-): string | undefined {
+): string | null | undefined {
 	for(const refiner of matchingRefiners(context.document, refiners)) {
 		if(refiner.normaliseParameterName === undefined) {
 			continue;
@@ -177,34 +159,30 @@ export function normaliseFoldedSignatureParameterName(
 				return parameterName;
 			}
 		} catch(error) {
-			console.debug(
-				`[semanticFold] Folded signature parameter refinement failed for ${context.document.languageId}: ${formatError(error)}`
-			);
+			debugRefinementFailure(context.document, "parameter", error);
 		}
 	}
 
 	return undefined;
 }
 
-export function extractFoldedSignatureReturnTypeFromPrefix(
-	context: FoldedSignatureReturnPrefixContext,
+export function extractFoldedSignatureReturnTypeFromHeader(
+	context: FoldedSignatureHeaderReturnContext,
 	refiners: readonly FoldedSignatureRefiner[]
 ): string | undefined {
 	for(const refiner of matchingRefiners(context.document, refiners)) {
-		if(refiner.extractReturnTypeFromPrefix === undefined) {
+		if(refiner.extractReturnTypeFromHeader === undefined) {
 			continue;
 		}
 
 		try {
-			const returnType = refiner.extractReturnTypeFromPrefix(context);
+			const returnType = refiner.extractReturnTypeFromHeader(context);
 
 			if(returnType !== undefined) {
 				return returnType;
 			}
 		} catch(error) {
-			console.debug(
-				`[semanticFold] Folded signature prefix refinement failed for ${context.document.languageId}: ${formatError(error)}`
-			);
+			debugRefinementFailure(context.document, "header", error);
 		}
 	}
 
@@ -227,9 +205,7 @@ export function normaliseFoldedSignatureReturnType(
 				return returnType;
 			}
 		} catch(error) {
-			console.debug(
-				`[semanticFold] Folded signature return normalisation failed for ${context.document.languageId}: ${formatError(error)}`
-			);
+			debugRefinementFailure(context.document, "return normalisation", error);
 		}
 	}
 
@@ -252,13 +228,53 @@ export function defaultFoldedSignatureReturnType(
 				return returnType;
 			}
 		} catch(error) {
-			console.debug(
-				`[semanticFold] Folded signature default return refinement failed for ${context.document.languageId}: ${formatError(error)}`
-			);
+			debugRefinementFailure(context.document, "default return", error);
 		}
 	}
 
 	return undefined;
+}
+
+export function isFoldedSignatureCallableRegion(
+	context: FoldedSignatureCallableContext,
+	refiners: readonly FoldedSignatureRefiner[]
+): boolean {
+	for(const refiner of matchingRefiners(context.document, refiners)) {
+		if(refiner.isCallableRegion === undefined) {
+			continue;
+		}
+
+		try {
+			if(refiner.isCallableRegion(context)) {
+				return true;
+			}
+		} catch(error) {
+			debugRefinementFailure(context.document, "callable detection", error);
+		}
+	}
+
+	return false;
+}
+
+export function isFoldedSignatureBlockRegion(
+	context: FoldedSignatureBlockContext,
+	refiners: readonly FoldedSignatureRefiner[]
+): boolean {
+	for(const refiner of matchingRefiners(context.document, refiners)) {
+		if(refiner.isBlockRegion === undefined) {
+			continue;
+		}
+
+		try {
+			if(refiner.isBlockRegion(context)) {
+				return true;
+			}
+		} catch(error) {
+			debugRefinementFailure(context.document, "block detection", error);
+		}
+	}
+
+	return false;
 }
 
 function matchingRefiners(
@@ -266,6 +282,18 @@ function matchingRefiners(
 	refiners: readonly FoldedSignatureRefiner[]
 ): FoldedSignatureRefiner[] {
 	return refiners.filter((refiner) => refiner.languageIds.includes(document.languageId));
+}
+
+function debugRefinementFailure(
+	document: vscode.TextDocument,
+	phase: string,
+	error: unknown
+): void {
+	debugOnce(
+		`folded-signature-refinement-failed:${document.languageId}:${phase}:${formatError(error)}`,
+		`[semanticFold] Folded signature ${phase} refinement failed for `
+			+ `${document.languageId}: ${formatError(error)}`
+	);
 }
 
 function formatError(error: unknown): string {

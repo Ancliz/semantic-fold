@@ -4,6 +4,7 @@ import {
 	buildFoldedRegionHint,
 	buildFunctionLabel,
 	createHintAnchorRange,
+	createHintPlacementForKind,
 	createSignatureReplacementRange
 } from "../util/foldedSignatureHints";
 import type { RegionNode } from "../model/region";
@@ -146,6 +147,134 @@ suite("Folded Signature Hints", () => {
 		);
 	});
 
+	test("keeps object union members in promise return hints", async () => {
+		const document = await openDocument([
+			"async save(fileName): Promise<string | { error: unknown; fileName: string }> {",
+			"\treturn fileName;",
+			"}"
+		], "typescript");
+		const region = createRegion("method", 0, 2, "save");
+
+		assert.strictEqual(
+			buildFunctionLabel(document, region, {
+				collapseSignature: true
+			}),
+			"(fileName) : Promise<string | obj<unknown, string>>"
+		);
+	});
+
+	test("normalises empty object members in provider return hints", async () => {
+		const document = await openDocument([
+			"async save(fileName) {",
+			"\treturn fileName;",
+			"}"
+		], "javascript");
+		const region = createRegion("method", 0, 2, "save");
+
+		assert.strictEqual(
+			buildFunctionLabel(document, region, {
+				collapseSignature: true,
+				returnTypeOverride: "Promise<string | {}>"
+			}),
+			"(fileName) : Promise<string | object>"
+		);
+	});
+
+	test("summarises multiline object provider return hints", async () => {
+		const document = await openDocument([
+			"async save(fileName) {",
+			"\treturn fileName;",
+			"}"
+		], "javascript");
+		const region = createRegion(
+			"method",
+			0,
+			2,
+			"save",
+			"(fileName: string): Promise<string | {\nerror: unknown;\nfileName: string;\n}>"
+		);
+
+		assert.strictEqual(
+			buildFunctionLabel(document, region, {
+				collapseSignature: true
+			}),
+			"(fileName) : Promise<string | obj<unknown, string>>"
+		);
+	});
+
+	test("summarises large object return types by member count", async () => {
+		const document = await openDocument([
+			"function read() {",
+			"\treturn {};",
+			"}"
+		], "typescript");
+		const region = createRegion("function", 0, 2, "read");
+
+		assert.strictEqual(
+			buildFunctionLabel(document, region, {
+				collapseSignature: true,
+				returnTypeOverride: "{ a: string; b: number; c: boolean; d: null; e: undefined; f: Date }"
+			}),
+			"() : obj..6"
+		);
+	});
+
+	test("keeps function-type returns in collapsed signature hints", async () => {
+		const document = await openDocument([
+			"function makeFormatter(prefix): (value: string) => string {",
+			"\treturn (value) => `${prefix}:${value}`;",
+			"}"
+		], "typescript");
+		const region = createRegion("function", 0, 2, "makeFormatter");
+
+		assert.strictEqual(
+			buildFunctionLabel(document, region, {
+				collapseSignature: true
+			}),
+			"(prefix) : (value: string) => string"
+		);
+	});
+
+	test("uses provider signatures before source parameter parsing", async () => {
+		const document = await openDocument([
+			"const run = value => {",
+			"\treturn value + 1;",
+			"}"
+		], "typescript");
+		const region = createRegion("function", 0, 2, "run");
+
+		assert.strictEqual(
+			buildFunctionLabel(document, region, {
+				collapseSignature: true,
+				providerSignatureOverride: {
+					parameterSource: "value: string",
+					returnType: "number"
+				}
+			}),
+			"(value) : number"
+		);
+	});
+
+	test("uses provider signature params before local source params", async () => {
+		const document = await openDocument([
+			"function load(localName) {",
+			"\treturn localName;",
+			"}"
+		], "typescript");
+		const region = createRegion("function", 0, 2, "load");
+
+		assert.strictEqual(
+			buildFunctionLabel(document, region, {
+				collapseSignature: true,
+				providerSignatureOverride: {
+					parameterSource: "providerName: string",
+					returnType: "ProviderResult"
+				}
+			}),
+			"(providerName) : ProviderResult"
+		);
+	});
+
 	test("renders only return type for zero-parameter collapsed signatures", async () => {
 		const document = await openDocument([
 			"function ready(): void {",
@@ -229,13 +358,219 @@ suite("Folded Signature Hints", () => {
 		);
 	});
 
-	test("does not default javascript collapsed signatures to void", async () => {
+	test("renders parameter-only collapsed signatures without return types", async () => {
 		const document = await openDocument([
 			"function configure(plugin) {",
 			"\tplugin.enabled = true;",
 			"}"
 		], "javascript");
 		const region = createRegion("function", 0, 2, "configure");
+
+		assert.strictEqual(
+			buildFunctionLabel(document, region, {
+				collapseSignature: true
+			}),
+			"(plugin)"
+		);
+	});
+
+	test("renders lua local function collapsed params without return type", async () => {
+		const document = await openDocument([
+			"local function load_rows(path, transform)",
+			"\treturn {}",
+			"end"
+		], "lua");
+		const region = createRegion("function", 0, 2, "load_rows");
+
+		assert.strictEqual(
+			buildFunctionLabel(document, region, {
+				collapseSignature: true
+			}),
+			"(path, transform)"
+		);
+	});
+
+	test("renders python arrow return signatures via refiner", async () => {
+		const document = await openDocument([
+			"def build_report(path: Path, transform=None) -> Report:",
+			"\treturn Report(path, transform)",
+			""
+		], "python");
+		const region = createRegion("function", 0, 2, "build_report");
+
+		assert.strictEqual(
+			buildFunctionLabel(document, region, {
+				collapseSignature: true
+			}),
+			"(path, transform) : Report"
+		);
+	});
+
+	test("drops python receiver parameters via refiner", async () => {
+		const document = await openDocument([
+			"def render(self, path: Path) -> Report:",
+			"\treturn Report(path)",
+			""
+		], "python");
+		const region = createRegion("method", 0, 2, "render");
+
+		assert.strictEqual(
+			buildFunctionLabel(document, region, {
+				collapseSignature: true
+			}),
+			"(path) : Report"
+		);
+	});
+
+	test("renders rust arrow return signatures via refiner", async () => {
+		const document = await openDocument([
+			"fn new(name: impl Into<String>, score: i32) -> Self {",
+			"\tSelf { name: name.into(), score }",
+			"}"
+		], "rust");
+		const region = createRegion("function", 0, 2, "new");
+
+		assert.strictEqual(
+			buildFunctionLabel(document, region, {
+				collapseSignature: true
+			}),
+			"(name, score) : Self"
+		);
+	});
+
+	test("drops rust receiver parameters via refiner", async () => {
+		const document = await openDocument([
+			"fn push(&mut self, value: Entry) -> Self {",
+			"\tself.entries.push(value);",
+			"\tself",
+			"}"
+		], "rust");
+		const region = createRegion("method", 0, 3, "push");
+
+		assert.strictEqual(
+			buildFunctionLabel(document, region, {
+				collapseSignature: true
+			}),
+			"(value) : Self"
+		);
+	});
+
+	test("renders rust impl headers as closed folded blocks", async () => {
+		const document = await openDocument([
+			"impl fmt::Display for Entry {",
+			"\tfn fmt(&self) {}",
+			"}"
+		], "rust");
+		const region = createRegion("unknown", 0, 2, "impl fmt::Display for Entry");
+		const hint = buildFoldedRegionHint(document, region);
+
+		assert.strictEqual(hint?.text, "{} ");
+		assert.strictEqual(hint?.kind, "block");
+		assert.strictEqual(hint?.replaceSignature, false);
+		assert.strictEqual(hint?.hiddenDelimiter, "{");
+		assert.strictEqual(hint?.hiddenDelimiterPlacement, "last");
+	});
+
+	test("renders c prefix return signatures via refiner", async () => {
+		const document = await openDocument([
+			"static int compare_entries(const void *left, const void *right) {",
+			"\treturn 0;",
+			"}"
+		], "c");
+		const region = createRegion("function", 0, 2, "compare_entries");
+
+		assert.strictEqual(
+			buildFunctionLabel(document, region, {
+				collapseSignature: true
+			}),
+			"(left, right) : int"
+		);
+	});
+
+	test("uses c source parameters over placeholder provider signatures", async () => {
+		const document = await openDocument([
+			"static void print_entry(",
+			"\tconst Entry *entry,",
+			"\tconst char *prefix,",
+			"\tFILE *stream",
+			") {",
+			"}"
+		], "c");
+		const region = createRegion("function", 0, 5, "print_entry");
+
+		assert.strictEqual(
+			buildFunctionLabel(document, region, {
+				collapseSignature: true,
+				providerSignatureOverride: {
+					parameterSource: "sparkle",
+					returnType: "void"
+				}
+			}),
+			"(entry, prefix, stream) : void"
+		);
+	});
+
+	test("drops c void parameter lists via refiner", async () => {
+		const document = await openDocument([
+			"int main(void) {",
+			"\treturn 0;",
+			"}"
+		], "c");
+		const region = createRegion("function", 0, 2, "main");
+
+		assert.strictEqual(
+			buildFunctionLabel(document, region, {
+				collapseSignature: true
+			}),
+			"() : int"
+		);
+	});
+
+	test("renders cpp prefix return signatures via refiner", async () => {
+		const document = await openDocument([
+			"std::vector<T> where(Predicate predicate) const {",
+			"\treturn {};",
+			"}"
+		], "cpp");
+		const region = createRegion("method", 0, 2, "where");
+
+		assert.strictEqual(
+			buildFunctionLabel(document, region, {
+				collapseSignature: true
+			}),
+			"(predicate) : std::vector<T>"
+		);
+	});
+
+	test("uses cpp source parameters over placeholder provider signatures", async () => {
+		const document = await openDocument([
+			"ReportBuilder &add_entry(",
+			"\tstd::string name,",
+			"\tint score,",
+			"\tStatus status",
+			") {",
+			"}"
+		], "cpp");
+		const region = createRegion("method", 0, 5, "add_entry");
+
+		assert.strictEqual(
+			buildFunctionLabel(document, region, {
+				collapseSignature: true,
+				providerSignatureOverride: {
+					parameterSource: "sparkle",
+					returnType: "ReportBuilder &"
+				}
+			}),
+			"(name, score, status) : ReportBuilder &"
+		);
+	});
+
+	test("does not treat cpp constructor initialisers as return types", async () => {
+		const document = await openDocument([
+			"explicit ReportBuilder(std::string title) : title_(std::move(title)) {",
+			"}"
+		], "cpp");
+		const region = createRegion("constructor", 0, 1, "ReportBuilder");
 
 		assert.strictEqual(
 			buildFunctionLabel(document, region, {
@@ -296,6 +631,24 @@ suite("Folded Signature Hints", () => {
 		);
 	});
 
+	test("infers compact object return summaries from literals", async () => {
+		const document = await openDocument([
+			"function build() {",
+			"\treturn items.map((item) => {",
+			"\t\treturn { value: item, length: String(item).length }",
+			"\t})",
+			"}"
+		], "javascript");
+		const region = createRegion("function", 0, 4, "build");
+
+		assert.strictEqual(
+			buildFunctionLabel(document, region, {
+				collapseSignature: true
+			}),
+			"() : obj<unknown, number>"
+		);
+	});
+
 	test("infers function expression assignment return types from the body", async () => {
 		const document = await openDocument([
 			"const functionExpression = function makeGreeting(prefix, value) {",
@@ -313,6 +666,22 @@ suite("Folded Signature Hints", () => {
 		);
 	});
 
+	test("hints function expression variables as callables", async () => {
+		const document = await openDocument([
+			"const functionExpression = function makeGreeting(prefix, value) {",
+			"\treturn `${prefix}: ${value}`",
+			"}"
+		], "javascript");
+		const region = createRegion("variable", 0, 2, "functionExpression");
+		const hint = buildFoldedRegionHint(document, region, {
+			collapseSignature: true
+		});
+
+		assert.strictEqual(hint?.text, "(prefix, value) : string {} ");
+		assert.strictEqual(hint?.kind, "signature");
+		assert.strictEqual(hint?.replaceSignature, true);
+	});
+
 	test("prefers arrow function body inference over weak provider types", async () => {
 		const document = await openDocument([
 			"const arrowFunction = (a, b) => {",
@@ -328,6 +697,57 @@ suite("Folded Signature Hints", () => {
 			}),
 			"(a, b) : number"
 		);
+	});
+
+	test("hints arrow function variables as callables", async () => {
+		const document = await openDocument([
+			"const arrowFunction = (a, b) => {",
+			"\treturn a + b",
+			"}"
+		], "javascript");
+		const region = createRegion("variable", 0, 2, "arrowFunction");
+		const hint = buildFoldedRegionHint(document, region, {
+			collapseSignature: true
+		});
+
+		assert.strictEqual(hint?.text, "(a, b) : number {} ");
+		assert.strictEqual(hint?.kind, "signature");
+		assert.strictEqual(hint?.replaceSignature, true);
+	});
+
+	test("marks folded functions with existing syntax when not replacing signatures", async () => {
+		const document = await openDocument([
+			"function add(item) {",
+			"\treturn item",
+			"}"
+		], "javascript");
+		const region = createRegion("function", 0, 2, "add");
+		const hint = buildFoldedRegionHint(document, region);
+
+		assert.strictEqual(hint?.text, "{} ");
+		assert.strictEqual(hint?.kind, "signature");
+		assert.strictEqual(hint?.replaceSignature, false);
+		assert.strictEqual(hint?.hiddenDelimiter, "{");
+		assert.strictEqual(hint?.hiddenDelimiterPlacement, "last");
+	});
+
+	test("marks the function body brace after default object parameters", async () => {
+		const document = await openDocument([
+			"function add(item, options = {}) {",
+			"\treturn item",
+			"}"
+		], "javascript");
+		const line = document.lineAt(0);
+		const region = createRegion("function", 0, 2, "add");
+		const hint = buildFoldedRegionHint(document, region);
+
+		assert.notStrictEqual(hint, undefined);
+
+		const placement = createHintPlacementForKind(document, region, line, hint!);
+		const bodyBraceColumn = line.text.lastIndexOf("{");
+
+		assert.strictEqual(placement.anchorRange.start.character, bodyBraceColumn);
+		assert.strictEqual(placement.hiddenRange?.start.character, bodyBraceColumn);
 	});
 
 	test("places collapsed assignment callable hints after the equals sign", async () => {
@@ -348,6 +768,23 @@ suite("Folded Signature Hints", () => {
 
 		assert.strictEqual(anchorRange.start.character, expectedColumn);
 		assert.strictEqual(replacementRange?.start.character, expectedColumn);
+	});
+
+	test("replaces function expression RHS for collapsed assignment hints", async () => {
+		const document = await openDocument([
+			"const functionExpression = function makeGreeting(prefix, value) {",
+			"\treturn `${prefix}: ${value}`",
+			"}"
+		], "javascript");
+		const line = document.lineAt(0);
+		const region = createRegion("variable", 0, 2, "functionExpression");
+		const anchorRange = createHintAnchorRange(document, line, region);
+		const replacementRange = createSignatureReplacementRange(line, anchorRange);
+		const expectedColumn = line.text.indexOf("=") + 2;
+
+		assert.strictEqual(anchorRange.start.character, expectedColumn);
+		assert.strictEqual(replacementRange?.start.character, expectedColumn);
+		assert.strictEqual(replacementRange?.end.character, line.text.length);
 	});
 
 	test("uses provider selection as the generic hint anchor", async () => {
@@ -494,10 +931,11 @@ suite("Folded Signature Hints", () => {
 		const region = createRegion("class", 0, 4, "ReportBuilder");
 		const hint = buildFoldedRegionHint(document, region);
 
-		assert.strictEqual(hint?.text, "{...}");
+		assert.strictEqual(hint?.text, "{} ");
 		assert.strictEqual(hint?.kind, "block");
 		assert.strictEqual(hint?.replaceSignature, false);
 		assert.strictEqual(hint?.hiddenDelimiter, "{");
+		assert.strictEqual(hint?.hiddenDelimiterPlacement, "last");
 	});
 
 	test("previews multiline constructor call arguments", async () => {

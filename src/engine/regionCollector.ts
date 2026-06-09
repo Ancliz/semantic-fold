@@ -2,6 +2,7 @@ import * as vscode from "vscode";
 import type { RegionNode } from "../model/region";
 import { getCache, setCachedRegions } from "../util/cache";
 import { isSemanticRefinementEnabled } from "../util/config";
+import { debugOnce } from "../util/debug";
 import { attachFoldingOnlyNodes } from "./foldingRangeRefiner";
 import { languageRefiners } from "./languageRefinerRegistry";
 import { applyLanguageStructureRefinements } from "./languageRefinement";
@@ -92,12 +93,21 @@ export async function getRegions(
 	]);
 
 	if(options.requireSymbols && !symbolCollection.hasSymbols) {
-		console.debug(
-			`[semanticFold] Symbol-dependent command for ${uri} has no document symbols after retries, skipping folding-range fallback`
+		debugOnce(
+			`required-symbols-missing:${uri}`,
+			`[semanticFold] Symbol-dependent command for ${uri} has no document symbols `
+				+ "after retries, skipping folding-range fallback"
 		);
 		options.onMissingRequiredSymbols?.(document);
 
 		return [];
+	}
+
+	if(!symbolCollection.hasSymbols) {
+		debugOnce(
+			`folding-range-fallback:${uri}`,
+			`[semanticFold] Entering folding-range fallback for ${uri}`
+		);
 	}
 
 	const symbolNodes = normalizeSymbols(symbolCollection.symbols);
@@ -117,7 +127,10 @@ export async function getRegions(
 		: structuralNodes;
 
 	if(!semanticRefinementEnabled) {
-		console.debug(`[semanticFold] Semantic refinement disabled for ${uri}`);
+		debugOnce(
+			`semantic-refinement-disabled:${uri}`,
+			`[semanticFold] Semantic refinement disabled for ${uri}`
+		);
 	}
 
 	if(symbolCollection.cacheable) {
@@ -127,7 +140,8 @@ export async function getRegions(
 			nodes
 		});
 	} else {
-		console.debug(
+		debugOnce(
+			`region-cache-skipped-symbol-fallback:${uri}`,
 			`[semanticFold] Skipping region cache for ${uri} after document symbol fallback`
 		);
 	}
@@ -156,8 +170,9 @@ async function collectSymbols(
 
 		return await retryMissingSymbols(uri, executeSymbolProvider, symbols, options);
 	} catch (error) {
-		console.debug(
-			`[semanticFold] Document symbol provider failed for ${uri.toString()}, ${formatMissingSymbolAction(options)}: ${formatError(error)}`
+		debugOnce(
+			`document-symbol-provider-failed:${uri.toString()}:${formatError(error)}`,
+			`[semanticFold] Document symbol provider failed for ${uri.toString()}: ${formatError(error)}`
 		);
 		return {
 			symbols: undefined,
@@ -181,8 +196,10 @@ async function retryMissingSymbols(
 		try {
 			symbols = await executeSymbolProvider(uri);
 		} catch (error) {
-			console.debug(
-				`[semanticFold] Document symbol provider failed after empty result for ${uri.toString()}, ${formatMissingSymbolAction(options)}: ${formatError(error)}`
+			debugOnce(
+				`document-symbol-provider-retry-failed:${uri.toString()}:${formatError(error)}`,
+				`[semanticFold] Document symbol provider failed after empty result for `
+					+ `${uri.toString()}: ${formatError(error)}`
 			);
 
 			return {
@@ -193,8 +210,10 @@ async function retryMissingSymbols(
 		}
 
 		if(hasProviderSymbols(symbols)) {
-			console.debug(
-				`[semanticFold] Document symbol provider produced symbols for ${uri.toString()} after startup retry`
+			debugOnce(
+				`document-symbol-provider-recovered:${uri.toString()}`,
+				`[semanticFold] Document symbol provider produced symbols for ${uri.toString()} `
+					+ "after startup retry"
 			);
 
 			return {
@@ -205,8 +224,9 @@ async function retryMissingSymbols(
 		}
 	}
 
-	console.debug(
-		`[semanticFold] Document symbol provider returned no symbols for ${uri.toString()}, ${formatMissingSymbolAction(options)}`
+	debugOnce(
+		`document-symbol-provider-empty:${uri.toString()}`,
+		`[semanticFold] Document symbol provider returned no symbols for ${uri.toString()}`
 	);
 
 	return {
@@ -214,12 +234,6 @@ async function retryMissingSymbols(
 		hasSymbols: false,
 		cacheable: false
 	};
-}
-
-function formatMissingSymbolAction(options: RegionCollectionOptions): string {
-	return options.requireSymbols
-		? "skipping symbol-dependent command"
-		: "using uncached folding-range fallback";
 }
 
 function getSymbolProviderRetryDelays(options: RegionCollectionOptions): readonly number[] {
@@ -258,8 +272,10 @@ async function collectFoldingRanges(
 
 		return mergeWithInferredClauseFoldingRanges(document, foldingRanges);
 	} catch (error) {
-		console.debug(
-			`[semanticFold] Folding range provider failed for ${uri.toString()}, using inferred clause ranges: ${formatError(error)}`
+		debugOnce(
+			`folding-range-provider-failed:${uri.toString()}:${formatError(error)}`,
+			`[semanticFold] Folding range provider failed for ${uri.toString()}, `
+				+ `using inferred clause ranges: ${formatError(error)}`
 		);
 		return mergeWithInferredClauseFoldingRanges(document, undefined);
 	}
@@ -332,7 +348,10 @@ async function collectSemanticTokens(
 	try {
 		return await executeSemanticTokenProvider(uri);
 	} catch (error) {
-		console.debug(`[semanticFold] Semantic token provider failed for ${uri.toString()}: ${formatError(error)}`);
+		debugOnce(
+			`semantic-token-provider-failed:${uri.toString()}:${formatError(error)}`,
+			`[semanticFold] Semantic token provider failed for ${uri.toString()}: ${formatError(error)}`
+		);
 		return undefined;
 	}
 }
@@ -347,7 +366,10 @@ async function collectSemanticTokenLegend(
 	try {
 		return await executeSemanticTokenLegendProvider(uri);
 	} catch (error) {
-		console.debug(`[semanticFold] Semantic token legend provider failed for ${uri.toString()}: ${formatError(error)}`);
+		debugOnce(
+			`semantic-token-legend-provider-failed:${uri.toString()}:${formatError(error)}`,
+			`[semanticFold] Semantic token legend provider failed for ${uri.toString()}: ${formatError(error)}`
+		);
 		return undefined;
 	}
 }

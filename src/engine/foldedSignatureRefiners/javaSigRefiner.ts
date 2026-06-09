@@ -15,7 +15,7 @@ export const javaFoldedSignatureRefiner: FoldedSignatureRefiner = {
 	normaliseParameterName(context) {
 		return normaliseJavaParameterName(context.parameterText);
 	},
-	extractReturnTypeFromPrefix(context) {
+	extractReturnTypeFromHeader(context) {
 		return extractJavaReturnTypeFromPrefix(context.headerPrefix);
 	},
 	normaliseReturnType(context) {

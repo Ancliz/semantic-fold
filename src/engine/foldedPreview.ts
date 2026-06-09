@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import type { RegionNode } from "../model/region";
+import { debugOnce } from "../util/debug";
 
 /*
  * Generic folded-preview entry point
@@ -50,8 +51,10 @@ export function buildFoldedPreview(
 				return preview;
 			}
 		} catch (error) {
-			console.debug(
-				`[semanticFold] Folded preview failed for ${document.languageId}: ${formatError(error)}`
+			debugOnce(
+				`folded-preview-failed:${document.languageId}:${document.uri.toString()}:${formatError(error)}`,
+				`[semanticFold] Folded preview failed for ${document.languageId} `
+					+ `file ${document.uri.toString()}: ${formatError(error)}`
 			);
 		}
 	}
