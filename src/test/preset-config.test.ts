@@ -180,6 +180,170 @@ suite("Preset Configuration", () => {
 		});
 	});
 
+	test("allows language overrides to re-enable disabled toggle presets", async () => {
+		await withPresetSettings([
+			{
+				key: "readerMode",
+				value: {
+					enabled: false,
+					filter: {
+						kinds: ["comment"]
+					}
+				}
+			},
+			{
+				key: "languageOverrides",
+				value: {
+					typescript: {
+						readerMode: {
+							enabled: true,
+							filter: {
+								kinds: ["import"]
+							}
+						}
+					}
+				}
+			}
+		], async () => {
+			const typescriptDocument = await openLanguageDocument("typescript");
+			const pythonDocument = await openLanguageDocument("python");
+
+			assert.deepStrictEqual(
+				resolveTogglePresetArgs("readerMode", readerModeArgs, typescriptDocument),
+				{
+					filter: {
+						kinds: ["import"]
+					},
+					mode: "toggle"
+				}
+			);
+			assert.strictEqual(
+				resolveTogglePresetArgs("readerMode", readerModeArgs, pythonDocument),
+				undefined
+			);
+		});
+	});
+
+	test("allows language overrides to disable composite presets", async () => {
+		await withPresetSettings([
+			{
+				key: "apiOverview",
+				value: {
+					filters: [
+						{
+							kinds: ["comment"]
+						}
+					]
+				}
+			},
+			{
+				key: "languageOverrides",
+				value: {
+					typescript: {
+						apiOverview: {
+							enabled: false
+						}
+					}
+				}
+			}
+		], async () => {
+			const typescriptDocument = await openLanguageDocument("typescript");
+			const pythonDocument = await openLanguageDocument("python");
+
+			assert.strictEqual(
+				resolveCompositePresetArgs("apiOverview", apiOverviewArgs, typescriptDocument),
+				undefined
+			);
+			assert.deepStrictEqual(
+				resolveCompositePresetArgs("apiOverview", apiOverviewArgs, pythonDocument),
+				{
+					filters: [
+						{
+							kinds: ["comment"]
+						}
+					],
+					mode: "toggle"
+				}
+			);
+		});
+	});
+
+	test("falls back to global overrides when language entries are malformed", async () => {
+		await withPresetSettings([
+			{
+				key: "readerMode",
+				value: {
+					filter: {
+						kinds: ["comment"]
+					}
+				}
+			},
+			{
+				key: "languageOverrides",
+				value: {
+					typescript: "bad"
+				}
+			}
+		], async () => {
+			const document = await openLanguageDocument("typescript");
+
+			assert.deepStrictEqual(
+				resolveTogglePresetArgs("readerMode", readerModeArgs, document),
+				{
+					filter: {
+						kinds: ["comment"]
+					},
+					mode: "toggle"
+				}
+			);
+		});
+	});
+
+	test("drops invalid language composite branches but keeps valid categories", async () => {
+		await withPresetSettings([
+			{
+				key: "languageOverrides",
+				value: {
+					typescript: {
+						apiOverview: {
+							filters: [
+								{
+									kinds: ["not-real-kind"]
+								},
+								{
+									kinds: ["import"],
+									exactFoldDepth: 1
+								},
+								{
+									kinds: ["comment"],
+									maxFoldDepth: "bad"
+								}
+							]
+						}
+					}
+				}
+			}
+		], async () => {
+			const document = await openLanguageDocument("typescript");
+
+			assert.deepStrictEqual(
+				resolveCompositePresetArgs("apiOverview", apiOverviewArgs, document),
+				{
+					filters: [
+						{
+							kinds: ["import"],
+							exactFoldDepth: 1
+						},
+						{
+							kinds: ["comment"]
+						}
+					],
+					mode: "toggle"
+				}
+			);
+		});
+	});
+
 	test("ignores malformed overrides and keeps defaults", async () => {
 		await withPresetSettings([
 			{

@@ -12,7 +12,8 @@ export function filterRegions(rootNodes: readonly RegionNode[], filter: Collapse
 			&& !matchesExcludedKind(region, filter)
 			&& matchesParentKind(region, filter)
 			&& matchesAncestorKind(region, filter)
-			&& matchesSymbolDepth(region, filter);
+			&& matchesSymbolDepth(region, filter)
+			&& matchesFoldDepth(region, filter);
 	});
 }
 
@@ -142,6 +143,37 @@ function matchesSymbolDepth(region: RegionNode, filter: CollapseFilter): boolean
 	}
 
 	if(filter.maxSymbolDepth !== undefined && region.symbolDepth > filter.maxSymbolDepth) {
+		return false;
+	}
+
+	return true;
+}
+
+/**
+ * Applies fold-depth constraints only to folding-range-backed hierarchy
+ */
+function matchesFoldDepth(region: RegionNode, filter: CollapseFilter): boolean {
+	const hasFoldDepthFilter = filter.exactFoldDepth !== undefined
+		|| filter.minFoldDepth !== undefined
+		|| filter.maxFoldDepth !== undefined;
+
+	if(!hasFoldDepthFilter) {
+		return true;
+	}
+
+	if(region.foldDepth === undefined) {
+		return false;
+	}
+
+	if(filter.exactFoldDepth !== undefined && region.foldDepth !== filter.exactFoldDepth) {
+		return false;
+	}
+
+	if(filter.minFoldDepth !== undefined && region.foldDepth < filter.minFoldDepth) {
+		return false;
+	}
+
+	if(filter.maxFoldDepth !== undefined && region.foldDepth > filter.maxFoldDepth) {
 		return false;
 	}
 

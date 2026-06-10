@@ -2,7 +2,7 @@ import * as assert from "assert";
 import { getDefaultCollapseMode } from "../commands/collapse";
 import { filterRegions,flattenRegions,getAncestors,hasHierarchy } from "../engine/filterEngine";
 import { collectSelectionLines,selectFoldableRegions } from "../engine/foldExecutor";
-import { normaliseArgs,normaliseCollapseFilter } from "../model/filters";
+import { normaliseArgs,normaliseCollapseFilter,normaliseCompositeArgs } from "../model/filters";
 import {
 createConvenienceCommandFixture,
 createDepthFilterFixture,
@@ -72,6 +72,56 @@ suite("Command Argument Normalisation", () => {
 			{
 				kinds: ["method"],
 				excludeKinds: ["property"]
+			}
+		);
+	});
+
+	test("drops invalid composite filters while preserving valid categories", () => {
+		assert.deepStrictEqual(
+			normaliseCompositeArgs({
+				mode: "expand",
+				filters: [
+					{
+						kinds: ["comment", "not-real"],
+						exactFoldDepth: 1
+					},
+					{
+						kinds: ["also-not-real"]
+					},
+					"bad",
+					{
+						kinds: ["region"],
+						minSymbolDepth: 2,
+						nameRegex: "["
+					}
+				],
+				preserveCursorContext: true
+			}),
+			{
+				filters: [
+					{
+						kinds: ["comment"],
+						exactFoldDepth: 1
+					},
+					{
+						kinds: ["region"],
+						minSymbolDepth: 2
+					}
+				],
+				mode: "expand",
+				preserveCursorContext: true
+			}
+		);
+		assert.deepStrictEqual(
+			normaliseCompositeArgs({
+				filters: [
+					{
+						kinds: ["missing"]
+					}
+				]
+			}),
+			{
+				mode: "toggle"
 			}
 		);
 	});
@@ -516,6 +566,36 @@ suite("Region Filtering", () => {
 		);
 	});
 
+	test("applies fold-depth filters to folding-only categories", () => {
+		const regions = createMixedSymbolAndFoldingFixture();
+
+		assert.deepStrictEqual(
+			filterRegions(regions, {
+				kinds: ["import", "comment", "region"],
+				exactFoldDepth: 1
+			}).map((region) => `${region.kind}:${region.selectionLine}`),
+			[
+				"import:0",
+				"comment:12",
+				"region:20"
+			]
+		);
+		assert.deepStrictEqual(
+			filterRegions(regions, {
+				kinds: ["comment", "region"],
+				minFoldDepth: 2
+			}).map((region) => `${region.kind}:${region.selectionLine}`),
+			["comment:22"]
+		);
+		assert.deepStrictEqual(
+			filterRegions(regions, {
+				kinds: ["method"],
+				exactFoldDepth: 1
+			}).map((region) => region.name),
+			[]
+		);
+	});
+
 	test("matches convenience command filters for common structural workflows", () => {
 		const regions = createConvenienceCommandFixture();
 
@@ -662,4 +742,3 @@ suite("Region Filtering", () => {
 		);
 	});
 });
-

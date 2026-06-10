@@ -161,6 +161,25 @@ suite("Release Provider Matrix", () => {
 		assert.deepStrictEqual(selectLines(commentsArgs, regions), [9]);
 	});
 
+	test("keeps combined presets useful when only some categories are reported", async () => {
+		const document = await openProviderMatrixDocument();
+		const regions = await getRegions(document, async () => {
+			return createHierarchicalProviderSymbols();
+		}, async () => {
+			return [
+				new vscode.FoldingRange(0, 1, vscode.FoldingRangeKind.Imports)
+			];
+		});
+
+		assert.deepStrictEqual(selectLines(importsArgs, regions), [0]);
+		assert.deepStrictEqual(selectLines(commentsArgs, regions), []);
+		assert.deepStrictEqual(selectLines(readerModeArgs, regions), [0, 4]);
+		assert.deepStrictEqual(
+			collectSelectionLines(selectFoldableRegionsForFilters(apiOverviewFilters, regions)),
+			[0]
+		);
+	});
+
 	test("keeps symbol workflows when folding ranges are unavailable", async () => {
 		const document = await openProviderMatrixDocument();
 		const regions = await getRegions(document, async () => {
