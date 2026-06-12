@@ -342,6 +342,32 @@ suite("Folded Signature Hints", () => {
 		);
 	});
 
+	test("shows multiline java signature hints without collapsed signature mode", async () => {
+		const document = await openDocument([
+			"public CompletableFuture<List<Record>> buildAsync(",
+			"\tString sourceName,",
+			"\tboolean includeEmpty",
+			") {",
+			"\treturn CompletableFuture.completedFuture(List.of());",
+			"}"
+		], "java");
+		const region = createRegion("method", 0, 5, "buildAsync");
+		const hint = buildFoldedRegionHint(document, region, {
+			showSignatureHints: true,
+			providerSignatureOverride: {
+				parameterSource: "sourceName: String, includeEmpty: boolean",
+				returnType: "CompletableFuture<List<Record>> temp.Sample"
+			}
+		});
+
+		assert.strictEqual(
+			hint?.text,
+			"(sourceName, includeEmpty) : CompletableFuture<List<Record>> {} "
+		);
+		assert.strictEqual(hint?.kind, "signature");
+		assert.strictEqual(hint?.replaceSignature, true);
+	});
+
 	test("renders java void for collapsed methods with no value return", async () => {
 		const document = await openDocument([
 			"public void onEnable() {",
@@ -729,6 +755,24 @@ suite("Folded Signature Hints", () => {
 		assert.strictEqual(hint?.replaceSignature, false);
 		assert.strictEqual(hint?.hiddenDelimiter, "{");
 		assert.strictEqual(hint?.hiddenDelimiterPlacement, "last");
+	});
+
+	test("marks hidden multiline function headers when signature hints are disabled", async () => {
+		const document = await openDocument([
+			"public CompletableFuture<List<Record>> buildAsync(",
+			"\tString sourceName,",
+			"\tboolean includeEmpty",
+			") {",
+			"\treturn CompletableFuture.completedFuture(List.of());",
+			"}"
+		], "java");
+		const region = createRegion("method", 0, 5, "buildAsync");
+		const hint = buildFoldedRegionHint(document, region);
+
+		assert.strictEqual(hint?.text, " {} ");
+		assert.strictEqual(hint?.kind, "signature");
+		assert.strictEqual(hint?.replaceSignature, false);
+		assert.strictEqual(hint?.replaceSignatureTail, true);
 	});
 
 	test("marks the function body brace after default object parameters", async () => {

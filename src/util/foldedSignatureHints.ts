@@ -15,7 +15,11 @@ import {
 import { foldedSignatureRefiners } from "../engine/foldedSignatureRefinerRegistry";
 import type { FoldExecutionResult } from "../engine/foldExecutor";
 import type { RegionNode } from "../model/region";
-import { getFoldedPreviewLineLimit, isCollapsedHintEnabled, isSignatureHintsEnabled } from "./config";
+import {
+	getFoldedPreviewLineLimit,
+	isCollapsedHintEnabled,
+	isFoldedFunctionSignatureHintsEnabled
+} from "./config";
 import { debugOnce } from "./debug";
 
 const functionLikeKinds = new Set<string>(["function", "method"]);
@@ -32,6 +36,7 @@ interface FoldedRegionHint {
 	text: string;
 	kind: FoldedHintKind;
 	replaceSignature: boolean;
+	replaceSignatureTail?: boolean;
 	hiddenDelimiter?: string;
 	hiddenDelimiterPlacement?: "first" | "last";
 }
@@ -136,11 +141,6 @@ async function refreshFunctionHintsAsync(
 ): Promise<void> {
 	const documentUri = editor.document.uri.toString();
 
-	if(!isSignatureHintsEnabled(editor.document.uri)) {
-		applyHintDecorations(editor, [], [], []);
-		return;
-	}
-
 	const foldedFunctionRegions = foldedFunctionRegionsByDocument.get(documentUri);
 
 	if(foldedFunctionRegions === undefined || foldedFunctionRegions.size === 0) {
@@ -148,6 +148,7 @@ async function refreshFunctionHintsAsync(
 		return;
 	}
 
+	const showSignatureHints = isFoldedFunctionSignatureHintsEnabled(editor.document.uri);
 	const collapseSignature = isCollapsedHintEnabled(editor.document.uri);
 	const trailingDecorations: vscode.DecorationOptions[] = [];
 	const collapsedHintDecorations: vscode.DecorationOptions[] = [];
@@ -157,7 +158,8 @@ async function refreshFunctionHintsAsync(
 	});
 	const hintEntries = await Promise.all(sortedFoldedFunctionRegions.map(async (region) => {
 		const hint = await buildFoldedRegionHintWithProviders(editor.document, region, {
-			collapseSignature
+			collapseSignature,
+			showSignatureHints
 		});
 
 		return { region, hint };
@@ -189,7 +191,7 @@ async function refreshFunctionHintsAsync(
 		const placement = createHintPlacementForKind(editor.document, region, line, hint);
 		const anchorRange = placement.anchorRange;
 
-		if(hint.replaceSignature) {
+		if(hint.replaceSignature || hint.replaceSignatureTail) {
 			const signatureRange = createSignatureReplacementRange(line, anchorRange);
 
 			if(signatureRange !== undefined) {
@@ -197,6 +199,13 @@ async function refreshFunctionHintsAsync(
 					range: signatureRange,
 					hoverMessage: hint.text
 				});
+			}
+		}
+
+		if(hint.replaceSignature) {
+			const signatureRange = createSignatureReplacementRange(line, anchorRange);
+
+			if(signatureRange !== undefined) {
 				collapsedHintDecorations.push({
 					range: anchorRange,
 					renderOptions: {
@@ -278,10 +287,6 @@ export function addCollapsedFunctionHintsFromRegions(
 	editor: vscode.TextEditor,
 	rootNodes: readonly RegionNode[]
 ): void {
-	if(!isSignatureHintsEnabled(editor.document.uri)) {
-		return;
-	}
-
 	const documentUri = editor.document.uri.toString();
 	const foldedFunctionRegions = getDocumentFunctionRegions(documentUri);
 	const hintableRegions = flattenRegions(rootNodes).filter((region) => {
@@ -406,27 +411,30 @@ export function buildFoldedRegionHint(
 	region: RegionNode,
 	options: {
 		collapseSignature?: boolean;
+		showSignatureHints?: boolean;
 		returnTypeOverride?: string;
 		providerSignatureOverride?: ParsedSignatureLine;
 		maxVisiblePreviewLineLength?: number;
 	} = {}
 ): FoldedRegionHint | undefined {
 	if(isFunctionLikeRegion(document, region)) {
-		if(!(options.collapseSignature ?? false)) {
-			return createFoldedBlockMarkerHint(document, region, "signature");
+		const collapseSignature = options.collapseSignature ?? false;
+
+		if(collapseSignature || options.showSignatureHints) {
+			const text = buildFunctionLabel(document, region, options);
+
+			if(text !== undefined) {
+				return {
+					text: `${text} {} `,
+					kind: "signature",
+					replaceSignature: true
+				};
+			}
 		}
 
-		const text = buildFunctionLabel(document, region, options);
-
-		if(text !== undefined) {
-			return {
-				text: `${text} {} `,
-				kind: "signature",
-				replaceSignature: true
-			};
-		}
-
-		return createFoldedBlockMarkerHint(document, region, "signature");
+		return createFoldedBlockMarkerHint(document, region, "signature", {
+			replaceSignatureTail: true
+		});
 	}
 
 	if(isBlockPlaceholderRegion(document, region)) {
@@ -452,17 +460,31 @@ export function buildFoldedRegionHint(
 function createFoldedBlockMarkerHint(
 	document: vscode.TextDocument,
 	region: RegionNode,
-	kind: FoldedHintKind
+	kind: FoldedHintKind,
+	options: {
+		replaceSignatureTail?: boolean;
+	} = {}
 ): FoldedRegionHint | undefined {
-	return hasOpeningBrace(document, region)
-		? {
+	if(hasOpeningBrace(document, region)) {
+		return {
 			text: "{} ",
 			kind,
 			replaceSignature: false,
 			hiddenDelimiter: "{",
 			hiddenDelimiterPlacement: "last"
-		}
-		: undefined;
+		};
+	}
+
+	if(options.replaceSignatureTail && hasSignatureTail(document, region)) {
+		return {
+			text: " {} ",
+			kind,
+			replaceSignature: false,
+			replaceSignatureTail: true
+		};
+	}
+
+	return undefined;
 }
 
 async function buildFoldedRegionHintWithProviders(
@@ -470,9 +492,11 @@ async function buildFoldedRegionHintWithProviders(
 	region: RegionNode,
 	options: {
 		collapseSignature?: boolean;
+		showSignatureHints?: boolean;
 	} = {}
 ): Promise<FoldedRegionHint | undefined> {
 	const providerSignature = isFunctionLikeRegion(document, region)
+		&& (options.collapseSignature || options.showSignatureHints)
 		? await resolveProviderSignature(document, region)
 		: undefined;
 
@@ -684,6 +708,22 @@ function hasOpeningBrace(document: vscode.TextDocument, region: RegionNode): boo
 	}
 
 	return document.lineAt(region.selectionLine).text.includes("{");
+}
+
+function hasSignatureTail(document: vscode.TextDocument, region: RegionNode): boolean {
+	if(region.selectionLine < 0 || region.selectionLine >= document.lineCount) {
+		return false;
+	}
+
+	const lineText = document.lineAt(region.selectionLine).text;
+	const anchorColumn = findRegionNameAnchorColumn(lineText, region.name)
+		?? findCallableNameAnchorColumn(lineText);
+
+	if(anchorColumn === undefined) {
+		return false;
+	}
+
+	return lineText.slice(anchorColumn).trim().length > 0;
 }
 
 /**

@@ -49,10 +49,18 @@ export function isIncludeClosingDelimiterEnabled(resource?: vscode.Uri): boolean
  */
 export function isSignatureHintsEnabled(resource?: vscode.Uri): boolean {
 	const configuration = vscode.workspace.getConfiguration(INLINE_HINTS_SECTION, resource);
-	const showFoldedSignatures = configuration.get<boolean>("showFoldedFunctionSignatures", false);
 	const collapseFoldedSignatures = configuration.get<boolean>("collapseFunctionSignatures", false);
 
-	return showFoldedSignatures || collapseFoldedSignatures;
+	return isFoldedFunctionSignatureHintsEnabled(resource) || collapseFoldedSignatures;
+}
+
+/**
+ * Reads whether folded signatures should show parameter and return hints
+ */
+export function isFoldedFunctionSignatureHintsEnabled(resource?: vscode.Uri): boolean {
+	return vscode.workspace
+		.getConfiguration(INLINE_HINTS_SECTION, resource)
+		.get<boolean>("showFoldedFunctionSignatures", false);
 }
 
 /**
