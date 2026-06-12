@@ -124,12 +124,12 @@
     "keybindings": [
       {
         "command": "semanticFold.toggleAtCursor",
-        "key": "alt+shift+[",
+        "key": "alt+s alt+[",
         "when": "editorTextFocus"
       },
       {
         "command": "semanticFold.expand",
-        "key": "alt+shift+]",
+        "key": "alt+s alt+]",
         "when": "editorTextFocus"
       },
       {
