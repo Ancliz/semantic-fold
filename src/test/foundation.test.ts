@@ -96,8 +96,8 @@ suite("Semantic Fold Foundation", () => {
 		const findBinding = (key: string) => {
 			return keybindings.find((binding) => binding.key === key);
 		};
-		const collapseAtCursor = findBinding("alt+shift+[");
-		const expandAtCursor = findBinding("alt+shift+]");
+		const collapseAtCursor = findBinding("alt+s alt+[");
+		const expandAtCursor = findBinding("alt+s alt+]");
 		const collapseLevelOne = findBinding("alt+s alt+1");
 		const collapseLevelNine = findBinding("alt+s alt+9");
 
