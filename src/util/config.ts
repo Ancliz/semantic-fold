@@ -9,8 +9,8 @@ import {
 
 export const SEMANTIC_REFINEMENT_ENABLED_SETTING = "semanticFold.semanticRefinement.enabled";
 export const INCLUDE_CLOSING_DELIMITER_SETTING = "semanticFold.folding.includeClosingDelimiter";
-export const FOLDED_FUNCTION_SIGNATURE_HINTS_SETTING = "semanticFold.inlineHints.showFoldedFunctionSignatures";
-export const COLLAPSE_FUNCTION_SIGNATURE_HINTS_SETTING = "semanticFold.inlineHints.collapseFunctionSignatures";
+export const LONG_SIGNATURE_HINTS_SETTING = "semanticFold.inlineHints.collapseLongSignatures";
+export const COLLAPSE_SIGNATURE_HINTS_SETTING = "semanticFold.inlineHints.collapseSignatures";
 export const FOLDED_PREVIEW_LINE_LIMIT_SETTING = "semanticFold.inlineHints.maxFoldedPreviewLineLength";
 export const PRESET_CONFIG_SECTION = "semanticFold.presets";
 export type TogglePresetSettingKey = "imports" | "comments" | "readerMode";
@@ -49,7 +49,7 @@ export function isIncludeClosingDelimiterEnabled(resource?: vscode.Uri): boolean
  */
 export function isSignatureHintsEnabled(resource?: vscode.Uri): boolean {
 	const configuration = vscode.workspace.getConfiguration(INLINE_HINTS_SECTION, resource);
-	const collapseFoldedSignatures = configuration.get<boolean>("collapseFunctionSignatures", false);
+	const collapseFoldedSignatures = configuration.get<boolean>("collapseSignatures", false);
 
 	return isFoldedFunctionSignatureHintsEnabled(resource) || collapseFoldedSignatures;
 }
@@ -60,7 +60,7 @@ export function isSignatureHintsEnabled(resource?: vscode.Uri): boolean {
 export function isFoldedFunctionSignatureHintsEnabled(resource?: vscode.Uri): boolean {
 	return vscode.workspace
 		.getConfiguration(INLINE_HINTS_SECTION, resource)
-		.get<boolean>("showFoldedFunctionSignatures", false);
+		.get<boolean>("collapseLongSignatures", false);
 }
 
 /**
@@ -69,7 +69,7 @@ export function isFoldedFunctionSignatureHintsEnabled(resource?: vscode.Uri): bo
 export function isCollapsedHintEnabled(resource?: vscode.Uri): boolean {
 	return vscode.workspace
 		.getConfiguration(INLINE_HINTS_SECTION, resource)
-		.get<boolean>("collapseFunctionSignatures", false);
+		.get<boolean>("collapseSignatures", false);
 }
 
 /**

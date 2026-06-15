@@ -3,7 +3,7 @@
   "displayName": "Semantic Fold",
   "description": "Policy-driven code folding for VS Code",
   "repository": "https://github.com/Ancliz/semantic-fold",
-  "version": "0.1.4",
+  "version": "0.1.5-dev",
   "engines": {
     "vscode": "^1.111.0"
   },
@@ -219,17 +219,17 @@
           "scope": "resource",
           "description": "Include closing brace and bracket lines when executing Semantic Fold commands."
         },
-        "semanticFold.inlineHints.showFoldedFunctionSignatures": {
+        "semanticFold.inlineHints.collapseLongSignatures": {
           "type": "boolean",
           "default": true,
           "scope": "resource",
-          "description": "Show inline hints on folded function and method regions, plus language-supported object and multiline constructor-call regions."
+          "description": "Show inline hints on folded function and method regions over threshold and multiline constructor-call regions."
         },
-        "semanticFold.inlineHints.collapseFunctionSignatures": {
+        "semanticFold.inlineHints.collapseSignatures": {
           "type": "boolean",
           "default": true,
           "scope": "resource",
-          "description": "Render folded function and method signatures as inline hints in collapsed form. Language-supported object and constructor-call previews are appended without replacing source text."
+          "description": "Show inline hints on all folded function and method signatures."
         },
         "semanticFold.inlineHints.maxFoldedPreviewLineLength": {
           "type": "number",

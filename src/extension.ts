@@ -31,9 +31,9 @@ import { toggleCommand } from "./commands/toggle";
 import { getRegions } from "./engine/regionCollector";
 import { clearCache, handleDocumentChange, invalidateCache } from "./util/cache";
 import {
-	COLLAPSE_FUNCTION_SIGNATURE_HINTS_SETTING,
+	COLLAPSE_SIGNATURE_HINTS_SETTING,
 	FOLDED_PREVIEW_LINE_LIMIT_SETTING,
-	FOLDED_FUNCTION_SIGNATURE_HINTS_SETTING,
+	LONG_SIGNATURE_HINTS_SETTING,
 	INCLUDE_CLOSING_DELIMITER_SETTING,
 	SEMANTIC_REFINEMENT_ENABLED_SETTING
 } from "./util/config";
@@ -184,8 +184,8 @@ export function activate(context: vscode.ExtensionContext): void {
 
 			const includeClosingDelimiterChanged = event.affectsConfiguration(INCLUDE_CLOSING_DELIMITER_SETTING);
 			const signatureHintSettingsChanged = (
-				event.affectsConfiguration(FOLDED_FUNCTION_SIGNATURE_HINTS_SETTING)
-				|| event.affectsConfiguration(COLLAPSE_FUNCTION_SIGNATURE_HINTS_SETTING)
+				event.affectsConfiguration(LONG_SIGNATURE_HINTS_SETTING)
+				|| event.affectsConfiguration(COLLAPSE_SIGNATURE_HINTS_SETTING)
 				|| event.affectsConfiguration(FOLDED_PREVIEW_LINE_LIMIT_SETTING)
 			);
 			console.debug(
