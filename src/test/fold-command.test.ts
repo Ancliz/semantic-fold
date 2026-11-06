@@ -1,11 +1,15 @@
 import * as assert from "assert";
 import * as vscode from "vscode";
-import { beginFoldCommandRequest } from "../commands/foldCommand";
-import { filterRequiresDocumentSymbols } from "../commands/foldCommand";
-import { isFoldCommandRequestCurrent } from "../commands/foldCommand";
-import { resolveRangeEndLine } from "../commands/foldCommand";
-import { resolveRangeStartLine } from "../commands/foldCommand";
-import { resolveSelectionsAfterManualFold } from "../commands/foldCommand";
+import {
+	beginFoldCommandRequest,
+	filterRequiresDocumentSymbols,
+	isFoldCommandRequestCurrent
+} from "../commands/foldCommand";
+import {
+	resolveRangeEndLine,
+	resolveRangeStartLine,
+	resolveSelectionsAfterManualFold
+} from "../commands/manualFold";
 import type { RegionNode } from "../model/region";
 
 suite("Fold Command Manual Range Resolution", () => {

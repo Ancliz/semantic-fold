@@ -204,11 +204,6 @@ export function collectSelectionLinesWithOptions(
 	return [...selectionLines].sort((left, right) => left - right);
 }
 
-/**
- * Executes a fold, unfold, or toggle request against the provided region tree
- *
- * The default arguments use live VS Code state
- */
 export async function execFoldCommand(
 	args: CollapseArgs,
 	rootNodes: readonly RegionNode[] = [],
@@ -217,43 +212,13 @@ export async function execFoldCommand(
 	documentKey: string = getActiveDocumentKey(),
 	selectionLineOptions: SelectionLineOptions = {}
 ): Promise<FoldExecutionResult | undefined> {
-	const selectedRegions = selectFoldableRegions(args, rootNodes);
-	const selectionLines = collectSelectionLinesWithOptions(
-		selectedRegions,
+	return applyFold(args.mode, selectFoldableRegions(args, rootNodes), {
+		executeCommand,
+		foldState,
+		documentKey,
 		selectionLineOptions
-	);
-
-	if(selectionLines.length === 0) {
-		return undefined;
-	}
-
-	const command = getFoldCommand(args, selectionLines, foldState, documentKey);
-	const usedManualFoldingRanges = await executeManualFoldingRangesIfEnabled(
-		command,
-		selectedRegions,
-		selectionLineOptions
-	);
-
-	if(!usedManualFoldingRanges) {
-		if(selectionLineOptions.executeManualFoldingRanges !== undefined) {
-			console.debug("[semanticFold] Manual folding route declined, using editor fold command");
-		}
-		// levels: 1 keeps Semantic Fold targeted instead of recursively folding children
-		await executeCommand(command, { selectionLines, levels: 1 });
-	}
-
-	updateTrackedFoldState(command, selectionLines, foldState, documentKey);
-
-	return {
-		command,
-		selectedRegions,
-		selectionLines
-	};
+	});
 }
-
-/**
- * Executes a fold request using the union of multiple structural filters
- */
 export async function execCompositeFoldCommand(
 	args: CompositeCollapseArgs,
 	rootNodes: readonly RegionNode[] = [],
@@ -266,7 +231,30 @@ export async function execCompositeFoldCommand(
 		return undefined;
 	}
 
-	const selectedRegions = selectFoldableRegionsForFilters(args.filters, rootNodes);
+	return applyFold(args.mode, selectFoldableRegionsForFilters(args.filters, rootNodes), {
+		executeCommand,
+		foldState,
+		documentKey,
+		selectionLineOptions
+	});
+}
+
+interface FoldContext {
+	executeCommand: FoldCommandExecutor;
+	foldState: TrackedFoldState;
+	documentKey: string;
+	selectionLineOptions: SelectionLineOptions;
+}
+
+/**
+ * Shared tail of every fold request: turn the selected regions into target
+ * lines, choose fold or unfold, run it, and record the resulting state
+ */
+async function applyFold(
+	mode: CollapseArgs["mode"],
+	selectedRegions: RegionNode[],
+	{ executeCommand, foldState, documentKey, selectionLineOptions }: FoldContext
+): Promise<FoldExecutionResult | undefined> {
 	const selectionLines = collectSelectionLinesWithOptions(
 		selectedRegions,
 		selectionLineOptions
@@ -276,7 +264,7 @@ export async function execCompositeFoldCommand(
 		return undefined;
 	}
 
-	const command = getFoldCommand(args, selectionLines, foldState, documentKey);
+	const command = getFoldCommand(mode, selectionLines, foldState, documentKey);
 	const usedManualFoldingRanges = await executeManualFoldingRangesIfEnabled(
 		command,
 		selectedRegions,
@@ -299,21 +287,20 @@ export async function execCompositeFoldCommand(
 		selectionLines
 	};
 }
-
 /**
  * Resolves the VS Code command to execute for the requested fold mode
  */
 function getFoldCommand(
-	args: Pick<CollapseArgs, "mode">,
+	mode: CollapseArgs["mode"],
 	selectionLines: readonly number[],
 	foldState: TrackedFoldState,
 	documentKey: string
 ): FoldCommand {
-	if(args.mode === "expand") {
+	if(mode === "expand") {
 		return "editor.unfold";
 	}
 
-	if(args.mode === "toggle") {
+	if(mode === "toggle") {
 		if(foldState.areAllCollapsed(documentKey, selectionLines)) {
 			return "editor.unfold";
 		}

@@ -1,32 +1,59 @@
 import * as vscode from "vscode";
+import {
+	execCompositeFoldCommand,
+	execFoldCommand,
+	type FoldExecutionResult,
+	type SelectionLineOptions
+} from "../engine/foldExecutor";
 import { getRegions } from "../engine/regionCollector";
-import type { FoldCommand, FoldExecutionResult } from "../engine/foldExecutor";
-import { execCompositeFoldCommand, execFoldCommand } from "../engine/foldExecutor";
-import { isClosingDelimiterLine } from "../engine/foldExecutor";
 import {
 	type CollapseArgs,
 	type CollapseFilter,
 	type CompositeCollapseArgs,
+	hasFoldDepthFilter,
+	hasSymbolDepthFilter,
+	hasSymbolRelationshipFilter,
 	normaliseArgs,
 	normaliseCompositeArgs
 } from "../model/filters";
-import { formatRegion, type RegionNode } from "../model/region";
+import type { RegionNode } from "../model/region";
 import { isIncludeClosingDelimiterEnabled } from "../util/config";
 import { applyFunctionSignatureHints } from "../util/foldedSignatureHints";
-import { stripLineComment } from "../util/sourceText";
+import {
+	createLineTextReader,
+	createManualFoldingRangeExecutor,
+	forgetManualFoldSelections
+} from "./manualFold";
 
-const lastManualFoldSelectionsByDocument = new Map<string, vscode.Selection[]>();
-const lastFoldExecutionByDocument = new Map<string, LastFoldExecution>();
-const foldCommandSequenceByDocument = new Map<string, number>();
-const missingSymbolNotificationTimeByDocument = new Map<string, number>();
 const foldingRangeOnlyKinds = new Set<string>(["import", "comment", "region"]);
-const missingSymbolNotificationCooldownMs = 5000;
-const missingSymbolNotificationMessage = "Semantic Fold is waiting for document symbols before folding this file. Try again once the language server has finished loading.";
+const missingSymbolNoticeCooldownMs = 5000;
+const missingSymbolNoticeMessage = "Semantic Fold is waiting for document symbols before folding this file. Try again once the language server has finished loading.";
 
-interface LastFoldExecution {
-	kind: "single" | "composite";
-	args: CollapseArgs | CompositeCollapseArgs;
-	lastResult?: FoldExecutionResult;
+/**
+ * A fold request is either one filter or the union of several
+ */
+type FoldRequest =
+	| { kind: "single"; args: CollapseArgs }
+	| { kind: "composite"; args: CompositeCollapseArgs };
+
+/**
+ * Per-document state that outlives a single command run
+ */
+interface DocumentFoldSession {
+	/**
+	 * Id of the newest command, so older runs can tell they were superseded
+	 */
+	sequence: number;
+
+	/**
+	 * Newest request and its outcome, so a setting change can re-apply it
+	 */
+	last?: { request: FoldRequest; result: FoldExecutionResult | undefined };
+
+	/**
+	 * When the "waiting for document symbols" warning was last shown
+	 */
+	lastMissingSymbolNoticeAt?: number;
 }
 
 interface FoldCommandRequest {
@@ -35,6 +62,8 @@ interface FoldCommandRequest {
 	sequence: number;
 }
 
+const sessions = new Map<string, DocumentFoldSession>();
+
 /**
  * Shared command runner for collapse, expand, toggle, and convenience commands
  *
@@ -42,52 +71,7 @@ interface FoldCommandRequest {
  * and keybindings pass through the same filter contract
  */
 export async function runFoldCommand(args: unknown, defaultMode: CollapseArgs["mode"]): Promise<void> {
-	const editor = vscode.window.activeTextEditor;
-
-	if(!editor) {
-		return;
-	}
-
-	const normalisedArgs = normaliseArgs(args, defaultMode);
-	const includeClosingDelimiter = isIncludeClosingDelimiterEnabled(editor.document.uri);
-	const request = beginFoldCommandRequest(editor.document.uri.toString(), editor.document.version);
-
-	console.debug(`[semanticFold] runFoldCommand includeClosingDelimiter=${String(includeClosingDelimiter)}`);
-	const regions = await getRegions(
-		editor.document,
-		undefined,
-		undefined,
-		undefined,
-		undefined,
-		{
-			requireSymbols: filterRequiresDocumentSymbols(normalisedArgs.filter),
-			onMissingRequiredSymbols: showMissingDocumentSymbolsNotification
-		}
-	);
-
-	if(!isFoldCommandRequestCurrent(request, editor.document.version)) {
-		console.debug(`[semanticFold] Fold command for ${request.documentUri} was superseded while waiting for providers`);
-		return;
-	}
-
-	const executionResult = await execFoldCommand(
-		normalisedArgs,
-		regions,
-		undefined,
-		undefined,
-		undefined,
-		{
-			includeClosingDelimiter,
-			getLineText: createLineTextReader(editor.document),
-			executeManualFoldingRanges: createManualFoldingRangeExecutor(editor, includeClosingDelimiter)
-		}
-	);
-	applyFunctionSignatureHints(editor, executionResult);
-	rememberLastFoldExecution(editor.document.uri.toString(), {
-		kind: "single",
-		args: normalisedArgs,
-		lastResult: executionResult
-	});
+	await runRequest({ kind: "single", args: normaliseArgs(args, defaultMode) });
 }
 
 /**
@@ -97,114 +81,41 @@ export async function runCompositeFoldCommand(
 	args: unknown,
 	defaultMode: CompositeCollapseArgs["mode"] = "toggle"
 ): Promise<void> {
-	const editor = vscode.window.activeTextEditor;
-
-	if(!editor) {
-		return;
-	}
-
-	const normalisedArgs = normaliseCompositeArgs(args, defaultMode);
-	const includeClosingDelimiter = isIncludeClosingDelimiterEnabled(editor.document.uri);
-	const request = beginFoldCommandRequest(editor.document.uri.toString(), editor.document.version);
-
-	console.debug(`[semanticFold] runCompositeFoldCommand includeClosingDelimiter=${String(includeClosingDelimiter)}`);
-	const regions = await getRegions(
-		editor.document,
-		undefined,
-		undefined,
-		undefined,
-		undefined,
-		{
-			requireSymbols: compositeRequiresDocumentSymbols(normalisedArgs.filters),
-			onMissingRequiredSymbols: showMissingDocumentSymbolsNotification
-		}
-	);
-
-	if(!isFoldCommandRequestCurrent(request, editor.document.version)) {
-		console.debug(`[semanticFold] Composite fold command for ${request.documentUri} was superseded while waiting for providers`);
-		return;
-	}
-
-	const executionResult = await execCompositeFoldCommand(
-		normalisedArgs,
-		regions,
-		undefined,
-		undefined,
-		undefined,
-		{
-			includeClosingDelimiter,
-			getLineText: createLineTextReader(editor.document),
-			executeManualFoldingRanges: createManualFoldingRangeExecutor(editor, includeClosingDelimiter)
-		}
-	);
-	applyFunctionSignatureHints(editor, executionResult);
-	rememberLastFoldExecution(editor.document.uri.toString(), {
-		kind: "composite",
-		args: normalisedArgs,
-		lastResult: executionResult
-	});
+	await runRequest({ kind: "composite", args: normaliseCompositeArgs(args, defaultMode) });
 }
 
 /**
- * Re-applies the most recent Semantic Fold result for the active editor
- * so settings can take effect without requiring the user to run a command
+ * Re-applies the most recent Semantic Fold request for every visible editor
+ *
+ * Used when a setting that changes fold ranges is edited, so folds that
+ * already exist pick up the new ranges without the user running the command again
  */
-export async function reapplyLastFoldExecutionForActiveEditor(
-	options: {
-		refreshManualFolds?: boolean;
-		refreshHints?: boolean;
-	} = {}
-): Promise<void> {
-	const editor = vscode.window.activeTextEditor;
-
-	if(editor !== undefined) {
-		await reapplyLastFoldExecutionForEditor(editor, options);
-	}
-}
-
-/**
- * Re-applies the most recent Semantic Fold result for all visible editors
- */
-export async function reapplyLastFoldExecutionForVisibleEditors(
-	options: {
-		refreshManualFolds?: boolean;
-		refreshHints?: boolean;
-		forceCollapseForHints?: boolean;
-	} = {}
-): Promise<void> {
+export async function reapplyLastFoldExecutionForVisibleEditors(): Promise<void> {
 	for(const editor of vscode.window.visibleTextEditors) {
-		await reapplyLastFoldExecutionForEditor(editor, options);
+		await reapplyLastFoldExecution(editor);
 	}
 }
 
 /**
- * Drops stored fold execution history for one document or all documents
+ * Drops all fold state for a document, typically because it was closed
  */
-export function clearLastFoldExecution(documentUri?: string): void {
-	if(documentUri !== undefined) {
-		lastFoldExecutionByDocument.delete(documentUri);
-		foldCommandSequenceByDocument.delete(documentUri);
-		missingSymbolNotificationTimeByDocument.delete(documentUri);
-		return;
-	}
-
-	lastFoldExecutionByDocument.clear();
-	foldCommandSequenceByDocument.clear();
-	missingSymbolNotificationTimeByDocument.clear();
+export function clearLastFoldExecution(documentUri: string): void {
+	sessions.delete(documentUri);
+	forgetManualFoldSelections(documentUri);
 }
 
 export function beginFoldCommandRequest(
 	documentUri: string,
 	documentVersion: number
 ): FoldCommandRequest {
-	const sequence = (foldCommandSequenceByDocument.get(documentUri) ?? 0) + 1;
+	const session = sessionFor(documentUri);
 
-	foldCommandSequenceByDocument.set(documentUri, sequence);
+	session.sequence++;
 
 	return {
 		documentUri,
 		documentVersion,
-		sequence
+		sequence: session.sequence
 	};
 }
 
@@ -212,50 +123,8 @@ export function isFoldCommandRequestCurrent(
 	request: FoldCommandRequest,
 	currentDocumentVersion: number
 ): boolean {
-	return foldCommandSequenceByDocument.get(request.documentUri) === request.sequence
+	return sessions.get(request.documentUri)?.sequence === request.sequence
 		&& request.documentVersion === currentDocumentVersion;
-}
-
-function rememberLastFoldExecution(documentUri: string, execution: LastFoldExecution): void {
-	lastFoldExecutionByDocument.set(documentUri, execution);
-}
-
-function clearRememberedManualFoldSelections(documentUri: string): void {
-	lastManualFoldSelectionsByDocument.delete(documentUri);
-}
-
-async function reapplyLastFoldExecutionForEditor(
-	editor: vscode.TextEditor,
-	options: {
-		refreshManualFolds?: boolean;
-		refreshHints?: boolean;
-		forceCollapseForHints?: boolean;
-	}
-): Promise<void> {
-	const documentUri = editor.document.uri.toString();
-	const lastExecution = lastFoldExecutionByDocument.get(documentUri);
-
-	if(lastExecution === undefined) {
-		return;
-	}
-
-	let executionResult = lastExecution.lastResult;
-	const shouldRerunAsCollapseForHints = options.forceCollapseForHints && options.refreshHints;
-
-	if(
-		(options.refreshManualFolds && lastExecution.lastResult?.command === "editor.fold")
-		|| shouldRerunAsCollapseForHints
-	) {
-		await vscode.commands.executeCommand("editor.removeManualFoldingRanges");
-		clearRememberedManualFoldSelections(documentUri);
-		executionResult = await rerunLastFoldAsCollapse(editor, lastExecution);
-		lastExecution.lastResult = executionResult;
-		lastFoldExecutionByDocument.set(documentUri, lastExecution);
-	}
-
-	if(options.refreshHints && executionResult !== undefined) {
-		applyFunctionSignatureHints(editor, executionResult);
-	}
 }
 
 export function filterRequiresDocumentSymbols(filter: CollapseFilter | undefined): boolean {
@@ -276,386 +145,124 @@ export function filterRequiresDocumentSymbols(filter: CollapseFilter | undefined
 	});
 }
 
-function compositeRequiresDocumentSymbols(filters: CollapseFilter[] | undefined): boolean {
-	if(filters === undefined || filters.length === 0) {
-		return false;
+function sessionFor(documentUri: string): DocumentFoldSession {
+	let session = sessions.get(documentUri);
+
+	if(session === undefined) {
+		session = { sequence: 0 };
+		sessions.set(documentUri, session);
 	}
 
-	return filters.some(filterRequiresDocumentSymbols);
+	return session;
 }
 
-function hasSymbolRelationshipFilter(filter: CollapseFilter): boolean {
-	return (filter.parentKinds !== undefined && filter.parentKinds.length > 0)
-		|| (filter.ancestorKinds !== undefined && filter.ancestorKinds.length > 0);
+async function runRequest(request: FoldRequest): Promise<void> {
+	const editor = vscode.window.activeTextEditor;
+
+	if(!editor) {
+		return;
+	}
+
+	const documentUri = editor.document.uri.toString();
+	const ticket = beginFoldCommandRequest(documentUri, editor.document.version);
+	const regions = await collectRegions(editor, request);
+
+	if(!isFoldCommandRequestCurrent(ticket, editor.document.version)) {
+		console.debug(`[semanticFold] Fold command for ${documentUri} was superseded while waiting for providers`);
+		return;
+	}
+
+	const result = await executeRequest(editor, request, regions);
+
+	applyFunctionSignatureHints(editor, result);
+	sessionFor(documentUri).last = { request, result };
 }
 
-function hasSymbolDepthFilter(filter: CollapseFilter): boolean {
-	return filter.exactSymbolDepth !== undefined
-		|| filter.minSymbolDepth !== undefined
-		|| filter.maxSymbolDepth !== undefined;
-}
+async function reapplyLastFoldExecution(editor: vscode.TextEditor): Promise<void> {
+	const documentUri = editor.document.uri.toString();
+	const last = sessions.get(documentUri)?.last;
 
-function hasFoldDepthFilter(filter: CollapseFilter): boolean {
-	return filter.exactFoldDepth !== undefined
-		|| filter.minFoldDepth !== undefined
-		|| filter.maxFoldDepth !== undefined;
-}
+	if(last === undefined) {
+		return;
+	}
 
-async function rerunLastFoldAsCollapse(
-	editor: vscode.TextEditor,
-	lastExecution: LastFoldExecution
-): Promise<FoldExecutionResult | undefined> {
-	const includeClosingDelimiter = isIncludeClosingDelimiterEnabled(editor.document.uri);
-	const regions = await getRegions(
-		editor.document,
-		undefined,
-		undefined,
-		undefined,
-		undefined,
-		{
-			requireSymbols: lastExecutionRequiresDocumentSymbols(lastExecution),
-			onMissingRequiredSymbols: showMissingDocumentSymbolsNotification
-		}
-	);
+	if(last.result?.command === "editor.fold") {
+		await vscode.commands.executeCommand("editor.removeManualFoldingRanges");
+		forgetManualFoldSelections(documentUri);
 
-	if(lastExecution.kind === "single") {
-		const args: CollapseArgs = {
-			...lastExecution.args as CollapseArgs,
-			mode: "collapse"
-		};
+		const collapseRequest = withMode(last.request, "collapse");
 
-		return execFoldCommand(
-			args,
-			regions,
-			undefined,
-			undefined,
-			undefined,
-			{
-				includeClosingDelimiter,
-				getLineText: createLineTextReader(editor.document),
-				executeManualFoldingRanges: createManualFoldingRangeExecutor(editor, includeClosingDelimiter)
-			}
+		last.result = await executeRequest(
+			editor,
+			collapseRequest,
+			await collectRegions(editor, collapseRequest)
 		);
 	}
 
-	const args: CompositeCollapseArgs = {
-		...lastExecution.args as CompositeCollapseArgs,
-		mode: "collapse"
-	};
-
-	return execCompositeFoldCommand(
-		args,
-		regions,
-		undefined,
-		undefined,
-		undefined,
-		{
-			includeClosingDelimiter,
-			getLineText: createLineTextReader(editor.document),
-			executeManualFoldingRanges: createManualFoldingRangeExecutor(editor, includeClosingDelimiter)
-		}
-	);
+	if(last.result !== undefined) {
+		applyFunctionSignatureHints(editor, last.result);
+	}
 }
 
-function lastExecutionRequiresDocumentSymbols(lastExecution: LastFoldExecution): boolean {
-	if(lastExecution.kind === "single") {
-		return filterRequiresDocumentSymbols((lastExecution.args as CollapseArgs).filter);
+function withMode(request: FoldRequest, mode: CollapseArgs["mode"]): FoldRequest {
+	return request.kind === "single"
+		? { kind: "single", args: { ...request.args, mode } }
+		: { kind: "composite", args: { ...request.args, mode } };
+}
+
+/**
+ * Loads the region tree for a request. Filters that depend on symbol structure
+ * wait for the language server's document symbols rather than folding a
+ * misleading folding-range-only tree.
+ */
+function collectRegions(editor: vscode.TextEditor, request: FoldRequest): Promise<RegionNode[]> {
+	return getRegions(editor.document, undefined, undefined, undefined, undefined, {
+		requireSymbols: requestRequiresDocumentSymbols(request),
+		onMissingRequiredSymbols: showMissingDocumentSymbolsNotification
+	});
+}
+
+function executeRequest(
+	editor: vscode.TextEditor,
+	request: FoldRequest,
+	regions: RegionNode[]
+): Promise<FoldExecutionResult | undefined> {
+	const includeClosingDelimiter = isIncludeClosingDelimiterEnabled(editor.document.uri);
+	const selectionLineOptions: SelectionLineOptions = {
+		includeClosingDelimiter,
+		getLineText: createLineTextReader(editor.document),
+		executeManualFoldingRanges: createManualFoldingRangeExecutor(editor, includeClosingDelimiter)
+	};
+
+	console.debug(`[semanticFold] ${request.kind} fold includeClosingDelimiter=${String(includeClosingDelimiter)}`);
+
+	return request.kind === "single"
+		? execFoldCommand(request.args, regions, undefined, undefined, undefined, selectionLineOptions)
+		: execCompositeFoldCommand(request.args, regions, undefined, undefined, undefined, selectionLineOptions);
+}
+
+function requestRequiresDocumentSymbols(request: FoldRequest): boolean {
+	if(request.kind === "single") {
+		return filterRequiresDocumentSymbols(request.args.filter);
 	}
 
-	return compositeRequiresDocumentSymbols((lastExecution.args as CompositeCollapseArgs).filters);
+	const filters = request.args.filters;
+
+	return filters !== undefined && filters.some(filterRequiresDocumentSymbols);
 }
 
 function showMissingDocumentSymbolsNotification(document: vscode.TextDocument): void {
-	const documentUri = document.uri.toString();
+	const session = sessionFor(document.uri.toString());
 	const now = Date.now();
-	const lastNotificationTime = missingSymbolNotificationTimeByDocument.get(documentUri);
 
 	if(
-		lastNotificationTime !== undefined
-		&& now - lastNotificationTime < missingSymbolNotificationCooldownMs
+		session.lastMissingSymbolNoticeAt !== undefined
+		&& now - session.lastMissingSymbolNoticeAt < missingSymbolNoticeCooldownMs
 	) {
 		return;
 	}
 
-	missingSymbolNotificationTimeByDocument.set(documentUri, now);
+	session.lastMissingSymbolNoticeAt = now;
 
-	void vscode.window.showWarningMessage(missingSymbolNotificationMessage);
-}
-
-function createLineTextReader(document: vscode.TextDocument): (lineNumber: number) => string | undefined {
-	return (lineNumber) => {
-		if(lineNumber < 0 || lineNumber >= document.lineCount) {
-			return undefined;
-		}
-
-		return document.lineAt(lineNumber).text;
-	};
-}
-
-function createManualFoldingRangeExecutor(
-	editor: vscode.TextEditor,
-	includeClosingDelimiter: boolean
-): (command: FoldCommand, regions: readonly RegionNode[]) => Promise<boolean> {
-	return async (command, regions) => {
-		if(regions.length === 0) {
-			return false;
-		}
-
-		const originalSelections = editor.selections;
-		let restoreSelections = cloneSelections(originalSelections);
-		const documentKey = editor.document.uri.toString();
-
-		try {
-			editor.selections = regions
-				.map((region) => selectionFromRegion(editor.document, region, includeClosingDelimiter))
-				.filter((selection): selection is vscode.Selection => selection !== undefined);
-
-			if(editor.selections.length === 0) {
-				return false;
-			}
-
-			if(command === "editor.fold") {
-				lastManualFoldSelectionsByDocument.set(documentKey, cloneSelections(originalSelections));
-				await vscode.commands.executeCommand("editor.createFoldingRangeFromSelection");
-				restoreSelections = resolveSelectionsAfterManualFold(
-					originalSelections,
-					regions,
-					editor.document,
-					includeClosingDelimiter
-				);
-			} else {
-				const rememberedSelections = lastManualFoldSelectionsByDocument.get(documentKey);
-
-				if(rememberedSelections) {
-					restoreSelections = rememberedSelections;
-					lastManualFoldSelectionsByDocument.delete(documentKey);
-				}
-
-				await vscode.commands.executeCommand("editor.removeManualFoldingRanges");
-			}
-
-			return true;
-		} finally {
-			editor.selections = restoreSelections;
-		}
-	};
-}
-
-function cloneSelections(selections: readonly vscode.Selection[]): vscode.Selection[] {
-	return selections.map((selection) => new vscode.Selection(
-		selection.anchor,
-		selection.active
-	));
-}
-
-function selectionFromRegion(
-	document: vscode.TextDocument,
-	region: RegionNode,
-	includeClosingDelimiter: boolean
-): vscode.Selection | undefined {
-	const rangeStartLine = resolveRangeStartLine(region);
-
-	if(
-		rangeStartLine < 0
-		|| rangeStartLine >= document.lineCount
-		|| region.rangeEndLine < 0
-		|| region.rangeEndLine >= document.lineCount
-	) {
-		console.debug(
-			`[semanticFold] Region ${formatRegion(region)} has invalid manual range bounds, falling back to editor command`
-		);
-		return undefined;
-	}
-
-	const rangeEndLine = resolveRangeEndLine(document, region, includeClosingDelimiter);
-	const startPosition = new vscode.Position(rangeStartLine, 0);
-	const endPosition = new vscode.Position(
-		rangeEndLine,
-		document.lineAt(rangeEndLine).text.length
-	);
-
-	return new vscode.Selection(
-		endPosition,
-		startPosition
-	);
-}
-
-export function resolveRangeStartLine(region: RegionNode): number {
-	if(region.selectionLine >= region.rangeStartLine && region.selectionLine <= region.rangeEndLine) {
-		return region.selectionLine;
-	}
-
-	console.debug(
-		`[semanticFold] Selection line outside range for ${formatRegion(region)}, falling back to range start`
-	);
-	return region.rangeStartLine;
-}
-
-export function resolveRangeEndLine(
-	document: vscode.TextDocument,
-	region: RegionNode,
-	includeClosingDelimiter: boolean
-): number {
-	const rangeStartLine = resolveRangeStartLine(region);
-	if(!includeClosingDelimiter) {
-		const endLineText = document.lineAt(region.rangeEndLine).text;
-		const trimmedEndLine = stripLineComment(endLineText).trim();
-
-		if(
-			isInlineControlClauseBoundaryLine(trimmedEndLine)
-			&& region.rangeEndLine > rangeStartLine
-		) {
-			return region.rangeEndLine - 1;
-		}
-
-		if(
-			isClosingDelimiterLine(endLineText)
-			&& region.rangeEndLine > rangeStartLine
-		) {
-			return region.rangeEndLine - 1;
-		}
-
-		return region.rangeEndLine;
-	}
-
-	const endLineText = document.lineAt(region.rangeEndLine).text;
-	const trimmedEndLine = stripLineComment(endLineText).trim();
-
-	if(
-		isInlineControlClauseBoundaryLine(trimmedEndLine)
-		&& region.rangeEndLine > rangeStartLine
-	) {
-		return region.rangeEndLine - 1;
-	}
-
-	if(isClosingDelimiterLine(endLineText)) {
-		return region.rangeEndLine;
-	}
-
-	const lineAfterEnd = region.rangeEndLine + 1;
-
-	if(lineAfterEnd < document.lineCount && document.lineAt(lineAfterEnd).text.trim().length === 0) {
-		return region.rangeEndLine;
-	}
-
-	if(
-		!isClosingDelimiterLine(endLineText)
-		|| lineAfterEnd >= document.lineCount
-		|| isControlClauseLine(document.lineAt(lineAfterEnd).text)
-	) {
-		return maybeIncludeImmediateClosingDelimiterLine(document, region);
-	}
-
-	return lineAfterEnd;
-}
-
-export function resolveSelectionsAfterManualFold(
-	originalSelections: readonly vscode.Selection[],
-	regions: readonly RegionNode[],
-	document: vscode.TextDocument,
-	includeClosingDelimiter: boolean
-): vscode.Selection[] {
-	if(originalSelections.length === 0) {
-		return [];
-	}
-
-	const primaryCursorLine = originalSelections[0].active.line;
-	const containingRegions = regions.filter((region) => {
-		const rangeStartLine = resolveRangeStartLine(region);
-		const rangeEndLine = resolveRangeEndLine(document, region, includeClosingDelimiter);
-
-		return primaryCursorLine >= rangeStartLine && primaryCursorLine <= rangeEndLine;
-	});
-
-	if(containingRegions.length === 0) {
-		return cloneSelections(originalSelections);
-	}
-
-	const visibleContainingRegions = containingRegions.filter((candidateRegion) => {
-		return !regions.some((region) => {
-			if(region === candidateRegion) {
-				return false;
-			}
-
-			return isLineInsideFoldBody(
-				candidateRegion.selectionLine,
-				region,
-				document,
-				includeClosingDelimiter
-			);
-		});
-	});
-	const targetCandidates = visibleContainingRegions.length > 0
-		? visibleContainingRegions
-		: containingRegions;
-
-	const targetRegion = targetCandidates.sort((left, right) => {
-		const leftStartLine = resolveRangeStartLine(left);
-		const rightStartLine = resolveRangeStartLine(right);
-		const leftEndLine = resolveRangeEndLine(document, left, includeClosingDelimiter);
-		const rightEndLine = resolveRangeEndLine(document, right, includeClosingDelimiter);
-		const leftSpan = leftEndLine - leftStartLine;
-		const rightSpan = rightEndLine - rightStartLine;
-
-		if(leftSpan !== rightSpan) {
-			return leftSpan - rightSpan;
-		}
-
-		if(leftStartLine !== rightStartLine) {
-			return rightStartLine - leftStartLine;
-		}
-
-		return right.selectionLine - left.selectionLine;
-	})[0];
-
-	if(targetRegion.selectionLine < 0 || targetRegion.selectionLine >= document.lineCount) {
-		console.debug(
-			`[semanticFold] Fold target header ${formatRegion(targetRegion)} is outside the document, falling back to original selections`
-		);
-		return cloneSelections(originalSelections);
-	}
-
-	const headerLine = document.lineAt(targetRegion.selectionLine);
-	const headerPosition = new vscode.Position(headerLine.lineNumber, headerLine.text.length);
-
-	return [new vscode.Selection(headerPosition, headerPosition)];
-}
-
-function isLineInsideFoldBody(
-	lineNumber: number,
-	region: RegionNode,
-	document: vscode.TextDocument,
-	includeClosingDelimiter: boolean
-): boolean {
-	const rangeStartLine = resolveRangeStartLine(region);
-	const rangeEndLine = resolveRangeEndLine(document, region, includeClosingDelimiter);
-
-	return lineNumber > rangeStartLine && lineNumber <= rangeEndLine;
-}
-
-function isControlClauseLine(lineText: string): boolean {
-	const trimmed = stripLineComment(lineText).trim();
-
-	return /^(catch|finally|else)\b/.test(trimmed);
-}
-
-function isInlineControlClauseBoundaryLine(trimmedLine: string): boolean {
-	return /^\}\s*(catch|finally|else)\b/.test(trimmedLine);
-}
-
-function maybeIncludeImmediateClosingDelimiterLine(
-	document: vscode.TextDocument,
-	region: RegionNode
-): number {
-	const nextLine = region.rangeEndLine + 1;
-
-	if(nextLine >= document.lineCount) {
-		return region.rangeEndLine;
-	}
-
-	if(!isClosingDelimiterLine(document.lineAt(nextLine).text)) {
-		return region.rangeEndLine;
-	}
-
-	return nextLine;
+	void vscode.window.showWarningMessage(missingSymbolNoticeMessage);
 }

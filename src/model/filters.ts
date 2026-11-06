@@ -100,6 +100,32 @@ export interface CompositeCollapseArgs {
 	preserveCursorContext?: boolean;
 }
 
+/**
+ * Reports whether a filter constrains normalised symbol depth
+ */
+export function hasSymbolDepthFilter(filter: CollapseFilter): boolean {
+	return filter.exactSymbolDepth !== undefined
+		|| filter.minSymbolDepth !== undefined
+		|| filter.maxSymbolDepth !== undefined;
+}
+
+/**
+ * Reports whether a filter constrains folding-range depth
+ */
+export function hasFoldDepthFilter(filter: CollapseFilter): boolean {
+	return filter.exactFoldDepth !== undefined
+		|| filter.minFoldDepth !== undefined
+		|| filter.maxFoldDepth !== undefined;
+}
+
+/**
+ * Reports whether a filter needs a parent or ancestor chain to match
+ */
+export function hasSymbolRelationshipFilter(filter: CollapseFilter): boolean {
+	return (filter.parentKinds !== undefined && filter.parentKinds.length > 0)
+		|| (filter.ancestorKinds !== undefined && filter.ancestorKinds.length > 0);
+}
+
 type DepthFilterKey =
 	| "exactSymbolDepth"
 	| "minSymbolDepth"

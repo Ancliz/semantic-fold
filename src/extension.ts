@@ -193,10 +193,7 @@ export function activate(context: vscode.ExtensionContext): void {
 			);
 
 			if(includeClosingDelimiterChanged) {
-				await reapplyLastFoldExecutionForVisibleEditors({
-					refreshManualFolds: includeClosingDelimiterChanged,
-					refreshHints: true
-				});
+				await reapplyLastFoldExecutionForVisibleEditors();
 			}
 
 			if(signatureHintSettingsChanged) {

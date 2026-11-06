@@ -1,4 +1,4 @@
-import type { CollapseFilter } from "../model/filters";
+import { hasFoldDepthFilter, type CollapseFilter } from "../model/filters";
 import { flattenRegions, formatRegion, type RegionNode } from "../model/region";
 
 /**
@@ -129,11 +129,7 @@ function matchesSymbolDepth(region: RegionNode, filter: CollapseFilter): boolean
  * Applies fold-depth constraints only to folding-range-backed hierarchy
  */
 function matchesFoldDepth(region: RegionNode, filter: CollapseFilter): boolean {
-	const hasFoldDepthFilter = filter.exactFoldDepth !== undefined
-		|| filter.minFoldDepth !== undefined
-		|| filter.maxFoldDepth !== undefined;
-
-	if(!hasFoldDepthFilter) {
+	if(!hasFoldDepthFilter(filter)) {
 		return true;
 	}
 
