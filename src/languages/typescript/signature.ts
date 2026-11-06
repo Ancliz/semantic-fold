@@ -8,7 +8,8 @@ import {
 	splitTopLevel,
 	stripLineComment
 } from "../../util/sourceText";
-import type { FoldedSignatureRefiner } from "../foldedSignatureRefinement";
+import type { SignatureRules } from "../types";
+import { parseSource } from "./parse";
 
 /*
  * JavaScript and TypeScript folded-signature refinements
@@ -18,15 +19,7 @@ import type { FoldedSignatureRefiner } from "../foldedSignatureRefinement";
  * arrow functions, so that syntax fallback belongs here instead of core
  */
 
-const languageIds = [
-	"javascript",
-	"javascriptreact",
-	"typescript",
-	"typescriptreact"
-];
-
-export const typescriptJavascriptFoldedSignatureRefiner: FoldedSignatureRefiner = {
-	languageIds,
+export const typescriptSignatureRules: SignatureRules = {
 	refineHintAnchor(context) {
 		return findCallableAssignmentAnchorColumn(context.line.text);
 	},
@@ -526,13 +519,7 @@ function parseObjectLiteralExpression(
 	document: vscode.TextDocument,
 	expression: string
 ): { node: ts.ObjectLiteralExpression; sourceFile: ts.SourceFile } | undefined {
-	const sourceFile = ts.createSourceFile(
-		document.fileName,
-		`const __semanticFoldValue = ${expression}`,
-		ts.ScriptTarget.Latest,
-		true,
-		scriptKindForLanguage(document.languageId)
-	);
+	const sourceFile = parseSource(document, `const __semanticFoldValue = ${expression}`);
 	const statement = sourceFile.statements[0];
 
 	if(!ts.isVariableStatement(statement)) {
@@ -550,14 +537,6 @@ function parseObjectLiteralExpression(
 		node: initializer,
 		sourceFile
 	};
-}
-
-function scriptKindForLanguage(languageId: string): ts.ScriptKind {
-	if(languageId === "javascript" || languageId === "javascriptreact") {
-		return languageId === "javascriptreact" ? ts.ScriptKind.JSX : ts.ScriptKind.JS;
-	}
-
-	return languageId === "typescriptreact" ? ts.ScriptKind.TSX : ts.ScriptKind.TS;
 }
 
 function inferObjectPropertyType(

@@ -1,10 +1,6 @@
 import { flattenRegions, type RegionNode } from "../../model/region";
-import {
-	semanticTokenText,
-	type DecodedSemanticToken,
-	type LanguageRefinementContext,
-	type LanguageRefiner
-} from "../languageRefinement";
+import { tokenSourceText } from "../../util/sourceText";
+import type { DecodedSemanticToken, RefinementContext } from "../types";
 
 /*
  * TypeScript and JavaScript refinement rules
@@ -12,13 +8,6 @@ import {
  * Handles callable members that some providers expose as properties or fields
  * while semantic tokens identify the member name as callable
  */
-
-const languageIds = [
-	"javascript",
-	"javascriptreact",
-	"typescript",
-	"typescriptreact"
-];
 
 const memberContainers = new Set<RegionNode["kind"]>([
 	"class",
@@ -28,20 +17,17 @@ const memberContainers = new Set<RegionNode["kind"]>([
 	"variable"
 ]);
 
-export const typescriptJavascriptRefiner: LanguageRefiner = {
-	languageIds,
-	refine(rootNodes, context) {
-		for(const region of flattenRegions(rootNodes)) {
-			if(!canRefineCallableMember(region)) {
-				continue;
-			}
+export function refineCallableMembers(rootNodes: RegionNode[], context: RefinementContext): void {
+	for(const region of flattenRegions(rootNodes)) {
+		if(!canRefineCallableMember(region)) {
+			continue;
+		}
 
-			if(hasCallableToken(region, context)) {
-				region.semanticKind = "method";
-			}
+		if(hasCallableToken(region, context)) {
+			region.semanticKind = "method";
 		}
 	}
-};
+}
 
 function canRefineCallableMember(region: RegionNode): boolean {
 	return region.source !== "foldingRange"
@@ -75,14 +61,14 @@ function isMemberContainer(region: RegionNode): boolean {
 
 function hasCallableToken(
 	region: RegionNode,
-	context: LanguageRefinementContext
+	context: RefinementContext
 ): boolean {
 	return context.semanticTokens.some((semanticToken) => {
 		return semanticToken.line === region.selectionLine
 			&& isCallableToken(semanticToken)
 			&& (
 				region.name === undefined
-				|| semanticTokenText(context.document, semanticToken) === region.name
+				|| tokenSourceText(context.document, semanticToken) === region.name
 			);
 	});
 }

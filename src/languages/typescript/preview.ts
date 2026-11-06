@@ -1,7 +1,8 @@
 import * as vscode from "vscode";
 import * as ts from "typescript";
 import type { RegionNode } from "../../model/region";
-import type { FoldedPreview, FoldedPreviewContext, FoldedPreviewProvider } from "../foldedPreview";
+import type { FoldedPreview, FoldedPreviewContext, PreviewProvider } from "../types";
+import { parseSource } from "./parse";
 
 /*
  * TypeScript and JavaScript folded preview rules
@@ -10,12 +11,6 @@ import type { FoldedPreview, FoldedPreviewContext, FoldedPreviewProvider } from 
  * arguments so previews are syntax-aware without adding generic source scraping
  */
 
-const languageIds = [
-	"javascript",
-	"javascriptreact",
-	"typescript",
-	"typescriptreact"
-];
 const previewableKinds = new Set<RegionNode["kind"]>([
 	"object",
 	"variable",
@@ -24,14 +19,13 @@ const previewableKinds = new Set<RegionNode["kind"]>([
 ]);
 const maxPreviewValueLength = 32;
 
-export const typescriptJavascriptFoldedPreviewProvider: FoldedPreviewProvider = {
-	languageIds,
+export const typescriptPreviewProvider: PreviewProvider = {
 	buildPreview(document, region, context) {
 		if(!isPreviewableRegion(region)) {
 			return undefined;
 		}
 
-		const sourceFile = createSourceFile(document);
+		const sourceFile = parseSource(document);
 		const bounds = createRegionBounds(document, region);
 		const objectLiteral = findFirstContainedNode(
 			sourceFile,
@@ -78,32 +72,6 @@ function isPreviewableRegion(region: RegionNode): boolean {
 			region.semanticKind !== undefined
 			&& previewableKinds.has(region.semanticKind)
 		);
-}
-
-function createSourceFile(document: vscode.TextDocument): ts.SourceFile {
-	return ts.createSourceFile(
-		document.fileName,
-		document.getText(),
-		ts.ScriptTarget.Latest,
-		true,
-		scriptKindForLanguage(document.languageId)
-	);
-}
-
-function scriptKindForLanguage(languageId: string): ts.ScriptKind {
-	if(languageId === "javascriptreact") {
-		return ts.ScriptKind.JSX;
-	}
-
-	if(languageId === "typescriptreact") {
-		return ts.ScriptKind.TSX;
-	}
-
-	if(languageId === "javascript") {
-		return ts.ScriptKind.JS;
-	}
-
-	return ts.ScriptKind.TS;
 }
 
 function createRegionBounds(document: vscode.TextDocument, region: RegionNode): RegionBounds {

@@ -195,6 +195,27 @@ export function extractArrowReturnType(afterParameters: string): string | undefi
 }
 
 /**
+ * Source text covered by a semantic token, when it lies within its line
+ */
+export function tokenSourceText(
+	document: { lineAt(line: number): { text: string } },
+	token: { line: number; startCharacter: number; length: number }
+): string | undefined {
+	try {
+		const line = document.lineAt(token.line).text;
+		const endCharacter = token.startCharacter + token.length;
+
+		if(token.startCharacter < 0 || endCharacter > line.length) {
+			return undefined;
+		}
+
+		return line.slice(token.startCharacter, endCharacter);
+	} catch {
+		return undefined;
+	}
+}
+
+/**
  * Last identifier in `value`, typically the callable name in a header prefix
  */
 export function extractTrailingIdentifier(value: string): string | undefined {

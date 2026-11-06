@@ -1,33 +1,34 @@
-import type { FoldedSignatureRefiner } from "../foldedSignatureRefinement";
 import {
 	extractArrowReturnType,
 	extractTrailingIdentifier,
 	stripLeadingTypeParameterClause
-} from "../../util/sourceText";
+} from "../util/sourceText";
+import type { LanguageSupport } from "./types";
 
 /*
- * C and C++ folded-signature refinements
+ * C and C++
  *
  * C-family declarations normally place the return type before the callable
  * name, while modern C++ can also use trailing arrow returns. Keeping those
  * rules here prevents the generic hint renderer from learning C punctuation.
  */
 
-const languageIds = ["c", "cpp"];
-
-export const cLikeFoldedSignatureRefiner: FoldedSignatureRefiner = {
-	languageIds,
-	normaliseParameterName(context) {
-		return normaliseCLikeParameterName(context.parameterText);
-	},
-	shouldPreferLocalReturnType() {
-		return true;
-	},
-	extractReturnTypeFromHeader(context) {
-		return extractArrowReturnType(context.afterParameters)
-			?? extractCLikeReturnTypeFromPrefix(context.headerPrefix);
+export const cLike: LanguageSupport = {
+	languageIds: ["c", "cpp"],
+	signature: {
+		normaliseParameterName(context) {
+			return normaliseCLikeParameterName(context.parameterText);
+		},
+		shouldPreferLocalReturnType() {
+			return true;
+		},
+		extractReturnTypeFromHeader(context) {
+			return extractArrowReturnType(context.afterParameters)
+				?? extractCLikeReturnTypeFromPrefix(context.headerPrefix);
+		}
 	}
 };
+
 
 function normaliseCLikeParameterName(parameterText: string): string | null | undefined {
 	const parameter = parameterText.trim();

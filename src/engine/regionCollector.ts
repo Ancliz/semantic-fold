@@ -1,12 +1,11 @@
 import * as vscode from "vscode";
+import { applyLanguageStructureRefinements } from "../languages";
 import type { RegionNode } from "../model/region";
 import { getCache, setCachedRegions } from "../util/cache";
 import { isSemanticRefinementEnabled } from "../util/config";
 import { debugOnce, formatError } from "../util/debug";
 import { stripLineComment } from "../util/sourceText";
 import { attachFoldingOnlyNodes } from "./foldingRangeRefiner";
-import { languageRefiners } from "./languageRefinerRegistry";
-import { applyLanguageStructureRefinements } from "./languageRefinement";
 import { refineWithSemanticTokens } from "./semanticRefiner";
 import { normalizeSymbols } from "./symbolNormaliser";
 
@@ -113,9 +112,7 @@ export async function getRegions(
 
 	const symbolNodes = normalizeSymbols(symbolCollection.symbols);
 
-	applyLanguageStructureRefinements(symbolNodes, {
-		document
-	}, languageRefiners);
+	applyLanguageStructureRefinements(symbolNodes, { document });
 
 	const structuralNodes = attachFoldingOnlyNodes(symbolNodes, foldingRanges);
 

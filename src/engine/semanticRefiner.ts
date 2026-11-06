@@ -1,12 +1,9 @@
 import * as vscode from "vscode";
+import { applyLanguageRefinements } from "../languages";
+import type { DecodedSemanticToken } from "../languages/types";
 import { flattenRegions, type RegionKind, type RegionNode } from "../model/region";
 import { debugOnce, formatError } from "../util/debug";
-import { languageRefiners } from "./languageRefinerRegistry";
-import {
-	applyLanguageRefinements,
-	semanticTokenText,
-	type DecodedSemanticToken
-} from "./languageRefinement";
+import { tokenSourceText } from "../util/sourceText";
 
 /**
  * Semantic-token data needed to refine structural regions
@@ -102,7 +99,7 @@ export function refineWithSemanticTokens(
 		applyLanguageRefinements(rootNodes, {
 			document: context.document,
 			semanticTokens
-		}, languageRefiners);
+		});
 	} catch (error) {
 		debugOnce(
 			`semantic-refinement-failed:${uri}:${formatError(error)}`,
@@ -168,7 +165,7 @@ function findSemanticKindForRegion(
 			continue;
 		}
 
-		if(region.name === undefined || semanticTokenText(document, semanticToken) === region.name) {
+		if(region.name === undefined || tokenSourceText(document, semanticToken) === region.name) {
 			return semanticKind;
 		}
 	}

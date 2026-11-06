@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
-import { buildFoldedPreview, type FoldedPreviewKind } from "../engine/foldedPreview";
-import { foldedPreviewProviders } from "../engine/foldedPreviewProviderRegistry";
+import { isClosingDelimiterLine, type FoldExecutionResult } from "../engine/foldExecutor";
 import {
+	buildFoldedPreview,
 	defaultFoldedSignatureReturnType,
 	extractFoldedSignatureReturnTypeFromHeader,
 	inferFoldedSignatureReturnType,
@@ -11,9 +11,8 @@ import {
 	normaliseFoldedSignatureReturnType,
 	prefersLocalFoldedSignatureReturnType,
 	refineFoldedSignatureAnchor
-} from "../engine/foldedSignatureRefinement";
-import { foldedSignatureRefiners } from "../engine/foldedSignatureRefinerRegistry";
-import { isClosingDelimiterLine, type FoldExecutionResult } from "../engine/foldExecutor";
+} from "../languages";
+import type { FoldedPreviewKind } from "../languages/types";
 import { flattenRegions, type RegionNode } from "../model/region";
 import {
 	getFoldedPreviewLineLimit,
@@ -341,7 +340,7 @@ export function buildFunctionLabel(
 		document,
 		region,
 		providerReturnType
-	}, foldedSignatureRefiners);
+	});
 	const providerLabel = preferLocalReturnType || signature === undefined
 		? undefined
 		: buildFunctionLabelFromProviderSignature(document, signature, {
@@ -455,7 +454,7 @@ export function buildFoldedRegionHint(
 		});
 	}
 
-	const preview = buildFoldedPreview(document, region, foldedPreviewProviders, {
+	const preview = buildFoldedPreview(document, region, {
 		maxVisibleLineLength: options.maxVisiblePreviewLineLength
 			?? getFoldedPreviewLineLimit(document.uri)
 	});
@@ -584,7 +583,7 @@ function buildFunctionLabelFromParts(
 		returnType = normaliseFoldedSignatureReturnType({
 			document,
 			returnType
-		}, foldedSignatureRefiners);
+		});
 	}
 
 	if(returnType === undefined && !options.collapseSignature) {
@@ -703,7 +702,7 @@ function isFunctionLikeRegion(document: vscode.TextDocument, region: RegionNode)
 		|| isFoldedSignatureCallableRegion({
 			document,
 			region
-		}, foldedSignatureRefiners);
+		});
 }
 
 function isHintableRegion(document: vscode.TextDocument, region: RegionNode): boolean {
@@ -725,7 +724,7 @@ function isBlockPlaceholderRegion(document: vscode.TextDocument, region: RegionN
 		|| isFoldedSignatureBlockRegion({
 			document,
 			region
-		}, foldedSignatureRefiners);
+		});
 }
 
 function hasOpeningBrace(document: vscode.TextDocument, region: RegionNode): boolean {
@@ -829,7 +828,7 @@ export function createHintAnchorRange(
 		region,
 		line,
 		providerAnchorColumn
-	}, foldedSignatureRefiners);
+	});
 
 	if(refinedAnchorColumn !== undefined) {
 		return new vscode.Range(
@@ -1397,7 +1396,7 @@ function normaliseParameterNameWithRefiners(
 	const refinedName = normaliseFoldedSignatureParameterName({
 		document,
 		parameterText: parameter
-	}, foldedSignatureRefiners);
+	});
 
 	if(refinedName === null) {
 		return null;
@@ -1431,7 +1430,7 @@ function extractTypedReturnType(
 		afterParameters,
 		openIndex,
 		closeIndex
-	}, foldedSignatureRefiners);
+	});
 }
 
 /**
@@ -1450,7 +1449,7 @@ function extractFallbackReturnType(document: vscode.TextDocument, region: Region
 		parseTypedReturnType(candidateRegion) {
 			return extractTypedReturnTypeFromRegionHeader(document, candidateRegion);
 		}
-	}, foldedSignatureRefiners);
+	});
 
 	if(inferredReturnType !== undefined) {
 		return inferredReturnType;
@@ -1459,7 +1458,7 @@ function extractFallbackReturnType(document: vscode.TextDocument, region: Region
 	const defaultReturnType = defaultFoldedSignatureReturnType({
 		document,
 		region
-	}, foldedSignatureRefiners);
+	});
 
 	if(defaultReturnType !== undefined) {
 		debugHintFallback(

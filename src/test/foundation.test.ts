@@ -1,8 +1,9 @@
 import * as assert from "assert";
 import * as vscode from "vscode";
 import { collectSelectionLines,selectFoldableRegions } from "../engine/foldExecutor";
-import { applyLanguageRefinements,type LanguageRefiner } from "../engine/languageRefinement";
 import { getRegions } from "../engine/regionCollector";
+import { applyLanguageRefinements } from "../languages";
+import type { LanguageSupport } from "../languages/types";
 import { formatRegionDiagnostics } from "../engine/regionDiagnostics";
 import { normalizeSymbols } from "../engine/symbolNormaliser";
 import {
@@ -160,7 +161,7 @@ suite("Language Refinement Boundary", () => {
 		const regions = normalizeSymbols([
 			createSymbol("Example", 999 as vscode.SymbolKind, 0, 0)
 		]);
-		const refiner: LanguageRefiner = {
+		const refiner: LanguageSupport = {
 			languageIds: ["typescript"],
 			refine(nodes) {
 				nodes[0].semanticKind = "class";
@@ -185,7 +186,7 @@ suite("Language Refinement Boundary", () => {
 		const regions = normalizeSymbols([
 			createSymbol("Example", 999 as vscode.SymbolKind, 0, 0)
 		]);
-		const refiner: LanguageRefiner = {
+		const refiner: LanguageSupport = {
 			languageIds: ["typescript"],
 			refine(nodes) {
 				nodes[0].semanticKind = "class";
