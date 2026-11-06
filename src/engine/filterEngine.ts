@@ -1,5 +1,5 @@
 import type { CollapseFilter } from "../model/filters";
-import type { RegionNode } from "../model/region";
+import { flattenRegions, formatRegion, type RegionNode } from "../model/region";
 
 /**
  * Returns regions that satisfy every active filter constraint
@@ -15,30 +15,6 @@ export function filterRegions(rootNodes: readonly RegionNode[], filter: Collapse
 			&& matchesSymbolDepth(region, filter)
 			&& matchesFoldDepth(region, filter);
 	});
-}
-
-/**
- * Flattens a region tree in pre-order document traversal
- */
-export function flattenRegions(rootNodes: readonly RegionNode[]): RegionNode[] {
-	const regions: RegionNode[] = [];
-
-	for(const node of rootNodes) {
-		appendRegion(node, regions);
-	}
-
-	return regions;
-}
-
-/**
- * Appends the current region before its children to preserve provider order
- */
-function appendRegion(region: RegionNode, regions: RegionNode[]): void {
-	regions.push(region);
-
-	for(const child of region.children) {
-		appendRegion(child, regions);
-	}
 }
 
 /**
@@ -186,12 +162,4 @@ function matchesFoldDepth(region: RegionNode, filter: CollapseFilter): boolean {
 function hasAnyRegionKind(region: RegionNode, kinds: readonly RegionNode["kind"][]): boolean {
 	return kinds.includes(region.kind)
 		|| (region.semanticKind !== undefined && kinds.includes(region.semanticKind));
-}
-
-function formatRegion(region: RegionNode): string {
-	const name = region.name === undefined || region.name.length === 0
-		? "unnamed"
-		: region.name;
-
-	return `${name}<${region.kind}>@${String(region.selectionLine)}-${String(region.rangeEndLine)}`;
 }

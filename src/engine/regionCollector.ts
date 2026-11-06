@@ -2,7 +2,8 @@ import * as vscode from "vscode";
 import type { RegionNode } from "../model/region";
 import { getCache, setCachedRegions } from "../util/cache";
 import { isSemanticRefinementEnabled } from "../util/config";
-import { debugOnce } from "../util/debug";
+import { debugOnce, formatError } from "../util/debug";
+import { stripLineComment } from "../util/sourceText";
 import { attachFoldingOnlyNodes } from "./foldingRangeRefiner";
 import { languageRefiners } from "./languageRefinerRegistry";
 import { applyLanguageStructureRefinements } from "./languageRefinement";
@@ -314,7 +315,7 @@ function findControlClauseEndLine(document: vscode.TextDocument, startLine: numb
 
 	for(let lineNumber = startLine + 1; lineNumber < document.lineCount; lineNumber++) {
 		const lineText = document.lineAt(lineNumber);
-		const trimmedLine = stripLineComments(lineText.text).trim();
+		const trimmedLine = stripLineComment(lineText.text).trim();
 
 		if(trimmedLine.length === 0) {
 			continue;
@@ -329,13 +330,9 @@ function findControlClauseEndLine(document: vscode.TextDocument, startLine: numb
 }
 
 function isControlClauseHeaderLine(lineText: string): boolean {
-	const trimmedLine = stripLineComments(lineText).trim();
+	const trimmedLine = stripLineComment(lineText).trim();
 
 	return /^\}?\s*(catch|finally|else\b).*\{$/.test(trimmedLine);
-}
-
-function stripLineComments(lineText: string): string {
-	return lineText.replace(/\/\/.*$/, "");
 }
 
 /**
@@ -372,14 +369,6 @@ async function collectSemanticTokenLegend(
 		);
 		return undefined;
 	}
-}
-
-function formatError(error: unknown): string {
-	if(error instanceof Error) {
-		return error.message;
-	}
-
-	return String(error);
 }
 
 /**

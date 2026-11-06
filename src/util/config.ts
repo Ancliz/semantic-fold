@@ -3,6 +3,7 @@ import {
 	type CollapseArgs,
 	type CollapseFilter,
 	type CompositeCollapseArgs,
+	isRecord,
 	normaliseCollapseFilter,
 	normaliseCollapseFilters
 } from "../model/filters";
@@ -269,11 +270,4 @@ function normaliseCompositePresetOverride(value: unknown): CompositePresetOverri
 	}
 
 	return override;
-}
-
-/**
- * Narrows unknown values to plain object-like records
- */
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null;
 }

@@ -1,9 +1,10 @@
 import * as assert from "assert";
 import * as vscode from "vscode";
-import { filterRegions,flattenRegions } from "../engine/filterEngine";
+import { filterRegions } from "../engine/filterEngine";
 import { collectSelectionLines,execFoldCommand,selectFoldableRegions,TrackedFoldState } from "../engine/foldExecutor";
 import { attachFoldingOnlyNodes,normaliseFoldingRanges } from "../engine/foldingRangeRefiner";
 import { normalizeSymbols } from "../engine/symbolNormaliser";
+import { flattenRegions } from "../model/region";
 import {
 createSymbol,
 type ExecutedCommand

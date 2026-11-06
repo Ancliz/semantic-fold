@@ -1,9 +1,9 @@
-import * as vscode from "vscode";
-import type { RegionNode } from "../../model/region";
-import type {
-	DecodedSemanticToken,
-	LanguageRefinementContext,
-	LanguageRefiner
+import { flattenRegions, type RegionNode } from "../../model/region";
+import {
+	semanticTokenText,
+	type DecodedSemanticToken,
+	type LanguageRefinementContext,
+	type LanguageRefiner
 } from "../languageRefinement";
 
 /*
@@ -82,41 +82,11 @@ function hasCallableToken(
 			&& isCallableToken(semanticToken)
 			&& (
 				region.name === undefined
-				|| tokenText(context.document, semanticToken) === region.name
+				|| semanticTokenText(context.document, semanticToken) === region.name
 			);
 	});
 }
 
 function isCallableToken(semanticToken: DecodedSemanticToken): boolean {
 	return semanticToken.tokenType === "function" || semanticToken.tokenType === "method";
-}
-
-function tokenText(
-	document: vscode.TextDocument,
-	semanticToken: DecodedSemanticToken
-): string | undefined {
-	try {
-		const line = document.lineAt(semanticToken.line).text;
-		const endCharacter = semanticToken.startCharacter + semanticToken.length;
-
-		if(semanticToken.startCharacter < 0 || endCharacter > line.length) {
-			return undefined;
-		}
-
-		return line.slice(semanticToken.startCharacter, endCharacter);
-	} catch {
-		return undefined;
-	}
-}
-
-function flattenRegions(rootNodes: readonly RegionNode[]): RegionNode[] {
-	const regions: RegionNode[] = [];
-	const visit = (region: RegionNode): void => {
-		regions.push(region);
-		region.children.forEach(visit);
-	};
-
-	rootNodes.forEach(visit);
-
-	return regions;
 }

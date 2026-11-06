@@ -14,14 +14,20 @@ import {
 } from "../engine/foldedSignatureRefinement";
 import { foldedSignatureRefiners } from "../engine/foldedSignatureRefinerRegistry";
 import { isClosingDelimiterLine, type FoldExecutionResult } from "../engine/foldExecutor";
-import type { RegionNode } from "../model/region";
+import { flattenRegions, type RegionNode } from "../model/region";
 import {
 	getFoldedPreviewLineLimit,
 	isIncludeClosingDelimiterEnabled,
 	isCollapsedHintEnabled,
 	isFoldedFunctionSignatureHintsEnabled
 } from "./config";
-import { debugOnce } from "./debug";
+import { debugOnce, formatError } from "./debug";
+import {
+	beforeTopLevel,
+	findParenthesisBounds,
+	splitTopLevel,
+	stripLineComment
+} from "./sourceText";
 
 const functionLikeKinds = new Set<string>(["function", "method"]);
 const containerHintKinds = new Set<string>(["object", "variable", "property", "field"]);
@@ -195,25 +201,19 @@ async function refreshFunctionHintsAsync(
 		const placement = createHintPlacementForKind(editor.document, region, line, hint);
 		const anchorRange = placement.anchorRange;
 
-		if(hint.replaceSignature || hint.replaceSignatureTail) {
-			const signatureRange = createSignatureReplacementRange(line, anchorRange, {
+		const signatureRange = hint.replaceSignature || hint.replaceSignatureTail
+			? createSignatureReplacementRange(line, anchorRange, {
 				preserveOpeningDelimiter: hint.preserveOpeningDelimiter ?? false
+			})
+			: undefined;
+
+		if(signatureRange !== undefined) {
+			replacedSignatureDecorations.push({
+				range: signatureRange,
+				hoverMessage: hint.text
 			});
 
-			if(signatureRange !== undefined) {
-				replacedSignatureDecorations.push({
-					range: signatureRange,
-					hoverMessage: hint.text
-				});
-			}
-		}
-
-		if(hint.replaceSignature) {
-			const signatureRange = createSignatureReplacementRange(line, anchorRange, {
-				preserveOpeningDelimiter: hint.preserveOpeningDelimiter ?? false
-			});
-
-			if(signatureRange !== undefined) {
+			if(hint.replaceSignature) {
 				collapsedHintDecorations.push({
 					range: anchorRange,
 					renderOptions: {
@@ -692,24 +692,6 @@ function isLineVisible(lineNumber: number, visibleRanges: readonly vscode.Range[
 	}
 
 	return false;
-}
-
-function flattenRegions(rootNodes: readonly RegionNode[]): RegionNode[] {
-	const regions: RegionNode[] = [];
-
-	for(const node of rootNodes) {
-		appendRegion(node, regions);
-	}
-
-	return regions;
-}
-
-function appendRegion(region: RegionNode, regions: RegionNode[]): void {
-	regions.push(region);
-
-	for(const child of region.children) {
-		appendRegion(child, regions);
-	}
 }
 
 /**
@@ -1227,37 +1209,13 @@ function parseSignatureLine(
 	const cleanedLine = stripHoverPrefix
 		? stripHoverMetadataPrefix(signatureLine)
 		: signatureLine.trim();
-	const openIndex = cleanedLine.indexOf("(");
+	const bounds = findParenthesisBounds(cleanedLine);
 
-	if(openIndex < 0) {
+	if(bounds === undefined) {
 		return undefined;
 	}
 
-	let depth = 0;
-	let closeIndex = -1;
-
-	for(let index = openIndex; index < cleanedLine.length; index++) {
-		const current = cleanedLine[index];
-
-		if(current === "(") {
-			depth++;
-			continue;
-		}
-
-		if(current === ")") {
-			depth--;
-
-			if(depth === 0) {
-				closeIndex = index;
-				break;
-			}
-		}
-	}
-
-	if(closeIndex < 0) {
-		return undefined;
-	}
-
+	const { openIndex, closeIndex } = bounds;
 	const parameterSource = cleanedLine.slice(openIndex + 1, closeIndex);
 	const typedReturnType = extractTypedReturnType(document, cleanedLine, openIndex, closeIndex);
 
@@ -1311,7 +1269,7 @@ function getProviderSignatureCache(documentUri: string): Map<string, ParsedSigna
 
 function extractReturnType(document: vscode.TextDocument, region: RegionNode): string | undefined {
 	const headerText = buildHeaderText(document, region);
-	const bounds = findHeaderParameterBounds(headerText);
+	const bounds = findParenthesisBounds(headerText);
 
 	if(bounds === undefined) {
 		debugHintFallback(
@@ -1361,40 +1319,6 @@ function buildHeaderText(document: vscode.TextDocument, region: RegionNode): str
 	return lines.join(" ");
 }
 
-function findHeaderParameterBounds(
-	headerText: string
-): { openIndex: number; closeIndex: number } | undefined {
-	const openIndex = headerText.indexOf("(");
-
-	if(openIndex < 0) {
-		return undefined;
-	}
-
-	let depth = 0;
-
-	for(let index = openIndex; index < headerText.length; index++) {
-		const current = headerText[index];
-
-		if(current === "(") {
-			depth++;
-			continue;
-		}
-
-		if(current === ")") {
-			depth--;
-
-			if(depth === 0) {
-				return {
-					openIndex,
-					closeIndex: index
-				};
-			}
-		}
-	}
-
-	return undefined;
-}
-
 /**
  * Normalises parsed parameter entries into display names
  */
@@ -1414,63 +1338,13 @@ function extractParameterNames(document: vscode.TextDocument, parameterSource: s
 }
 
 /**
- * Splits text by a separator while respecting nested delimiter depth
- */
-function splitTopLevel(value: string, separator: string): string[] {
-	const parts: string[] = [];
-	let depthRound = 0;
-	let depthSquare = 0;
-	let depthCurly = 0;
-	let depthAngle = 0;
-	let current = "";
-
-	for(const character of value) {
-		if(character === "(") {
-			depthRound++;
-		} else if(character === ")") {
-			depthRound = Math.max(0, depthRound - 1);
-		} else if(character === "[") {
-			depthSquare++;
-		} else if(character === "]") {
-			depthSquare = Math.max(0, depthSquare - 1);
-		} else if(character === "{") {
-			depthCurly++;
-		} else if(character === "}") {
-			depthCurly = Math.max(0, depthCurly - 1);
-		} else if(character === "<") {
-			depthAngle++;
-		} else if(character === ">") {
-			depthAngle = Math.max(0, depthAngle - 1);
-		}
-
-		if(
-			character === separator
-			&& depthRound === 0
-			&& depthSquare === 0
-			&& depthCurly === 0
-			&& depthAngle === 0
-		) {
-			parts.push(current);
-			current = "";
-			continue;
-		}
-
-		current += character;
-	}
-
-	parts.push(current);
-
-	return parts;
-}
-
-/**
  * Reduces one parameter expression to a concise display token
  */
 function normaliseParameterName(
 	document: vscode.TextDocument,
 	parameterText: string
 ): string | undefined {
-	let parameter = stripTopLevelDefault(parameterText).trim();
+	let parameter = beforeTopLevel(parameterText, "=").trim();
 	let isRestParameter = false;
 
 	if(parameter.length === 0 || parameter === "this") {
@@ -1496,7 +1370,7 @@ function normaliseParameterName(
 		return rawRefinedName ?? undefined;
 	}
 
-	parameter = stripTopLevelTypeAnnotation(parameter).trim().replace(/\?$/, "");
+	parameter = beforeTopLevel(parameter, ":").trim().replace(/\?$/, "");
 
 	if(parameter.length === 0 || parameter === "this") {
 		return undefined;
@@ -1536,103 +1410,6 @@ function normaliseParameterNameWithRefiners(
 	return isRestParameter && !refinedName.startsWith("...")
 		? `...${refinedName}`
 		: refinedName;
-}
-
-/**
- * Removes top-level default assignments from parameter declarations
- */
-function stripTopLevelDefault(parameterText: string): string {
-	let depthRound = 0;
-	let depthSquare = 0;
-	let depthCurly = 0;
-	let depthAngle = 0;
-	let result = "";
-
-	for(const character of parameterText) {
-		if(character === "(") {
-			depthRound++;
-		} else if(character === ")") {
-			depthRound = Math.max(0, depthRound - 1);
-		} else if(character === "[") {
-			depthSquare++;
-		} else if(character === "]") {
-			depthSquare = Math.max(0, depthSquare - 1);
-		} else if(character === "{") {
-			depthCurly++;
-		} else if(character === "}") {
-			depthCurly = Math.max(0, depthCurly - 1);
-		} else if(character === "<") {
-			depthAngle++;
-		} else if(character === ">") {
-			depthAngle = Math.max(0, depthAngle - 1);
-		}
-
-		if(
-			character === "="
-			&& depthRound === 0
-			&& depthSquare === 0
-			&& depthCurly === 0
-			&& depthAngle === 0
-		) {
-			return result;
-		}
-
-		result += character;
-	}
-
-	return result;
-}
-
-/**
- * Removes top-level type annotations from parameter declarations
- */
-function stripTopLevelTypeAnnotation(parameterText: string): string {
-	let depthRound = 0;
-	let depthSquare = 0;
-	let depthCurly = 0;
-	let depthAngle = 0;
-	let result = "";
-
-	for(const character of parameterText) {
-		if(character === "(") {
-			depthRound++;
-		} else if(character === ")") {
-			depthRound = Math.max(0, depthRound - 1);
-		} else if(character === "[") {
-			depthSquare++;
-		} else if(character === "]") {
-			depthSquare = Math.max(0, depthSquare - 1);
-		} else if(character === "{") {
-			depthCurly++;
-		} else if(character === "}") {
-			depthCurly = Math.max(0, depthCurly - 1);
-		} else if(character === "<") {
-			depthAngle++;
-		} else if(character === ">") {
-			depthAngle = Math.max(0, depthAngle - 1);
-		}
-
-		if(
-			character === ":"
-			&& depthRound === 0
-			&& depthSquare === 0
-			&& depthCurly === 0
-			&& depthAngle === 0
-		) {
-			return result;
-		}
-
-		result += character;
-	}
-
-	return result;
-}
-
-/**
- * Removes trailing single-line comments before lightweight parsing
- */
-function stripLineComment(lineText: string): string {
-	return lineText.replace(/\/\/.*$/, "");
 }
 
 /**
@@ -1701,7 +1478,7 @@ function extractTypedReturnTypeFromRegionHeader(
 	region: RegionNode
 ): string | undefined {
 	const headerText = buildHeaderText(document, region);
-	const bounds = findHeaderParameterBounds(headerText);
+	const bounds = findParenthesisBounds(headerText);
 
 	return bounds === undefined
 		? undefined
@@ -1740,12 +1517,4 @@ function debugProviderSignatureUnavailable(
 		`[semanticFold] Provider signature unavailable for ${document.languageId} `
 			+ `file ${document.uri.toString()}: ${reason}`
 	);
-}
-
-function formatError(error: unknown): string {
-	if(error instanceof Error) {
-		return error.message;
-	}
-
-	return String(error);
 }

@@ -1,6 +1,13 @@
 import * as vscode from "vscode";
 import * as ts from "typescript";
 import type { RegionNode } from "../../model/region";
+import {
+	beforeTopLevel,
+	indexOfTopLevel,
+	scanBalanced,
+	splitTopLevel,
+	stripLineComment
+} from "../../util/sourceText";
 import type { FoldedSignatureRefiner } from "../foldedSignatureRefinement";
 
 /*
@@ -59,7 +66,7 @@ export const typescriptJavascriptFoldedSignatureRefiner: FoldedSignatureRefiner 
 };
 
 function normaliseTypescriptParameterName(parameterText: string): string | undefined {
-	let parameter = stripTopLevelDefault(parameterText).trim();
+	let parameter = beforeTopLevel(parameterText, "=").trim();
 	let isRestParameter = false;
 
 	if(parameter.startsWith("...")) {
@@ -68,7 +75,7 @@ function normaliseTypescriptParameterName(parameterText: string): string | undef
 	}
 
 	parameter = stripTypescriptLeadingModifiers(parameter);
-	parameter = stripTopLevelTypeAnnotation(parameter).trim().replace(/\?$/, "");
+	parameter = beforeTopLevel(parameter, ":").trim().replace(/\?$/, "");
 
 	const match = parameter.match(/^[A-Za-z_$][\w$]*$/);
 
@@ -88,90 +95,6 @@ function stripTypescriptLeadingModifiers(value: string): string {
 	}
 
 	return remaining.trim();
-}
-
-function stripTopLevelDefault(parameterText: string): string {
-	let depthRound = 0;
-	let depthSquare = 0;
-	let depthCurly = 0;
-	let depthAngle = 0;
-	let result = "";
-
-	for(const character of parameterText) {
-		if(character === "(") {
-			depthRound++;
-		} else if(character === ")") {
-			depthRound = Math.max(0, depthRound - 1);
-		} else if(character === "[") {
-			depthSquare++;
-		} else if(character === "]") {
-			depthSquare = Math.max(0, depthSquare - 1);
-		} else if(character === "{") {
-			depthCurly++;
-		} else if(character === "}") {
-			depthCurly = Math.max(0, depthCurly - 1);
-		} else if(character === "<") {
-			depthAngle++;
-		} else if(character === ">") {
-			depthAngle = Math.max(0, depthAngle - 1);
-		}
-
-		if(
-			character === "="
-			&& depthRound === 0
-			&& depthSquare === 0
-			&& depthCurly === 0
-			&& depthAngle === 0
-		) {
-			return result;
-		}
-
-		result += character;
-	}
-
-	return result;
-}
-
-function stripTopLevelTypeAnnotation(parameterText: string): string {
-	let depthRound = 0;
-	let depthSquare = 0;
-	let depthCurly = 0;
-	let depthAngle = 0;
-	let result = "";
-
-	for(const character of parameterText) {
-		if(character === "(") {
-			depthRound++;
-		} else if(character === ")") {
-			depthRound = Math.max(0, depthRound - 1);
-		} else if(character === "[") {
-			depthSquare++;
-		} else if(character === "]") {
-			depthSquare = Math.max(0, depthSquare - 1);
-		} else if(character === "{") {
-			depthCurly++;
-		} else if(character === "}") {
-			depthCurly = Math.max(0, depthCurly - 1);
-		} else if(character === "<") {
-			depthAngle++;
-		} else if(character === ">") {
-			depthAngle = Math.max(0, depthAngle - 1);
-		}
-
-		if(
-			character === ":"
-			&& depthRound === 0
-			&& depthSquare === 0
-			&& depthCurly === 0
-			&& depthAngle === 0
-		) {
-			return result;
-		}
-
-		result += character;
-	}
-
-	return result;
 }
 
 function findCallableAssignmentAnchorColumn(lineText: string): number | undefined {
@@ -245,73 +168,46 @@ function extractTypescriptReturnTypeFromHeader(
 }
 
 function readTypescriptReturnType(value: string): string {
-	let depthRound = 0;
-	let depthSquare = 0;
-	let depthCurly = 0;
-	let depthAngle = 0;
-	let result = "";
 	const trimmedValue = value.trimStart();
+	let end = trimmedValue.length;
 
-	for(let index = 0; index < trimmedValue.length; index++) {
-		const character = trimmedValue[index];
-		const atTopLevel = depthRound === 0
-			&& depthSquare === 0
-			&& depthCurly === 0
-			&& depthAngle === 0;
+	scanBalanced(trimmedValue, (character, index, topLevel) => {
+		if(!topLevel) {
+			return;
+		}
 
-		if(atTopLevel && character === "{") {
-			if(result.trim().length > 0) {
-				break;
+		if(character === "{") {
+			// A leading brace opens an object type; once a type has started, the
+			// next top-level brace is the function body
+			if(trimmedValue.slice(0, index).trim().length > 0) {
+				end = index;
+
+				return true;
 			}
 
-			depthCurly++;
-			result += character;
-			continue;
+			return;
 		}
 
-		if(
-			atTopLevel
-			&& character === "="
-		) {
-			if(trimmedValue[index + 1] === ">" && result.trimEnd().endsWith(")")) {
-				result += character;
-				continue;
+		if(character === "=") {
+			// "=>" after a parameter list belongs to a function type
+			if(trimmedValue[index + 1] === ">" && trimmedValue.slice(0, index).trimEnd().endsWith(")")) {
+				return;
 			}
 
-			break;
+			end = index;
+
+			return true;
 		}
 
-		if(
-			atTopLevel
-			&& character === ";"
-		) {
-			break;
+		if(character === ";") {
+			end = index;
+
+			return true;
 		}
+	});
 
-		if(character === "(") {
-			depthRound++;
-		} else if(character === ")") {
-			depthRound = Math.max(0, depthRound - 1);
-		} else if(character === "[") {
-			depthSquare++;
-		} else if(character === "]") {
-			depthSquare = Math.max(0, depthSquare - 1);
-		} else if(character === "{") {
-			depthCurly++;
-		} else if(character === "}") {
-			depthCurly = Math.max(0, depthCurly - 1);
-		} else if(character === "<") {
-			depthAngle++;
-		} else if(character === ">") {
-			depthAngle = Math.max(0, depthAngle - 1);
-		}
-
-		result += character;
-	}
-
-	return result.trim();
+	return trimmedValue.slice(0, end).trim();
 }
-
 function normaliseTypescriptReturnType(returnType: string): string {
 	return replaceObjectTypeLiterals(returnType);
 }
@@ -379,54 +275,12 @@ function parseObjectTypeMembers(memberSource: string): string[] {
 }
 
 function splitTopLevelObjectMembers(memberSource: string): string[] {
-	const members: string[] = [];
-	let depthRound = 0;
-	let depthSquare = 0;
-	let depthCurly = 0;
-	let depthAngle = 0;
-	let current = "";
-
-	for(const character of memberSource) {
-		if(character === "(") {
-			depthRound++;
-		} else if(character === ")") {
-			depthRound = Math.max(0, depthRound - 1);
-		} else if(character === "[") {
-			depthSquare++;
-		} else if(character === "]") {
-			depthSquare = Math.max(0, depthSquare - 1);
-		} else if(character === "{") {
-			depthCurly++;
-		} else if(character === "}") {
-			depthCurly = Math.max(0, depthCurly - 1);
-		} else if(character === "<") {
-			depthAngle++;
-		} else if(character === ">") {
-			depthAngle = Math.max(0, depthAngle - 1);
-		}
-
-		if(
-			(character === ";" || character === ",")
-			&& depthRound === 0
-			&& depthSquare === 0
-			&& depthCurly === 0
-			&& depthAngle === 0
-		) {
-			members.push(current);
-			current = "";
-			continue;
-		}
-
-		current += character;
-	}
-
-	members.push(current);
-
-	return members.map((member) => member.trim()).filter((member) => member.length > 0);
+	return splitTopLevel(memberSource, ";,")
+		.map((member) => member.trim())
+		.filter((member) => member.length > 0);
 }
-
 function extractObjectMemberType(memberText: string): string | undefined {
-	const colonIndex = findTopLevelColon(memberText);
+	const colonIndex = indexOfTopLevel(memberText, (character) => character === ":");
 
 	if(colonIndex < 0) {
 		return "unknown";
@@ -435,47 +289,6 @@ function extractObjectMemberType(memberText: string): string | undefined {
 	const typeText = memberText.slice(colonIndex + 1).trim();
 
 	return typeText.length === 0 ? "unknown" : typeText;
-}
-
-function findTopLevelColon(value: string): number {
-	let depthRound = 0;
-	let depthSquare = 0;
-	let depthCurly = 0;
-	let depthAngle = 0;
-
-	for(let index = 0; index < value.length; index++) {
-		const character = value[index];
-
-		if(character === "(") {
-			depthRound++;
-		} else if(character === ")") {
-			depthRound = Math.max(0, depthRound - 1);
-		} else if(character === "[") {
-			depthSquare++;
-		} else if(character === "]") {
-			depthSquare = Math.max(0, depthSquare - 1);
-		} else if(character === "{") {
-			depthCurly++;
-		} else if(character === "}") {
-			depthCurly = Math.max(0, depthCurly - 1);
-		} else if(character === "<") {
-			depthAngle++;
-		} else if(character === ">") {
-			depthAngle = Math.max(0, depthAngle - 1);
-		}
-
-		if(
-			character === ":"
-			&& depthRound === 0
-			&& depthSquare === 0
-			&& depthCurly === 0
-			&& depthAngle === 0
-		) {
-			return index;
-		}
-	}
-
-	return -1;
 }
 
 function formatObjectTypeSummary(memberTypes: readonly string[]): string {
@@ -491,52 +304,16 @@ function formatObjectTypeSummary(memberTypes: readonly string[]): string {
 }
 
 function findTopLevelAssignmentIndex(value: string): number {
-	let depthRound = 0;
-	let depthSquare = 0;
-	let depthCurly = 0;
-	let depthAngle = 0;
-
-	for(let index = 0; index < value.length; index++) {
-		const character = value[index];
-
-		if(character === "(") {
-			depthRound++;
-		} else if(character === ")") {
-			depthRound = Math.max(0, depthRound - 1);
-		} else if(character === "[") {
-			depthSquare++;
-		} else if(character === "]") {
-			depthSquare = Math.max(0, depthSquare - 1);
-		} else if(character === "{") {
-			depthCurly++;
-		} else if(character === "}") {
-			depthCurly = Math.max(0, depthCurly - 1);
-		} else if(character === "<") {
-			depthAngle++;
-		} else if(character === ">") {
-			depthAngle = Math.max(0, depthAngle - 1);
-		}
-
-		if(
-			character === "="
-			&& depthRound === 0
-			&& depthSquare === 0
-			&& depthCurly === 0
-			&& depthAngle === 0
+	return indexOfTopLevel(value, (character, index) => {
+		return character === "="
 			&& value[index - 1] !== "="
 			&& value[index - 1] !== "!"
 			&& value[index - 1] !== "<"
 			&& value[index - 1] !== ">"
 			&& value[index + 1] !== "="
-			&& value[index + 1] !== ">"
-		) {
-			return index;
-		}
-	}
-
-	return -1;
+			&& value[index + 1] !== ">";
+	});
 }
-
 function isCallableAssignmentRightHandSide(value: string): boolean {
 	return /^(?:async\s+)?function\b/.test(value)
 		|| /^(?:async\s*)?\(/.test(value)
@@ -986,10 +763,6 @@ function findCallableDeclarationLine(
 	}
 
 	return nearestLine;
-}
-
-function stripLineComment(lineText: string): string {
-	return lineText.replace(/\/\/.*$/, "");
 }
 
 function isLikelyNumericExpression(expression: string): boolean {

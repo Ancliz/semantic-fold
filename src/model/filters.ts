@@ -325,6 +325,6 @@ function isValidRegex(value: string): boolean {
 /**
  * Narrows arbitrary command payloads to object-like values
  */
-function isRecord(value: unknown): value is Record<string, unknown> {
+export function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null;
 }

@@ -122,3 +122,29 @@ export interface RegionNode {
 	 */
 	symbolKind?: number;
 }
+
+/**
+ * Flattens a region tree in pre-order (document) traversal
+ */
+export function flattenRegions(rootNodes: readonly RegionNode[]): RegionNode[] {
+	const regions: RegionNode[] = [];
+	const visit = (region: RegionNode): void => {
+		regions.push(region);
+		region.children.forEach(visit);
+	};
+
+	rootNodes.forEach(visit);
+
+	return regions;
+}
+
+/**
+ * Compact `name<kind>@selectionLine-endLine` label for debug output
+ */
+export function formatRegion(region: RegionNode): string {
+	const name = region.name === undefined || region.name.length === 0
+		? "unnamed"
+		: region.name;
+
+	return `${name}<${region.kind}>@${String(region.selectionLine)}-${String(region.rangeEndLine)}`;
+}

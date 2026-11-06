@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import type { RegionKind, RegionNode } from "../model/region";
+import { flattenRegions, type RegionKind, type RegionNode } from "../model/region";
 import { mapFoldingRangeKind } from "../util/symbolKindMap";
 
 /**
@@ -17,7 +17,7 @@ export function attachFoldingOnlyNodes(
 	rootNodes: RegionNode[],
 	foldingRanges: vscode.FoldingRange[] | null | undefined
 ): RegionNode[] {
-	const symbolNodes = flattenRegionTree(rootNodes).filter((region) => {
+	const symbolNodes = flattenRegions(rootNodes).filter((region) => {
 		return region.source !== "foldingRange";
 	});
 	const foldingNodes = normaliseFoldingRanges(foldingRanges).filter((foldingNode) => {
@@ -31,7 +31,7 @@ export function attachFoldingOnlyNodes(
 	const mergedRootNodes = [...rootNodes];
 
 	// Include folding nodes as candidates so nested folding ranges can parent each other
-	const candidateParents = [...flattenRegionTree(rootNodes), ...foldingNodes];
+	const candidateParents = [...flattenRegions(rootNodes), ...foldingNodes];
 
 	for(const foldingNode of foldingNodes) {
 		const parent = findSmallestContainingNode(foldingNode, candidateParents);
@@ -178,30 +178,6 @@ function canParentNode(parent: RegionNode, child: RegionNode): boolean {
 }
 
 /**
- * Flattens the tree for relationship checks without mutating it
- */
-function flattenRegionTree(rootNodes: readonly RegionNode[]): RegionNode[] {
-	const regions: RegionNode[] = [];
-
-	for(const rootNode of rootNodes) {
-		appendRegion(rootNode, regions);
-	}
-
-	return regions;
-}
-
-/**
- * Appends the current region before its children to preserve source order
- */
-function appendRegion(region: RegionNode, regions: RegionNode[]): void {
-	regions.push(region);
-
-	for(const child of region.children) {
-		appendRegion(child, regions);
-	}
-}
-
-/**
  * Drops folding ranges already represented by a symbol-backed node
  */
 function isCoveredBySymbolRegion(
@@ -236,7 +212,7 @@ function updateFoldingNodeDepths(region: RegionNode, symbolDepth: number, foldDe
  * tightest structural container available
  */
 function reparentSymbolNodesUnderUnknownFoldingNodes(rootNodes: RegionNode[]): void {
-	const unknownFoldingNodes = flattenRegionTree(rootNodes).filter((region) => {
+	const unknownFoldingNodes = flattenRegions(rootNodes).filter((region) => {
 		return region.source === "foldingRange" && region.kind === "unknown";
 	});
 
@@ -244,7 +220,7 @@ function reparentSymbolNodesUnderUnknownFoldingNodes(rootNodes: RegionNode[]): v
 		return;
 	}
 
-	const symbolNodes = flattenRegionTree(rootNodes)
+	const symbolNodes = flattenRegions(rootNodes)
 		.filter((region) => {
 			return region.source !== "foldingRange";
 		})

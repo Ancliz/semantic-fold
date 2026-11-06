@@ -1,8 +1,12 @@
 import * as vscode from "vscode";
-import type { RegionKind, RegionNode } from "../model/region";
-import { debugOnce } from "../util/debug";
+import { flattenRegions, type RegionKind, type RegionNode } from "../model/region";
+import { debugOnce, formatError } from "../util/debug";
 import { languageRefiners } from "./languageRefinerRegistry";
-import { applyLanguageRefinements, type DecodedSemanticToken } from "./languageRefinement";
+import {
+	applyLanguageRefinements,
+	semanticTokenText,
+	type DecodedSemanticToken
+} from "./languageRefinement";
 
 /**
  * Semantic-token data needed to refine structural regions
@@ -87,7 +91,7 @@ export function refineWithSemanticTokens(
 			return rootNodes;
 		}
 
-		for(const region of flattenRegionTree(rootNodes)) {
+		for(const region of flattenRegions(rootNodes)) {
 			const semanticKind = findSemanticKindForRegion(region, semanticTokens, context.document);
 
 			if(semanticKind !== undefined && semanticKind !== region.kind) {
@@ -164,7 +168,7 @@ function findSemanticKindForRegion(
 			continue;
 		}
 
-		if(region.name === undefined || getTokenText(document, semanticToken) === region.name) {
+		if(region.name === undefined || semanticTokenText(document, semanticToken) === region.name) {
 			return semanticKind;
 		}
 	}
@@ -184,39 +188,6 @@ function canRefineRegionKind(regionKind: RegionKind, semanticKind: RegionKind): 
 	return ambiguousRegionRefinements.get(regionKind)?.has(semanticKind) ?? false;
 }
 
-function getTokenText(document: vscode.TextDocument, semanticToken: DecodedSemanticToken): string | undefined {
-	try {
-		const line = document.lineAt(semanticToken.line).text;
-		const endCharacter = semanticToken.startCharacter + semanticToken.length;
-
-		if(semanticToken.startCharacter < 0 || endCharacter > line.length) {
-			return undefined;
-		}
-
-		return line.slice(semanticToken.startCharacter, endCharacter);
-	} catch {
-		return undefined;
-	}
-}
-
-function flattenRegionTree(rootNodes: readonly RegionNode[]): RegionNode[] {
-	const regions: RegionNode[] = [];
-
-	for(const rootNode of rootNodes) {
-		appendRegion(rootNode, regions);
-	}
-
-	return regions;
-}
-
-function appendRegion(region: RegionNode, regions: RegionNode[]): void {
-	regions.push(region);
-
-	for(const child of region.children) {
-		appendRegion(child, regions);
-	}
-}
-
 function isSemanticTokens(value: unknown): value is vscode.SemanticTokens {
 	const semanticTokens = value as Partial<vscode.SemanticTokens> | null | undefined;
 
@@ -231,12 +202,4 @@ function isSemanticTokenLegend(value: unknown): value is vscode.SemanticTokensLe
 	return semanticTokenLegend !== undefined
 		&& semanticTokenLegend !== null
 		&& Array.isArray(semanticTokenLegend.tokenTypes);
-}
-
-function formatError(error: unknown): string {
-	if(error instanceof Error) {
-		return error.message;
-	}
-
-	return String(error);
 }

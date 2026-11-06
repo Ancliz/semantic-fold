@@ -1,5 +1,5 @@
 import type { FoldedSignatureRefiner } from "../foldedSignatureRefinement";
-import { extractArrowReturnType } from "./sourceHelpers";
+import { extractArrowReturnType } from "../../util/sourceText";
 
 /*
  * Rust folded-signature refinements

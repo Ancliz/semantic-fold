@@ -10,9 +10,10 @@ import {
 	normaliseArgs,
 	normaliseCompositeArgs
 } from "../model/filters";
-import type { RegionNode } from "../model/region";
+import { formatRegion, type RegionNode } from "../model/region";
 import { isIncludeClosingDelimiterEnabled } from "../util/config";
 import { applyFunctionSignatureHints } from "../util/foldedSignatureHints";
+import { stripLineComment } from "../util/sourceText";
 
 const lastManualFoldSelectionsByDocument = new Map<string, vscode.Selection[]>();
 const lastFoldExecutionByDocument = new Map<string, LastFoldExecution>();
@@ -498,7 +499,7 @@ export function resolveRangeEndLine(
 	const rangeStartLine = resolveRangeStartLine(region);
 	if(!includeClosingDelimiter) {
 		const endLineText = document.lineAt(region.rangeEndLine).text;
-		const trimmedEndLine = endLineText.replace(/\/\/.*$/, "").trim();
+		const trimmedEndLine = stripLineComment(endLineText).trim();
 
 		if(
 			isInlineControlClauseBoundaryLine(trimmedEndLine)
@@ -518,7 +519,7 @@ export function resolveRangeEndLine(
 	}
 
 	const endLineText = document.lineAt(region.rangeEndLine).text;
-	const trimmedEndLine = endLineText.replace(/\/\/.*$/, "").trim();
+	const trimmedEndLine = stripLineComment(endLineText).trim();
 
 	if(
 		isInlineControlClauseBoundaryLine(trimmedEndLine)
@@ -633,7 +634,7 @@ function isLineInsideFoldBody(
 }
 
 function isControlClauseLine(lineText: string): boolean {
-	const trimmed = lineText.replace(/\/\/.*$/, "").trim();
+	const trimmed = stripLineComment(lineText).trim();
 
 	return /^(catch|finally|else)\b/.test(trimmed);
 }
@@ -657,12 +658,4 @@ function maybeIncludeImmediateClosingDelimiterLine(
 	}
 
 	return nextLine;
-}
-
-function formatRegion(region: RegionNode): string {
-	const name = region.name === undefined || region.name.length === 0
-		? "unnamed"
-		: region.name;
-
-	return `${name}<${region.kind}>@${String(region.selectionLine)}-${String(region.rangeEndLine)}`;
 }

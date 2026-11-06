@@ -1,8 +1,9 @@
 import * as assert from "assert";
 import { getDefaultCollapseMode } from "../commands/collapse";
-import { filterRegions,flattenRegions,getAncestors,hasHierarchy } from "../engine/filterEngine";
+import { filterRegions,getAncestors,hasHierarchy } from "../engine/filterEngine";
 import { collectSelectionLines,selectFoldableRegions } from "../engine/foldExecutor";
 import { normaliseArgs,normaliseCollapseFilter,normaliseCompositeArgs } from "../model/filters";
+import { flattenRegions } from "../model/region";
 import {
 createConvenienceCommandFixture,
 createDepthFilterFixture,

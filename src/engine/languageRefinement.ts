@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
 import type { RegionNode } from "../model/region";
-import { debugOnce } from "../util/debug";
+import { debugOnce, formatError } from "../util/debug";
 
 /*
  * Generic language-refinement entry point
@@ -15,6 +15,27 @@ export interface DecodedSemanticToken {
 	startCharacter: number;
 	length: number;
 	tokenType: string;
+}
+
+/**
+ * Source text covered by a decoded semantic token, when it lies within its line
+ */
+export function semanticTokenText(
+	document: vscode.TextDocument,
+	token: DecodedSemanticToken
+): string | undefined {
+	try {
+		const line = document.lineAt(token.line).text;
+		const endCharacter = token.startCharacter + token.length;
+
+		if(token.startCharacter < 0 || endCharacter > line.length) {
+			return undefined;
+		}
+
+		return line.slice(token.startCharacter, endCharacter);
+	} catch {
+		return undefined;
+	}
 }
 
 export interface LanguageRefinementContext {
@@ -98,12 +119,4 @@ function debugLanguageRefinementFailure(
 		`[semanticFold] Language ${phase} refinement failed for `
 			+ `${document.languageId}: ${formatError(error)}`
 	);
-}
-
-function formatError(error: unknown): string {
-	if(error instanceof Error) {
-		return error.message;
-	}
-
-	return String(error);
 }

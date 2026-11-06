@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 import type { CollapseArgs, CollapseFilter, CompositeCollapseArgs } from "../model/filters";
 import type { RegionNode } from "../model/region";
+import { stripLineComment } from "../util/sourceText";
 import { filterRegions } from "./filterEngine";
 
 /**
@@ -129,19 +130,6 @@ export function isFoldableRegion(region: RegionNode): boolean {
 	return Number.isInteger(region.rangeStartLine)
 		&& Number.isInteger(region.rangeEndLine)
 		&& region.rangeEndLine > region.rangeStartLine;
-}
-
-/**
- * Collects every foldable region from an already-normalised tree
- */
-export function collectFoldableRegions(rootNodes: readonly RegionNode[]): RegionNode[] {
-	const foldableRegions: RegionNode[] = [];
-
-	for(const node of rootNodes) {
-		collectFoldableRegion(node, foldableRegions);
-	}
-
-	return foldableRegions;
 }
 
 /**
@@ -313,19 +301,6 @@ export async function execCompositeFoldCommand(
 }
 
 /**
- * Recursive helper for collecting foldable nodes without flattening the tree first
- */
-function collectFoldableRegion(region: RegionNode, foldableRegions: RegionNode[]): void {
-	if(isFoldableRegion(region)) {
-		foldableRegions.push(region);
-	}
-
-	for(const child of region.children) {
-		collectFoldableRegion(child, foldableRegions);
-	}
-}
-
-/**
  * Resolves the VS Code command to execute for the requested fold mode
  */
 function getFoldCommand(
@@ -398,7 +373,7 @@ export function isClosingDelimiterLine(lineText: string | undefined): boolean {
 		return false;
 	}
 
-	const trimmed = lineText.replace(/\/\/.*$/, "").trim();
+	const trimmed = stripLineComment(lineText).trim();
 
 	if(trimmed.length === 0 || !/[}\]\)]/.test(trimmed)) {
 		return false;

@@ -1,16 +1,17 @@
 import * as assert from "assert";
 import * as vscode from "vscode";
 import {
-	collectFoldableRegions,
 	collectSelectionLines,
 	collectSelectionLinesWithOptions,
 	execFoldCommand,
+	isFoldableRegion,
 	selectFoldableRegions,
 	TrackedFoldState
 } from "../engine/foldExecutor";
 import { attachFoldingOnlyNodes } from "../engine/foldingRangeRefiner";
 import { normalizeSymbols } from "../engine/symbolNormaliser";
 import { type CollapseFilter } from "../model/filters";
+import { flattenRegions } from "../model/region";
 import {
 createDepthFilterFixture,
 createDuplicateSelectionFixture,
@@ -28,7 +29,7 @@ suite("Fold Execution Guards", () => {
 
 		classSymbol.children.push(methodSymbol, propertySymbol);
 
-		const foldableRegions = collectFoldableRegions(normalizeSymbols([classSymbol]));
+		const foldableRegions = flattenRegions(normalizeSymbols([classSymbol])).filter(isFoldableRegion);
 
 		assert.deepStrictEqual(
 			foldableRegions.map((region) => region.name),

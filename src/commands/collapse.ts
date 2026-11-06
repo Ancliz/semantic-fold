@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { type CollapseArgs } from "../model/filters";
+import { isRecord, type CollapseArgs } from "../model/filters";
 import { runCompositeFoldCommand, runFoldCommand } from "./foldCommand";
 import { apiOverviewArgs, commentsArgs, importsArgs, readerModeArgs } from "./presets";
 import { resolveCompositePresetArgs, resolveTogglePresetArgs } from "../util/config";
@@ -199,11 +199,4 @@ export function getDefaultCollapseMode(args: unknown): CollapseArgs["mode"] {
 	}
 
 	return "collapse";
-}
-
-/**
- * Narrows arbitrary command payloads to object-like values
- */
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null;
 }

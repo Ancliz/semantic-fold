@@ -11,3 +11,14 @@ export function debugOnce(key: string, message: string): void {
 	loggedDebugKeys.add(key);
 	console.debug(message);
 }
+
+/**
+ * Message text for an unknown caught value, for use in debug lines
+ */
+export function formatError(error: unknown): string {
+	if(error instanceof Error) {
+		return error.message;
+	}
+
+	return String(error);
+}

@@ -1,3 +1,7 @@
+import {
+	extractTrailingIdentifier,
+	stripLeadingTypeParameterClause
+} from "../../util/sourceText";
 import type { FoldedSignatureRefiner } from "../foldedSignatureRefinement";
 
 /*
@@ -51,7 +55,7 @@ function extractJavaReturnTypeFromPrefix(headerPrefix: string): string | undefin
 
 	returnPrefix = stripJavaLeadingAnnotations(returnPrefix);
 	returnPrefix = stripJavaLeadingModifiers(returnPrefix);
-	returnPrefix = stripJavaLeadingTypeParameterClause(returnPrefix);
+	returnPrefix = stripLeadingTypeParameterClause(returnPrefix);
 	returnPrefix = stripTrailingDeclaringQualifier(returnPrefix);
 
 	if(returnPrefix.length === 0) {
@@ -74,12 +78,6 @@ function stripTrailingDeclaringQualifier(value: string): string {
 		.trim();
 }
 
-function extractTrailingIdentifier(value: string): string | undefined {
-	const match = value.match(/([A-Za-z_$][\w$]*)\s*$/);
-
-	return match === null ? undefined : match[1];
-}
-
 function isJavaModifierOnlyPrefix(value: string): boolean {
 	return /^(?:public|private|protected|static|abstract|final|native|synchronized|strictfp|default)$/.test(value);
 }
@@ -97,30 +95,4 @@ function stripJavaLeadingModifiers(value: string): string {
 	}
 
 	return remaining.trim();
-}
-
-function stripJavaLeadingTypeParameterClause(value: string): string {
-	const trimmed = value.trim();
-
-	if(!trimmed.startsWith("<")) {
-		return trimmed;
-	}
-
-	let depth = 0;
-
-	for(let index = 0; index < trimmed.length; index++) {
-		const character = trimmed[index];
-
-		if(character === "<") {
-			depth++;
-		} else if(character === ">") {
-			depth = Math.max(0, depth - 1);
-
-			if(depth === 0) {
-				return trimmed.slice(index + 1).trim();
-			}
-		}
-	}
-
-	return trimmed;
 }

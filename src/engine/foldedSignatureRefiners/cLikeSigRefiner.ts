@@ -3,7 +3,7 @@ import {
 	extractArrowReturnType,
 	extractTrailingIdentifier,
 	stripLeadingTypeParameterClause
-} from "./sourceHelpers";
+} from "../../util/sourceText";
 
 /*
  * C and C++ folded-signature refinements

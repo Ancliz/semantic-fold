@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
 import type { RegionNode } from "../model/region";
-import { debugOnce } from "../util/debug";
+import { debugOnce, formatError } from "../util/debug";
 
 /*
  * Generic folded-preview entry point
@@ -60,12 +60,4 @@ export function buildFoldedPreview(
 	}
 
 	return undefined;
-}
-
-function formatError(error: unknown): string {
-	if(error instanceof Error) {
-		return error.message;
-	}
-
-	return String(error);
 }

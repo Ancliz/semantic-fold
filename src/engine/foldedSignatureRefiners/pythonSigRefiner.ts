@@ -1,5 +1,5 @@
 import type { FoldedSignatureRefiner } from "../foldedSignatureRefinement";
-import { extractArrowReturnType } from "./sourceHelpers";
+import { extractArrowReturnType } from "../../util/sourceText";
 
 /*
  * Python folded-signature refinements
