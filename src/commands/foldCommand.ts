@@ -18,7 +18,7 @@ import {
 } from "../model/filters";
 import type { RegionNode } from "../model/region";
 import { isIncludeClosingDelimiterEnabled } from "../util/config";
-import { applyFunctionSignatureHints } from "../util/foldedSignatureHints";
+import { applyFunctionSignatureHints } from "../hints/hintController";
 import {
 	createLineTextReader,
 	createManualFoldingRangeExecutor,

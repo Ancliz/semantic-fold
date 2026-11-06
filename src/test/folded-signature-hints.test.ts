@@ -1,13 +1,13 @@
 import * as assert from "assert";
 import * as vscode from "vscode";
+import { isFoldedHintRegionBodyVisible } from "../hints/hintController";
+import { buildFoldedRegionHint } from "../hints/hintModel";
 import {
-	buildFoldedRegionHint,
-	buildFunctionLabel,
 	createHintAnchorRange,
 	createHintPlacementForKind,
-	createSignatureReplacementRange,
-	isFoldedHintRegionBodyVisible
-} from "../util/foldedSignatureHints";
+	createSignatureReplacementRange
+} from "../hints/placement";
+import { buildFunctionLabel } from "../hints/signatureLabel";
 import type { RegionNode } from "../model/region";
 
 suite("Folded Signature Hints", () => {

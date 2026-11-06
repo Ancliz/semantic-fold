@@ -19,7 +19,7 @@ import {
 	clearFunctionSignatureHints,
 	pruneExpandedFunctionHints,
 	refreshFunctionHints
-} from "./util/foldedSignatureHints";
+} from "./hints/hintController";
 
 export function activate(context: vscode.ExtensionContext): void {
 	let diagnosticsOutputChannel: vscode.OutputChannel | undefined;
