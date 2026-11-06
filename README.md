@@ -30,7 +30,20 @@ active document
   -> optional folded preview hints
 ```
 
+The document symbols, folding ranges, and semantic tokens in that pipeline come from the installed language server through VS Code's provider commands. Language-specific code only fills gaps the server leaves.
+
 The important idea is that commands do not blindly ask VS Code to fold a level. They query the current document model, pick exact target regions, deduplicate by selection line, and execute one targeted fold/unfold action.
+
+## Source layout
+
+| Path | Responsibility |
+| --- | --- |
+| `src/commands/` | The command table (`index.ts`), the shared fold runner, preset definitions, and the manual-folding-range route behind `includeClosingDelimiter` |
+| `src/model/` | Region and filter types, and payload normalisation |
+| `src/engine/` | Region collection from language-server providers, filtering, and fold execution |
+| `src/languages/` | All language-specific behaviour: one registry (`index.ts`) and one file per language |
+| `src/hints/` | Inline hints on folded regions: language-server signature first, source-text fallback second |
+| `src/util/` | Settings, region cache, debug logging, and text-scanning helpers |
 
 ## Region kinds
 
@@ -336,18 +349,19 @@ Hints are intentionally best-effort. VS Code does not expose one universal provi
 
 ## Language-specific support
 
-The core folding pipeline is language-neutral. Language-specific behaviour lives behind refinement entry points so it can be extended without hard-coding every language into the generic model.
+Language servers are the source of truth for structure, folding ranges, semantic tokens, and hover text. The core pipeline is language-neutral apart from a few brace-language heuristics: it infers `else`/`catch`/`finally` clause ranges and recognises closing-delimiter lines.
 
-Current refinements include:
+Anything else language-specific lives in `src/languages/`. A language is listed once in `src/languages/index.ts` and can implement any of: fixing the symbol tree, refining kinds after semantic tokens, hint rules for folded callables, and folded previews. A language with no entry simply gets the plain provider behaviour.
 
-- Java structure alignment for annotation-prefixed declarations
-- JavaScript/TypeScript callable and preview refinements
-- C/C++ signature formatting refinements
-- Rust signature and receiver refinements
-- Python signature and receiver refinements
-- Lua local-function handling
+Languages with an entry:
 
-Unsupported languages still use the generic document-symbol and folding-range pipeline. The quality of regions and hints depends on what their installed VS Code language providers expose.
+- Java: aligns annotation-prefixed declarations to the declaration line, plus hint return-type rules
+- JavaScript/TypeScript (including JSX/TSX): callable members reported as properties, callable assignments, return-type inference when hover is unavailable, and previews of folded object literals and constructor calls
+- C/C++: return-type-before-name signatures and parameter formatting
+- Rust: `->` return types, receiver parameters, and `impl` blocks
+- Python: `->` return annotations and `self`/`cls` receivers
+
+Other languages, including Lua, use the generic document-symbol and folding-range pipeline. The quality of their regions and hints depends on what their installed VS Code language providers expose.
 
 ## Cache and provider behaviour
 
@@ -387,3 +401,5 @@ npm test
 ```
 
 Launch with the VS Code debugger to open an Extension Development Host.
+
+`npm test` runs the suite inside a real VS Code host. Most tests drive the engine through injected providers; `src/test/fold-commands-e2e.test.ts` runs the contributed commands against VS Code's built-in TypeScript server and checks which lines the editor actually shows.
