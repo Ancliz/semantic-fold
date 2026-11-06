@@ -32,26 +32,19 @@ export function isSemanticRefinementEnabled(resource?: vscode.Uri): boolean {
 		.get<boolean>("enabled", true);
 }
 
+/*
+ * Fallback values below mirror the defaults contributed in package.json. VS Code
+ * resolves the contributed default first, so these only apply if a setting is
+ * ever read without the manifest loaded; keep them in sync with package.json.
+ */
+
 /**
  * Reads whether Semantic Fold should also target closing delimiter lines
  */
 export function isIncludeClosingDelimiterEnabled(resource?: vscode.Uri): boolean {
 	return vscode.workspace
 		.getConfiguration(FOLDING_SECTION, resource)
-		.get<boolean>("includeClosingDelimiter", false);
-}
-
-/**
- * Reads whether folded function and method signature hints are enabled
- *
- * Collapsed signature mode implies hint rendering even when the base
- * show-signatures toggle is disabled
- */
-export function isSignatureHintsEnabled(resource?: vscode.Uri): boolean {
-	const configuration = vscode.workspace.getConfiguration(INLINE_HINTS_SECTION, resource);
-	const collapseFoldedSignatures = configuration.get<boolean>("collapseSignatures", false);
-
-	return isFoldedFunctionSignatureHintsEnabled(resource) || collapseFoldedSignatures;
+		.get<boolean>("includeClosingDelimiter", true);
 }
 
 /**
@@ -60,7 +53,7 @@ export function isSignatureHintsEnabled(resource?: vscode.Uri): boolean {
 export function isFoldedFunctionSignatureHintsEnabled(resource?: vscode.Uri): boolean {
 	return vscode.workspace
 		.getConfiguration(INLINE_HINTS_SECTION, resource)
-		.get<boolean>("collapseLongSignatures", false);
+		.get<boolean>("collapseLongSignatures", true);
 }
 
 /**
@@ -69,7 +62,7 @@ export function isFoldedFunctionSignatureHintsEnabled(resource?: vscode.Uri): bo
 export function isCollapsedHintEnabled(resource?: vscode.Uri): boolean {
 	return vscode.workspace
 		.getConfiguration(INLINE_HINTS_SECTION, resource)
-		.get<boolean>("collapseSignatures", false);
+		.get<boolean>("collapseSignatures", true);
 }
 
 /**
