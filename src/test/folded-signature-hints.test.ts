@@ -5,7 +5,8 @@ import {
 	buildFunctionLabel,
 	createHintAnchorRange,
 	createHintPlacementForKind,
-	createSignatureReplacementRange
+	createSignatureReplacementRange,
+	isFoldedHintRegionBodyVisible
 } from "../util/foldedSignatureHints";
 import type { RegionNode } from "../model/region";
 
@@ -757,6 +758,46 @@ suite("Folded Signature Hints", () => {
 		assert.strictEqual(hint?.hiddenDelimiterPlacement, "last");
 	});
 
+	test("omits synthetic folded braces when closing delimiters are included", async () => {
+		const document = await openDocument([
+			"function add(item) {",
+			"\treturn item",
+			"}"
+		], "javascript");
+		const region = createRegion("function", 0, 2, "add");
+
+		assert.strictEqual(
+			buildFoldedRegionHint(document, region, {
+				includeClosingDelimiter: true
+			}),
+			undefined
+		);
+	});
+
+	test("keeps real opening braces for collapsed signatures when delimiters are included", async () => {
+		const document = await openDocument([
+			"function add(item): number {",
+			"\treturn item",
+			"}"
+		], "typescript");
+		const line = document.lineAt(0);
+		const region = createRegion("function", 0, 2, "add");
+		const hint = buildFoldedRegionHint(document, region, {
+			collapseSignature: true,
+			includeClosingDelimiter: true
+		});
+
+		assert.strictEqual(hint?.text, "(item) : number ");
+		assert.strictEqual(hint?.preserveOpeningDelimiter, true);
+
+		const anchorRange = createHintAnchorRange(document, line, region);
+		const replacementRange = createSignatureReplacementRange(line, anchorRange, {
+			preserveOpeningDelimiter: hint?.preserveOpeningDelimiter ?? false
+		});
+
+		assert.strictEqual(replacementRange?.end.character, line.text.lastIndexOf("{"));
+	});
+
 	test("marks hidden multiline function headers when signature hints are disabled", async () => {
 		const document = await openDocument([
 			"public CompletableFuture<List<Record>> buildAsync(",
@@ -792,6 +833,28 @@ suite("Folded Signature Hints", () => {
 
 		assert.strictEqual(placement.anchorRange.start.character, bodyBraceColumn);
 		assert.strictEqual(placement.hiddenRange?.start.character, bodyBraceColumn);
+	});
+
+	test("does not treat visible closing delimiter lines as expanded folded bodies", async () => {
+		const document = await openDocument([
+			"function add(item) {",
+			"\treturn item",
+			"}"
+		], "javascript");
+		const region = createRegion("function", 0, 2, "add");
+
+		assert.strictEqual(
+			isFoldedHintRegionBodyVisible(document, region, [
+				new vscode.Range(2, 0, 2, 1)
+			]),
+			false
+		);
+		assert.strictEqual(
+			isFoldedHintRegionBodyVisible(document, region, [
+				new vscode.Range(1, 0, 1, 1)
+			]),
+			true
+		);
 	});
 
 	test("places collapsed assignment callable hints after the equals sign", async () => {

@@ -13,10 +13,11 @@ import {
 	refineFoldedSignatureAnchor
 } from "../engine/foldedSignatureRefinement";
 import { foldedSignatureRefiners } from "../engine/foldedSignatureRefinerRegistry";
-import type { FoldExecutionResult } from "../engine/foldExecutor";
+import { isClosingDelimiterLine, type FoldExecutionResult } from "../engine/foldExecutor";
 import type { RegionNode } from "../model/region";
 import {
 	getFoldedPreviewLineLimit,
+	isIncludeClosingDelimiterEnabled,
 	isCollapsedHintEnabled,
 	isFoldedFunctionSignatureHintsEnabled
 } from "./config";
@@ -39,6 +40,7 @@ interface FoldedRegionHint {
 	replaceSignatureTail?: boolean;
 	hiddenDelimiter?: string;
 	hiddenDelimiterPlacement?: "first" | "last";
+	preserveOpeningDelimiter?: boolean;
 }
 
 interface HintPlacement {
@@ -150,6 +152,7 @@ async function refreshFunctionHintsAsync(
 
 	const showSignatureHints = isFoldedFunctionSignatureHintsEnabled(editor.document.uri);
 	const collapseSignature = isCollapsedHintEnabled(editor.document.uri);
+	const includeClosingDelimiter = isIncludeClosingDelimiterEnabled(editor.document.uri);
 	const trailingDecorations: vscode.DecorationOptions[] = [];
 	const collapsedHintDecorations: vscode.DecorationOptions[] = [];
 	const replacedSignatureDecorations: vscode.DecorationOptions[] = [];
@@ -159,7 +162,8 @@ async function refreshFunctionHintsAsync(
 	const hintEntries = await Promise.all(sortedFoldedFunctionRegions.map(async (region) => {
 		const hint = await buildFoldedRegionHintWithProviders(editor.document, region, {
 			collapseSignature,
-			showSignatureHints
+			showSignatureHints,
+			includeClosingDelimiter
 		});
 
 		return { region, hint };
@@ -192,7 +196,9 @@ async function refreshFunctionHintsAsync(
 		const anchorRange = placement.anchorRange;
 
 		if(hint.replaceSignature || hint.replaceSignatureTail) {
-			const signatureRange = createSignatureReplacementRange(line, anchorRange);
+			const signatureRange = createSignatureReplacementRange(line, anchorRange, {
+				preserveOpeningDelimiter: hint.preserveOpeningDelimiter ?? false
+			});
 
 			if(signatureRange !== undefined) {
 				replacedSignatureDecorations.push({
@@ -203,7 +209,9 @@ async function refreshFunctionHintsAsync(
 		}
 
 		if(hint.replaceSignature) {
-			const signatureRange = createSignatureReplacementRange(line, anchorRange);
+			const signatureRange = createSignatureReplacementRange(line, anchorRange, {
+				preserveOpeningDelimiter: hint.preserveOpeningDelimiter ?? false
+			});
 
 			if(signatureRange !== undefined) {
 				collapsedHintDecorations.push({
@@ -263,7 +271,7 @@ export function pruneExpandedFunctionHints(editor: vscode.TextEditor): void {
 	let changed = false;
 
 	for(const [selectionLine, region] of foldedFunctionRegions) {
-		if(isRegionBodyVisible(region, editor.visibleRanges)) {
+		if(isFoldedHintRegionBodyVisible(editor.document, region, editor.visibleRanges)) {
 			foldedFunctionRegions.delete(selectionLine);
 			changed = true;
 		}
@@ -294,7 +302,7 @@ export function addCollapsedFunctionHintsFromRegions(
 	});
 
 	for(const region of hintableRegions) {
-		if(!isRegionCollapsedInViewport(region, editor.visibleRanges)) {
+		if(!isRegionCollapsedInViewport(editor.document, region, editor.visibleRanges)) {
 			continue;
 		}
 
@@ -412,6 +420,7 @@ export function buildFoldedRegionHint(
 	options: {
 		collapseSignature?: boolean;
 		showSignatureHints?: boolean;
+		includeClosingDelimiter?: boolean;
 		returnTypeOverride?: string;
 		providerSignatureOverride?: ParsedSignatureLine;
 		maxVisiblePreviewLineLength?: number;
@@ -419,26 +428,31 @@ export function buildFoldedRegionHint(
 ): FoldedRegionHint | undefined {
 	if(isFunctionLikeRegion(document, region)) {
 		const collapseSignature = options.collapseSignature ?? false;
+		const includeClosingDelimiter = options.includeClosingDelimiter ?? false;
 
 		if(collapseSignature || options.showSignatureHints) {
 			const text = buildFunctionLabel(document, region, options);
 
 			if(text !== undefined) {
 				return {
-					text: `${text} {} `,
+					text: includeClosingDelimiter ? `${text} ` : `${text} {} `,
 					kind: "signature",
-					replaceSignature: true
+					replaceSignature: true,
+					preserveOpeningDelimiter: includeClosingDelimiter
 				};
 			}
 		}
 
 		return createFoldedBlockMarkerHint(document, region, "signature", {
-			replaceSignatureTail: true
+			replaceSignatureTail: true,
+			includeClosingDelimiter
 		});
 	}
 
 	if(isBlockPlaceholderRegion(document, region)) {
-		return createFoldedBlockMarkerHint(document, region, "block");
+		return createFoldedBlockMarkerHint(document, region, "block", {
+			includeClosingDelimiter: options.includeClosingDelimiter ?? false
+		});
 	}
 
 	const preview = buildFoldedPreview(document, region, foldedPreviewProviders, {
@@ -463,9 +477,14 @@ function createFoldedBlockMarkerHint(
 	kind: FoldedHintKind,
 	options: {
 		replaceSignatureTail?: boolean;
+		includeClosingDelimiter?: boolean;
 	} = {}
 ): FoldedRegionHint | undefined {
 	if(hasOpeningBrace(document, region)) {
+		if(options.includeClosingDelimiter) {
+			return undefined;
+		}
+
 		return {
 			text: "{} ",
 			kind,
@@ -476,6 +495,10 @@ function createFoldedBlockMarkerHint(
 	}
 
 	if(options.replaceSignatureTail && hasSignatureTail(document, region)) {
+		if(options.includeClosingDelimiter) {
+			return undefined;
+		}
+
 		return {
 			text: " {} ",
 			kind,
@@ -493,6 +516,7 @@ async function buildFoldedRegionHintWithProviders(
 	options: {
 		collapseSignature?: boolean;
 		showSignatureHints?: boolean;
+		includeClosingDelimiter?: boolean;
 	} = {}
 ): Promise<FoldedRegionHint | undefined> {
 	const providerSignature = isFunctionLikeRegion(document, region)
@@ -615,9 +639,13 @@ function isStaleHintRefresh(documentUri: string, refreshSequence: number): boole
 	return current !== refreshSequence;
 }
 
-function isRegionBodyVisible(region: RegionNode, visibleRanges: readonly vscode.Range[]): boolean {
+export function isFoldedHintRegionBodyVisible(
+	document: vscode.TextDocument,
+	region: RegionNode,
+	visibleRanges: readonly vscode.Range[]
+): boolean {
 	const bodyStartLine = region.selectionLine + 1;
-	const bodyEndLine = region.rangeEndLine;
+	const bodyEndLine = resolveVisibleBodyEndLine(document, region);
 
 	if(bodyEndLine < bodyStartLine) {
 		return false;
@@ -635,9 +663,25 @@ function isRegionBodyVisible(region: RegionNode, visibleRanges: readonly vscode.
 	return false;
 }
 
-function isRegionCollapsedInViewport(region: RegionNode, visibleRanges: readonly vscode.Range[]): boolean {
+function resolveVisibleBodyEndLine(document: vscode.TextDocument, region: RegionNode): number {
+	if(region.rangeEndLine < 0 || region.rangeEndLine >= document.lineCount) {
+		return region.rangeEndLine;
+	}
+
+	const endLineText = document.lineAt(region.rangeEndLine).text;
+
+	return isClosingDelimiterLine(endLineText)
+		? region.rangeEndLine - 1
+		: region.rangeEndLine;
+}
+
+function isRegionCollapsedInViewport(
+	document: vscode.TextDocument,
+	region: RegionNode,
+	visibleRanges: readonly vscode.Range[]
+): boolean {
 	return isLineVisible(region.selectionLine, visibleRanges)
-		&& !isRegionBodyVisible(region, visibleRanges);
+		&& !isFoldedHintRegionBodyVisible(document, region, visibleRanges);
 }
 
 function isLineVisible(lineNumber: number, visibleRanges: readonly vscode.Range[]): boolean {
@@ -929,16 +973,27 @@ function findCallableNameAnchorColumn(lineText: string): number | undefined {
  */
 export function createSignatureReplacementRange(
 	line: vscode.TextLine,
-	anchorRange: vscode.Range
+	anchorRange: vscode.Range,
+	options: {
+		preserveOpeningDelimiter?: boolean;
+	} = {}
 ): vscode.Range | undefined {
 	const replacementStart = findSignatureStartColumn(line.text, anchorRange.start.character);
-	const replacementEnd = line.range.end.character;
+	const replacementEnd = options.preserveOpeningDelimiter
+		? findPreservedOpeningDelimiterColumn(line.text, replacementStart) ?? line.range.end.character
+		: line.range.end.character;
 
 	if(replacementEnd <= replacementStart) {
 		return undefined;
 	}
 
 	return new vscode.Range(line.range.start.line, replacementStart, line.range.end.line, replacementEnd);
+}
+
+function findPreservedOpeningDelimiterColumn(lineText: string, fromColumn: number): number | undefined {
+	const delimiterColumn = lineText.lastIndexOf("{");
+
+	return delimiterColumn >= fromColumn ? delimiterColumn : undefined;
 }
 
 /**

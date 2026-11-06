@@ -247,8 +247,8 @@ Core settings:
 | --- | --- | --- |
 | `semanticFold.semanticRefinement.enabled` | `true` | Enables semantic-token refinement for ambiguous symbol categories |
 | `semanticFold.folding.includeClosingDelimiter` | `true` | Includes closing delimiter lines in Semantic Fold manual ranges |
-| `semanticFold.inlineHints.showFoldedFunctionSignatures` | `true` | Shows folded signature/object/constructor previews |
-| `semanticFold.inlineHints.collapseFunctionSignatures` | `true` | Replaces folded function signature tails with compact hints |
+| `semanticFold.inlineHints.collapseLongSignatures` | `true` | Shows folded signature/object/constructor previews |
+| `semanticFold.inlineHints.collapseSignatures` | `true` | Replaces folded function signature tails with compact hints |
 | `semanticFold.inlineHints.maxFoldedPreviewLineLength` | `140` | Controls when folded object and constructor previews elide entries |
 | `semanticFold.presets.imports` | `{}` | Overrides or disables the imports preset |
 | `semanticFold.presets.comments` | `{}` | Overrides or disables the comments preset |
