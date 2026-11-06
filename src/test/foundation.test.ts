@@ -25,28 +25,22 @@ createFilterFixture,
 	withSemanticRefinementEnabled
 } from "./testHelpers";
 suite("Semantic Fold Foundation", () => {
-	test("registers collapse, expand, and toggle commands", async () => {
+	test("registers exactly the commands the manifest contributes", async () => {
 		await activateExtension();
 
-		const commands = await vscode.commands.getCommands(true);
+		const contributes = getSemanticFoldExtension().packageJSON.contributes;
+		const contributed: string[] = contributes.commands.map((command: { command: string }) => command.command);
+		const registered = (await vscode.commands.getCommands(true))
+			.filter((command) => command.startsWith("semanticFold."));
 
-		assert.ok(commands.includes("semanticFold.collapse"));
-		assert.ok(commands.includes("semanticFold.expand"));
-		assert.ok(commands.includes("semanticFold.toggle"));
-		assert.ok(commands.includes("semanticFold.toggleAtCursor"));
-		assert.ok(commands.includes("semanticFold.toggleDepth1"));
-		assert.ok(commands.includes("semanticFold.toggleDepth9"));
-		assert.ok(commands.includes("semanticFold.toggleFunctions"));
-		assert.ok(commands.includes("semanticFold.toggleAll"));
-		assert.ok(commands.includes("semanticFold.inspectRegions"));
-		assert.ok(commands.includes("semanticFold.toggleMethodsInClasses"));
-		assert.ok(commands.includes("semanticFold.toggleFunctionsInClasses"));
-		assert.ok(commands.includes("semanticFold.toggleClassMembers"));
-		assert.ok(commands.includes("semanticFold.toggleTypes"));
-		assert.ok(commands.includes("semanticFold.toggleVariables"));
-		assert.ok(commands.includes("semanticFold.toggleFunctionsInVariables"));
-		assert.ok(commands.includes("semanticFold.toggleImports"));
-		assert.ok(commands.includes("semanticFold.toggleReaderMode"));
+		assert.deepStrictEqual([...registered].sort(), [...contributed].sort());
+
+		for(const keybinding of contributes.keybindings as Array<{ command: string }>) {
+			assert.ok(
+				contributed.includes(keybinding.command),
+				`keybinding targets uncontributed command ${keybinding.command}`
+			);
+		}
 	});
 
 	test("contributes semantic refinement configuration", () => {

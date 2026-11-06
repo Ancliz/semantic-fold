@@ -1,5 +1,5 @@
 import * as assert from "assert";
-import { getDefaultCollapseMode } from "../commands/collapse";
+import { getDefaultCollapseMode } from "../commands";
 import { filterRegions,getAncestors,hasHierarchy } from "../engine/filterEngine";
 import { collectSelectionLines,selectFoldableRegions } from "../engine/foldExecutor";
 import { normaliseArgs,normaliseCollapseFilter,normaliseCompositeArgs } from "../model/filters";
