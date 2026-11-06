@@ -387,6 +387,17 @@ suite("Fold Execution Guards", () => {
 		}]);
 	});
 
+	test("forgets tracked fold state for a document that was cleared", () => {
+		const foldState = new TrackedFoldState();
+
+		foldState.markCollapsed("test://closed", [2, 6, 12]);
+		foldState.markCollapsed("test://other", [2, 6, 12]);
+		foldState.clear("test://closed");
+
+		assert.strictEqual(foldState.areAllCollapsed("test://closed", [2, 6, 12]), false);
+		assert.strictEqual(foldState.areAllCollapsed("test://other", [2, 6, 12]), true);
+	});
+
 	test("collapses every toggle target when any target is expanded", async () => {
 		const regions = createDuplicateSelectionFixture();
 		const executedCommands: ExecutedCommand[] = [];

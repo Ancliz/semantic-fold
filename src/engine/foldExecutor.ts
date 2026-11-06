@@ -103,6 +103,13 @@ export class TrackedFoldState {
 	}
 
 	/**
+	 * Forgets everything tracked for a document, such as when it is closed
+	 */
+	public clear(documentKey: string): void {
+		this.collapsedLinesByDocument.delete(documentKey);
+	}
+
+	/**
 	 * Lazily creates the tracked line set for a document
 	 */
 	private getCollapsedLines(documentKey: string): Set<number> {
@@ -388,3 +395,11 @@ async function executeManualFoldingRangesIfEnabled(
  * Shared state for normal command execution
  */
 const defaultFoldState = new TrackedFoldState();
+
+/**
+ * Forgets the toggle state tracked for a document, so a reopened file starts
+ * from "nothing folded" instead of whatever it looked like when it was closed
+ */
+export function clearTrackedFoldState(documentKey: string): void {
+	defaultFoldState.clear(documentKey);
+}

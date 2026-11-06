@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import {
+	clearTrackedFoldState,
 	execCompositeFoldCommand,
 	execFoldCommand,
 	type FoldExecutionResult,
@@ -102,6 +103,7 @@ export async function reapplyLastFoldExecutionForVisibleEditors(): Promise<void>
 export function clearLastFoldExecution(documentUri: string): void {
 	sessions.delete(documentUri);
 	forgetManualFoldSelections(documentUri);
+	clearTrackedFoldState(documentUri);
 }
 
 export function beginFoldCommandRequest(

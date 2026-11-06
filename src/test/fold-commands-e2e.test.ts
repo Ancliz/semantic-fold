@@ -30,8 +30,14 @@ suite("Fold Commands End To End", function () {
 	this.timeout(30000);
 
 	let editor: vscode.TextEditor;
+	const unhandledRejections: unknown[] = [];
+	const recordUnhandledRejection = (reason: unknown): void => {
+		unhandledRejections.push(reason);
+	};
 
 	setup(async () => {
+		unhandledRejections.length = 0;
+		process.on("unhandledRejection", recordUnhandledRejection);
 		await activateExtension();
 
 		const document = await vscode.workspace.openTextDocument({
@@ -45,6 +51,7 @@ suite("Fold Commands End To End", function () {
 	});
 
 	teardown(async () => {
+		process.off("unhandledRejection", recordUnhandledRejection);
 		await vscode.commands.executeCommand("editor.unfoldAll");
 		await vscode.commands.executeCommand("workbench.action.closeAllEditors");
 	});
@@ -60,6 +67,16 @@ suite("Fold Commands End To End", function () {
 
 		await vscode.commands.executeCommand("semanticFold.toggleFunctions");
 		await waitFor(() => isVisible(editor, 5) && isVisible(editor, 10), "method bodies to unfold");
+	});
+
+	test("rendering folded-signature hints raises no unhandled errors", async () => {
+		// Hints are rendered by fire-and-forget async work after a fold, so a
+		// failure there would never fail the command itself
+		await vscode.commands.executeCommand("semanticFold.toggleFunctions");
+		await waitFor(() => !isVisible(editor, 5), "method bodies to fold");
+		await delay(1500);
+
+		assert.deepStrictEqual(unhandledRejections, []);
 	});
 
 	test("toggleImports folds only the import group", async () => {
